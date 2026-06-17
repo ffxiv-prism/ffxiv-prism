@@ -1,0 +1,23 @@
+# 功能：排除本地 IDE、Python 缓存和运行时缓存文件，保留项目代码与样本数据。
+
+.idea/
+__pycache__/
+*.py[cod]
+*$py.class
+
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+*.egg-info/
+build/
+dist/
+
+var/cache/*
+!var/cache/.gitkeep
+var/logs/*
+!var/logs/.gitkeep
+
+data/raw/eorzea_collection/metadata/errors.jsonl

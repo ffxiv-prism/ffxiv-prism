@@ -1,0 +1,53 @@
+{
+  "by_gender": {
+    "female": 96,
+    "male": 98
+  },
+  "by_kind": {
+    "gearset_static": 194
+  },
+  "by_part": {
+    "back": 27,
+    "body": 28,
+    "feet": 27,
+    "front": 28,
+    "hands": 28,
+    "head": 28,
+    "legs": 28
+  },
+  "by_race": {
+    "hyur": 194
+  },
+  "by_role": {
+    "aiming": 27,
+    "casting": 28,
+    "fending": 28,
+    "healing": 27,
+    "maiming": 28,
+    "scouting": 28,
+    "striking": 28
+  },
+  "by_slot": {
+    "BODY": 28,
+    "FEET": 27,
+    "HANDS": 28,
+    "HEAD": 28,
+    "LEGS": 28,
+    "unknown": 55
+  },
+  "by_slot_gender_race": {
+    "BODY|female|hyur": 14,
+    "BODY|male|hyur": 14,
+    "FEET|female|hyur": 13,
+    "FEET|male|hyur": 14,
+    "HANDS|female|hyur": 14,
+    "HANDS|male|hyur": 14,
+    "HEAD|female|hyur": 14,
+    "HEAD|male|hyur": 14,
+    "LEGS|female|hyur": 14,
+    "LEGS|male|hyur": 14,
+    "unknown|female|hyur": 27,
+    "unknown|male|hyur": 28
+  },
+  "image_count": 194
+}
