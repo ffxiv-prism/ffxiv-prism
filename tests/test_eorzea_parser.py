@@ -63,6 +63,50 @@ class EorzeaParserTests(unittest.TestCase):
         self.assertTrue(any(image.model_gender == "female" and image.race == "hyur" for image in record.images))
         self.assertTrue(all("resources" not in image.source_image_url for image in record.images))
 
+    def test_parse_multislot_body_piece_from_equipment_html(self) -> None:
+        html = """
+        <html><head><title>Gaia's Set | Eorzea Collection</title></head><body>
+        <img src="https://gearsets.eorzeacollection.com/mogstation/other/gaias/hyur-female-front.png">
+        <img src="https://gearsets.eorzeacollection.com/mogstation/other/gaias/hyur-female-body.png">
+        <img src="https://gearsets.eorzeacollection.com/mogstation/other/gaias/hyur-female-hands.png">
+        <img src="https://gearsets.eorzeacollection.com/mogstation/other/gaias/hyur-female-legs.png">
+        <img src="https://gearsets.eorzeacollection.com/mogstation/other/gaias/hyur-female-feet.png">
+        <section class="b-info-box">
+        <h4 class="b-heading u-no-top-margin">Equipment</h4>
+        <div>
+        <div class="c-gear-slot c-gear-slot-head u-in-box"></div>
+        <div>
+        <a href="https://na.finalfantasyxiv.com/lodestone/playguide/db/item/a1dad7ffe06" class="c-gear-slot c-gear-slot-body b-info-box-item eorzeadb_link">
+        <img src="icon.png">
+        </a>
+        <div class="c-gear-slot-item">
+        <a href="https://na.finalfantasyxiv.com/lodestone/playguide/db/item/a1dad7ffe06" class="eorzeadb_link">
+        <span class="c-gear-slot-item-name u-rarity-basic">Gaia's Attire</span>
+        </a>
+        </div>
+        <a href="/glamours/body/22115">glamours using this piece</a>
+        </div>
+        <div class="c-gear-slot c-gear-slot-hands u-in-box"></div>
+        <div class="c-gear-slot c-gear-slot-legs u-in-box"></div>
+        <div class="c-gear-slot c-gear-slot-feet u-in-box"></div>
+        </div>
+        <div class="u-no-sidebar-only"></div>
+        </section>
+        </body></html>
+        """
+        record = parse_gearset_detail(html, "https://ffxiv.eorzeacollection.com/gearset/gaias")
+        self.assertEqual(record.present_slots, ["BODY"])
+        self.assertEqual(record.missing_slots, ["HEAD", "HANDS", "LEGS", "FEET"])
+        self.assertEqual(len(record.pieces), 1)
+        self.assertEqual(record.pieces[0].name, "Gaia's Attire")
+        self.assertEqual(record.pieces[0].slot, "BODY")
+        self.assertEqual(record.pieces[0].occupied_slots, ["BODY", "HANDS", "LEGS", "FEET"])
+        self.assertEqual(record.pieces[0].blocked_slots, ["HANDS", "LEGS", "FEET"])
+        self.assertEqual(
+            record.pieces[0].glamours_using_piece_url,
+            "https://ffxiv.eorzeacollection.com/glamours/body/22115",
+        )
+
     def test_parse_glamour_detail_profile(self) -> None:
         html = """
         <html><head><title>Street Mage | Eorzea Collection</title></head><body>

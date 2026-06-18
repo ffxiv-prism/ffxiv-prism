@@ -10,8 +10,19 @@ from typing import Any
 class GearPieceRecord:
     slot: str
     name: str
+    name_en: str | None = None
+    name_zh: str | None = None
+    name_zh_source: str | None = None
+    name_zh_match_status: str | None = None
+    game_item_id: int | None = None
+    game_item_ids: list[int] = field(default_factory=list)
+    name_zh_candidates: list[str] = field(default_factory=list)
     source_item_url: str | None = None
     glamours_using_piece_url: str | None = None
+    occupied_slots: list[str] = field(default_factory=list)
+    blocked_slots: list[str] = field(default_factory=list)
+    equip_conflict_note: str | None = None
+    equip_conflict_source: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -52,6 +63,8 @@ class GearsetRecord:
     dyeable: bool | None = None
     roles: list[str] = field(default_factory=list)
     model_genders: list[str] = field(default_factory=list)
+    present_slots: list[str] = field(default_factory=list)
+    missing_slots: list[str] = field(default_factory=list)
     pieces: list[GearPieceRecord] = field(default_factory=list)
     images: list[ImageCandidate] = field(default_factory=list)
 
@@ -97,6 +110,36 @@ class DownloadedImageRecord:
     model_gender: str | None = None
     race: str | None = None
     dye_state: str | None = None
+    source_type: str | None = None
+    source_path: str | None = None
+    collection_slug: str | None = None
+    role_slug: str | None = None
+    family_slug: str | None = None
+    image_part: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class ImageUrlRecord:
+    source_image_url: str
+    source_page_url: str
+    accessible: bool
+    checked_at: str
+    status: int | None = None
+    content_type: str | None = None
+    content_length: int | None = None
+    error: str | None = None
+    image_kind: str | None = None
+    slot: str | None = None
+    gearset_slug: str | None = None
+    glamour_slug: str | None = None
+    piece_name: str | None = None
+    model_gender: str | None = None
+    race: str | None = None
+    image_variant: str | None = None
+    dye: bool | str | None = None
     source_type: str | None = None
     source_path: str | None = None
     collection_slug: str | None = None

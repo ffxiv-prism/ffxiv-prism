@@ -1,0 +1,15 @@
+{
+  "columns": [
+    "ID",
+    "Name",
+    "Name_en"
+  ],
+  "empty_name_en": 51,
+  "finished_at": "2026-06-18T02:48:14Z",
+  "output": "data\\raw\\game_data\\cafemaker_item_names_sample.jsonl",
+  "page_size": 1000,
+  "pages_fetched": 1,
+  "results_total": 48800,
+  "rows_written": 1000,
+  "source": "https://cafemaker.wakingsands.com/Item"
+}

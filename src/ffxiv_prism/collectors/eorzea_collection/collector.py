@@ -6,7 +6,7 @@ import hashlib
 import json
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +17,7 @@ from ffxiv_prism.collectors.eorzea_collection.models import (
     GearsetRecord,
     GlamourVariantRecord,
     ImageCandidate,
+    ImageUrlRecord,
 )
 from ffxiv_prism.collectors.eorzea_collection.parser import (
     extract_gearset_links,
@@ -51,6 +52,9 @@ class CollectionSummary:
     glamour_variants_parsed: int = 0
     images_downloaded: int = 0
     images_from_cache: int = 0
+    image_urls_checked: int = 0
+    image_urls_accessible: int = 0
+    image_urls_unavailable: int = 0
     errors: int = 0
 
     def add(self, **changes: int) -> "CollectionSummary":
@@ -171,6 +175,59 @@ class EorzeaCollectionCollector:
         )
         return gearset, glamour_variants, downloaded_images, summary
 
+    def collect_gearset_image_urls(
+        self,
+        gearset_url: str,
+        verify: bool = True,
+        guess_missing_model_variants: bool = False,
+        races: tuple[str, ...] | list[str] | None = None,
+        genders: tuple[str, ...] | list[str] | None = None,
+        parts: tuple[str, ...] | list[str] | None = None,
+        dye_states: tuple[str, ...] | list[str] | None = None,
+    ) -> tuple[GearsetRecord, list[ImageUrlRecord], CollectionSummary]:
+        gearset_url = absolute_url(gearset_url)
+        slug = extract_slug(gearset_url, "gearset")
+        summary = CollectionSummary()
+        html_text, from_cache = self._fetch_html(gearset_url, "gearset", slug)
+        summary = summary.add(
+            pages_fetched=0 if from_cache else 1,
+            pages_from_cache=1 if from_cache else 0,
+        )
+        gearset = parse_gearset_detail(
+            html_text,
+            gearset_url,
+            expand_missing_model_variants=guess_missing_model_variants,
+            races=races,
+            genders=genders,
+            parts=parts,
+            dye_states=dye_states,
+        )
+        summary = summary.add(gearsets_parsed=1, gear_pieces_parsed=len(gearset.pieces))
+
+        url_records = self.verify_image_urls(gearset.images, verify=verify)
+        accessible_records = [record for record in url_records if record.accessible]
+        manifest_records = build_url_manifest_records(accessible_records)
+        summary = summary.add(
+            image_urls_checked=len(url_records),
+            image_urls_accessible=len(manifest_records),
+            image_urls_unavailable=len(url_records) - len(accessible_records),
+        )
+        append_jsonl(self.metadata_dir / "gearset_details_raw.jsonl", [gearset.to_dict()])
+        append_jsonl(self.metadata_dir / "image_url_checks_raw.jsonl", [record.to_dict() for record in url_records])
+        append_jsonl(
+            self.metadata_dir / "image_url_manifest_raw.jsonl",
+            [record.to_dict() for record in manifest_records],
+        )
+        write_json(
+            self.metadata_dir / "latest_url_manifest_summary.json",
+            {
+                "finished_at": timestamp(),
+                "gearset_url": gearset_url,
+                "summary": summary.__dict__,
+            },
+        )
+        return gearset, manifest_records, summary
+
     def collect_piece_glamour_variants(
         self,
         pieces: list[GearPieceRecord],
@@ -266,6 +323,16 @@ class EorzeaCollectionCollector:
                 records.append(record)
         return records
 
+    def verify_image_urls(self, image_candidates: list[ImageCandidate], verify: bool = True) -> list[ImageUrlRecord]:
+        records: list[ImageUrlRecord] = []
+        seen: set[str] = set()
+        for candidate in image_candidates:
+            if candidate.source_image_url in seen:
+                continue
+            seen.add(candidate.source_image_url)
+            records.append(self._image_url_record(candidate, verify=verify))
+        return records
+
     def _download_images_parallel(self, image_candidates: list[ImageCandidate]) -> list[DownloadedImageRecord]:
         unique_candidates: list[ImageCandidate] = []
         seen: set[str] = set()
@@ -318,6 +385,60 @@ class EorzeaCollectionCollector:
                 self._log_error("download_image", candidate.source_image_url, exc)
             return None
 
+    def _image_url_record(self, candidate: ImageCandidate, verify: bool) -> ImageUrlRecord:
+        if not verify:
+            return self._image_url_record_from_candidate(candidate, accessible=True, status=None)
+        try:
+            result = self.http.check_url(candidate.source_image_url)
+            content_type = result.content_type or ""
+            looks_like_image = content_type.startswith("image/") or candidate.source_image_url.endswith(".png")
+            accessible = result.status is not None and 200 <= result.status < 400 and looks_like_image
+            return self._image_url_record_from_candidate(
+                candidate,
+                accessible=accessible,
+                status=result.status,
+                content_type=result.content_type,
+                content_length=result.content_length,
+            )
+        except Exception as exc:
+            self._log_error("check_image_url", candidate.source_image_url, exc)
+            return self._image_url_record_from_candidate(candidate, accessible=False, error=str(exc))
+
+    def _image_url_record_from_candidate(
+        self,
+        candidate: ImageCandidate,
+        accessible: bool,
+        status: int | None,
+        content_type: str | None = None,
+        content_length: int | None = None,
+        error: str | None = None,
+    ) -> ImageUrlRecord:
+        return ImageUrlRecord(
+            source_image_url=candidate.source_image_url,
+            source_page_url=candidate.source_page_url,
+            accessible=accessible,
+            checked_at=timestamp(),
+            status=status,
+            content_type=content_type,
+            content_length=content_length,
+            error=error,
+            image_kind=candidate.image_kind,
+            slot=candidate.slot,
+            gearset_slug=candidate.gearset_slug,
+            glamour_slug=candidate.glamour_slug,
+            piece_name=candidate.piece_name,
+            model_gender=candidate.model_gender,
+            race=candidate.race,
+            image_variant=candidate.dye_state,
+            dye=True if candidate.dye_state == "dyed" else "unknown",
+            source_type=candidate.source_type,
+            source_path=candidate.source_path,
+            collection_slug=candidate.collection_slug,
+            role_slug=candidate.role_slug,
+            family_slug=candidate.family_slug,
+            image_part=candidate.image_part,
+        )
+
     def _fetch_html(self, url: str, category: str, slug: str) -> tuple[str, bool]:
         target = self.html_dir / category / f"{slug}.html"
         text, result = self.http.fetch_text(url, target)
@@ -366,6 +487,29 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def build_url_manifest_records(records: list[ImageUrlRecord]) -> list[ImageUrlRecord]:
+    dyed_keys = {
+        image_url_record_dye_key(record)
+        for record in records
+        if record.accessible and record.image_variant == "dyed"
+    }
+    manifest_records: list[ImageUrlRecord] = []
+    for record in records:
+        if not record.accessible or record.image_variant != "normal":
+            continue
+        manifest_records.append(
+            replace(
+                record,
+                dye=True if image_url_record_dye_key(record) in dyed_keys else "unknown",
+            )
+        )
+    return manifest_records
+
+
+def image_url_record_dye_key(record: ImageUrlRecord) -> tuple[str | None, str | None, str | None, str | None, str | None]:
+    return (record.source_path, record.gearset_slug, record.race, record.model_gender, record.image_part)
 
 
 def timestamp() -> str:

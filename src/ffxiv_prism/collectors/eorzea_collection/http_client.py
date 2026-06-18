@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import hashlib
+import http.client
+import socket
 import time
 import urllib.error
 import urllib.request
 import urllib.robotparser
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlparse
 
 from ffxiv_prism.collectors.eorzea_collection.url_utils import extension_from_url
@@ -21,6 +24,14 @@ class FetchResult:
     from_cache: bool
     status: int | None
     content_type: str | None
+
+
+@dataclass(frozen=True)
+class UrlCheckResult:
+    url: str
+    status: int | None
+    content_type: str | None
+    content_length: int | None
 
 
 class PoliteHttpClient:
@@ -65,25 +76,77 @@ class PoliteHttpClient:
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/*,*/*;q=0.8",
             },
         )
-        try:
-            with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
-                body = response.read()
-                target.write_bytes(body)
-                return FetchResult(
-                    url=url,
-                    local_path=target,
-                    from_cache=False,
-                    status=getattr(response, "status", None),
-                    content_type=response.headers.get("Content-Type"),
-                )
-        except urllib.error.HTTPError as exc:
-            raise RuntimeError(f"HTTP {exc.code} while fetching {url}") from exc
-        except urllib.error.URLError as exc:
-            raise RuntimeError(f"Network error while fetching {url}: {exc.reason}") from exc
+        last_read_error: Exception | None = None
+        for _attempt in range(3):
+            try:
+                with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
+                    body = response.read()
+                    target.write_bytes(body)
+                    return FetchResult(
+                        url=url,
+                        local_path=target,
+                        from_cache=False,
+                        status=getattr(response, "status", None),
+                        content_type=response.headers.get("Content-Type"),
+                    )
+            except urllib.error.HTTPError as exc:
+                raise RuntimeError(f"HTTP {exc.code} while fetching {url}") from exc
+            except urllib.error.URLError as exc:
+                raise RuntimeError(f"Network error while fetching {url}: {exc.reason}") from exc
+            except (http.client.IncompleteRead, TimeoutError, socket.timeout) as exc:
+                last_read_error = exc
+                time.sleep(1.0)
+        if last_read_error is not None:
+            raise RuntimeError(f"Incomplete or timed out response while fetching {url}") from last_read_error
+        raise RuntimeError(f"Unknown error while fetching {url}")
+
+    def check_url(self, url: str, accept: str = "image/*,*/*;q=0.8") -> UrlCheckResult:
+        """Check whether a URL is reachable without writing the response body."""
+
+        self._check_allowed(url)
+        result = self._metadata_request(url, method="HEAD", accept=accept)
+        if result.status not in {403, 405, 501}:
+            return result
+        return self._metadata_request(url, method="GET", accept=accept, byte_range="bytes=0-0")
 
     def _cache_path(self, url: str, suffix: str) -> Path:
         digest = hashlib.sha1(url.encode("utf-8")).hexdigest()
         return self.cache_dir / f"{digest}{suffix}"
+
+    def _metadata_request(
+        self,
+        url: str,
+        method: str,
+        accept: str,
+        byte_range: str | None = None,
+    ) -> UrlCheckResult:
+        self._wait()
+        headers = {
+            "User-Agent": self.user_agent,
+            "Accept": accept,
+        }
+        if byte_range:
+            headers["Range"] = byte_range
+        request = urllib.request.Request(url, headers=headers, method=method)
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
+                if method == "GET":
+                    response.read(1)
+                return UrlCheckResult(
+                    url=url,
+                    status=getattr(response, "status", None),
+                    content_type=response.headers.get("Content-Type"),
+                    content_length=content_length_from_headers(response.headers),
+                )
+        except urllib.error.HTTPError as exc:
+            return UrlCheckResult(
+                url=url,
+                status=exc.code,
+                content_type=exc.headers.get("Content-Type") if exc.headers else None,
+                content_length=content_length_from_headers(exc.headers) if exc.headers else None,
+            )
+        except urllib.error.URLError as exc:
+            raise RuntimeError(f"Network error while checking {url}: {exc.reason}") from exc
 
     def _wait(self) -> None:
         elapsed = time.monotonic() - self._last_request_at
@@ -116,3 +179,15 @@ class PoliteHttpClient:
         except Exception:
             return None
         return parser
+
+
+def content_length_from_headers(headers: Any) -> int | None:
+    content_range = headers.get("Content-Range")
+    if content_range and "/" in content_range:
+        total = content_range.rsplit("/", 1)[-1]
+        if total.isdigit():
+            return int(total)
+    content_length = headers.get("Content-Length")
+    if content_length and content_length.isdigit():
+        return int(content_length)
+    return None

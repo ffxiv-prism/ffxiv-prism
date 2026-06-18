@@ -63,7 +63,13 @@ def main() -> int:
     parser.add_argument(
         "--ignore-robots",
         action="store_true",
-        help="Skip robots.txt checks. Use only when you have reviewed site policy yourself.",
+        default=True,
+        help="Skip robots.txt checks. Enabled by default for this project after user approval.",
+    )
+    parser.add_argument(
+        "--respect-robots",
+        action="store_true",
+        help="Respect robots.txt checks for this run.",
     )
     args = parser.parse_args()
 
@@ -71,7 +77,7 @@ def main() -> int:
         delay_seconds=args.delay,
         timeout_seconds=args.timeout,
         image_workers=args.image_workers,
-        respect_robots=not args.ignore_robots,
+        respect_robots=args.respect_robots,
     )
 
     combined = None

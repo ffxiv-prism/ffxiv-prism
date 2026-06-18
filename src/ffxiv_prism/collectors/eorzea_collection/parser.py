@@ -31,7 +31,16 @@ from ffxiv_prism.collectors.eorzea_collection.url_utils import (
 )
 
 
-GEAR_SLOTS = {"HEAD", "BODY", "HANDS", "LEGS", "FEET"}
+STANDARD_GEAR_SLOTS = ("HEAD", "BODY", "HANDS", "LEGS", "FEET")
+GEAR_SLOTS = set(STANDARD_GEAR_SLOTS)
+SLOT_TO_IMAGE_PART = {
+    "HEAD": "head",
+    "BODY": "body",
+    "HANDS": "hands",
+    "LEGS": "legs",
+    "FEET": "feet",
+}
+IMAGE_PART_TO_SLOT = {image_part: slot for slot, image_part in SLOT_TO_IMAGE_PART.items()}
 GENDERS = ("Female", "Male")
 RACES = (
     "Hyur Midlander",
@@ -226,7 +235,6 @@ def parse_gearset_detail(
     in_equipment = False
     current_slot: str | None = None
     last_piece_index: int | None = None
-    seen_images: set[tuple[str, str | None, str]] = set()
 
     for event in parsed.events:
         if isinstance(event, TextEvent):
@@ -251,6 +259,7 @@ def parse_gearset_detail(
                         slot=current_slot,
                         name=link_text,
                         source_item_url=event.href,
+                        occupied_slots=[current_slot],
                     )
                 )
                 last_piece_index = len(pieces) - 1
@@ -262,6 +271,10 @@ def parse_gearset_detail(
                     name=piece.name,
                     source_item_url=piece.source_item_url,
                     glamours_using_piece_url=event.href,
+                    occupied_slots=piece.occupied_slots,
+                    blocked_slots=piece.blocked_slots,
+                    equip_conflict_note=piece.equip_conflict_note,
+                    equip_conflict_source=piece.equip_conflict_source,
                 )
 
         if isinstance(event, ImageEvent):
@@ -274,6 +287,13 @@ def parse_gearset_detail(
                 if image_url not in seen_page_static_urls:
                     page_static_urls.append(image_url)
                     seen_page_static_urls.add(image_url)
+
+    html_pieces = extract_equipment_pieces(html_text, page_url)
+    if html_pieces:
+        pieces = html_pieces
+    present_slots = unique([piece.slot for piece in dedupe_pieces(pieces)])
+    missing_slots = [slot for slot in STANDARD_GEAR_SLOTS if slot not in present_slots]
+    pieces = infer_equipment_conflicts(dedupe_pieces(pieces), missing_slots, page_static_urls, slug)
 
     images = build_static_gearset_images(
         page_static_urls,
@@ -294,7 +314,9 @@ def parse_gearset_detail(
         dyeable=infer_dyeable(parsed.text),
         roles=infer_roles(parsed.text),
         model_genders=profile["genders"],
-        pieces=dedupe_pieces(pieces),
+        present_slots=present_slots,
+        missing_slots=missing_slots,
+        pieces=pieces,
         images=images,
     )
 
@@ -364,7 +386,10 @@ def build_static_gearset_images(
     if not same_family_urls:
         return []
 
-    if races is None or genders is None:
+    if expand_missing_model_variants:
+        races = tuple(races or RACE_SLUGS)
+        genders = tuple(genders or GENDER_SLUGS)
+    elif races is None or genders is None:
         exposed_races, exposed_genders = page_exposed_model_range(same_family_urls)
         races = tuple(races or exposed_races or RACE_SLUGS)
         genders = tuple(genders or exposed_genders or GENDER_SLUGS)
@@ -407,6 +432,128 @@ def build_static_gearset_images(
         )
         seen.add(image_url)
     return images
+
+
+def extract_equipment_pieces(html_text: str, page_url: str) -> list[GearPieceRecord]:
+    equipment_html = extract_equipment_html(html_text)
+    if not equipment_html:
+        return []
+
+    marker_pattern = re.compile(r"\bc-gear-slot-(head|body|hands|legs|feet)\b", re.I)
+    markers = [(match.group(1).upper(), match.start()) for match in marker_pattern.finditer(equipment_html)]
+    if not markers:
+        return []
+
+    pieces: list[GearPieceRecord] = []
+    for index, (slot, start) in enumerate(markers):
+        end = markers[index + 1][1] if index + 1 < len(markers) else len(equipment_html)
+        chunk = equipment_html[start:end]
+        item_url = first_lodestone_item_url(chunk)
+        if not item_url:
+            continue
+        name = first_item_name(chunk)
+        if not name:
+            continue
+        glamour_url = first_glamours_using_url(chunk, page_url)
+        pieces.append(
+            GearPieceRecord(
+                slot=slot,
+                name=name,
+                source_item_url=item_url,
+                glamours_using_piece_url=glamour_url,
+                occupied_slots=[slot],
+            )
+        )
+    return dedupe_pieces(pieces)
+
+
+def extract_equipment_html(html_text: str) -> str:
+    match = re.search(
+        r"<h4[^>]*>\s*Equipment\s*</h4>(.*?)(?:<div class=\"u-no-sidebar-only\"|<h4[^>]*>\s*Wearable by\s*</h4>|</section>)",
+        html_text,
+        re.I | re.S,
+    )
+    return match.group(1) if match else ""
+
+
+def first_lodestone_item_url(html_chunk: str) -> str | None:
+    match = re.search(r'href="([^"]*finalfantasyxiv\.com/lodestone/playguide/db/item/[^"]*)"', html_chunk, re.I)
+    if not match:
+        return None
+    return html.unescape(match.group(1))
+
+
+def first_item_name(html_chunk: str) -> str | None:
+    match = re.search(r'<span[^>]*class="[^"]*\bc-gear-slot-item-name\b[^"]*"[^>]*>(.*?)</span>', html_chunk, re.I | re.S)
+    if not match:
+        return None
+    return clean_text(strip_tags(match.group(1)))
+
+
+def first_glamours_using_url(html_chunk: str, page_url: str) -> str | None:
+    match = re.search(r'href="([^"]*/glamours/[^"]*)"', html_chunk, re.I)
+    if not match:
+        return None
+    return absolute_url(html.unescape(match.group(1)), page_url)
+
+
+def infer_equipment_conflicts(
+    pieces: list[GearPieceRecord],
+    missing_slots: list[str],
+    page_static_urls: list[str],
+    current_gearset_slug: str,
+) -> list[GearPieceRecord]:
+    if not pieces or not missing_slots:
+        return pieces
+
+    static_slots = {
+        meta.slot
+        for url in page_static_urls
+        if (meta := parse_gearsets_image_url(url))
+        and meta.gearset_slug == current_gearset_slug
+        and meta.slot in missing_slots
+    }
+    if not static_slots:
+        return pieces
+
+    owner_index = next((index for index, piece in enumerate(pieces) if piece.slot == "BODY"), None)
+    if owner_index is None and len(pieces) == 1:
+        owner_index = 0
+    if owner_index is None:
+        return pieces
+
+    inferred_blocked_slots = [slot for slot in STANDARD_GEAR_SLOTS if slot in static_slots and slot != pieces[owner_index].slot]
+    if pieces[owner_index].slot == "BODY":
+        inferred_blocked_slots = [slot for slot in inferred_blocked_slots if slot in {"HANDS", "LEGS", "FEET"}]
+    if not inferred_blocked_slots:
+        return pieces
+
+    updated: list[GearPieceRecord] = []
+    for index, piece in enumerate(pieces):
+        if index != owner_index:
+            updated.append(piece)
+            continue
+        occupied_slots = unique([piece.slot, *piece.occupied_slots, *inferred_blocked_slots])
+        updated.append(
+            GearPieceRecord(
+                slot=piece.slot,
+                name=piece.name,
+                source_item_url=piece.source_item_url,
+                glamours_using_piece_url=piece.glamours_using_piece_url,
+                occupied_slots=occupied_slots,
+                blocked_slots=inferred_blocked_slots,
+                equip_conflict_note=(
+                    "Inferred multi-slot item: static images exist for empty equipment slots "
+                    f"{', '.join(inferred_blocked_slots)}."
+                ),
+                equip_conflict_source="empty_equipment_slots_with_static_part_images",
+            )
+        )
+    return updated
+
+
+def strip_tags(value: str) -> str:
+    return re.sub(r"<[^>]+>", " ", value)
 
 
 def clean_text(value: str) -> str:

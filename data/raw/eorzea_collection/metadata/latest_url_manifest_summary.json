@@ -1,0 +1,17 @@
+{
+  "finished_at": "2026-06-17T08:55:27Z",
+  "gearset_url": "https://ffxiv.eorzeacollection.com/gearset/gaias",
+  "summary": {
+    "errors": 0,
+    "gear_pieces_parsed": 0,
+    "gearsets_parsed": 1,
+    "glamour_variants_parsed": 0,
+    "image_urls_accessible": 42,
+    "image_urls_checked": 42,
+    "image_urls_unavailable": 0,
+    "images_downloaded": 0,
+    "images_from_cache": 0,
+    "pages_fetched": 1,
+    "pages_from_cache": 0
+  }
+}

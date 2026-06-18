@@ -1,5 +1,4 @@
-# 功能：排除本地 IDE、Python 缓存和运行时缓存文件，保留项目代码与样本数据。
-
+# Local IDE, Python, build, and runtime cache files.
 .idea/
 __pycache__/
 *.py[cod]
@@ -20,14 +19,11 @@ var/cache/*
 var/logs/*
 !var/logs/.gitkeep
 
-data/raw/eorzea_collection/metadata/errors.jsonl
-
-# Generated dataset artifacts are kept local while the collector is still changing.
+# Large or browser/runtime-generated artifacts stay local.
 data/raw/eorzea_collection/html/**
 !data/raw/eorzea_collection/html/.gitkeep
 data/raw/eorzea_collection/images/**
 !data/raw/eorzea_collection/images/.gitkeep
-data/raw/eorzea_collection/metadata/**
-!data/raw/eorzea_collection/metadata/.gitkeep
-data/processed/**
-!data/processed/.gitkeep
+
+# Local safety backups created before in-place enrichment.
+*.before_*

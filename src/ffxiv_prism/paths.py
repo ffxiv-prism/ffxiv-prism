@@ -8,6 +8,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = PROJECT_ROOT / "data"
 RAW_DIR = DATA_DIR / "raw"
+GAME_DATA_RAW_DIR = RAW_DIR / "game_data"
 INTERIM_DIR = DATA_DIR / "interim"
 PROCESSED_DIR = DATA_DIR / "processed"
 INDEXES_DIR = DATA_DIR / "indexes"
@@ -28,6 +29,7 @@ def ensure_project_dirs() -> None:
     for path in (
         DATA_DIR,
         RAW_DIR,
+        GAME_DATA_RAW_DIR,
         INTERIM_DIR,
         PROCESSED_DIR,
         INDEXES_DIR,
@@ -41,4 +43,3 @@ def ensure_project_dirs() -> None:
         EORZEA_METADATA_DIR,
     ):
         path.mkdir(parents=True, exist_ok=True)
-
