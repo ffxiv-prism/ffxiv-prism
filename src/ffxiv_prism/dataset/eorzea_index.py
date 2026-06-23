@@ -1,5 +1,4 @@
-# 功能：把 Eorzea Collection 原始图片清单整理成后续检索和打标签可用的数据集索引。
-
+# 鍔熻兘锛氭妸 Eorzea Collection 鍘熷鍥剧墖娓呭崟鏁寸悊鎴愬悗缁绱㈠拰鎵撴爣绛惧彲鐢ㄧ殑鏁版嵁闆嗙储寮曘€?
 from __future__ import annotations
 
 import json
@@ -8,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from ffxiv_prism.jsonl import append_jsonl, read_jsonl, write_json
-from ffxiv_prism.paths import EORZEA_METADATA_DIR, PROCESSED_DIR, ensure_project_dirs
+from ffxiv_prism.paths import EORZEA_METADATA_DIR, PROCESSED_DIR, ensure_project_dirs, portable_path, resolve_project_path
 
 
 def build_eorzea_image_index(
@@ -50,7 +49,7 @@ def dedupe_by_hash_and_url(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def normalize_image_row(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "image_id": row.get("sha256") or row.get("source_image_url"),
-        "local_path": row.get("local_path"),
+        "local_path": portable_path(resolve_project_path(row.get("local_path"))),
         "source": "eorzea_collection",
         "source_page_url": row.get("source_page_url"),
         "source_image_url": row.get("source_image_url"),

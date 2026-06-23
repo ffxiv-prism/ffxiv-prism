@@ -1,10 +1,10 @@
-# 功能：提供 JSONL 读写工具，用于保存可复跑的采集清单和原始元数据。
-
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 from pathlib import Path
 from typing import Any, Iterable
+
+from ffxiv_prism.paths import portable_payload
 
 
 def append_jsonl(path: Path, rows: Iterable[dict[str, Any]]) -> int:
@@ -25,7 +25,7 @@ def write_json(path: Path, payload: dict[str, Any]) -> None:
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True),
+        json.dumps(portable_payload(payload), ensure_ascii=False, indent=2, sort_keys=True),
         encoding="utf-8",
     )
 
@@ -42,4 +42,3 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
             if line:
                 rows.append(json.loads(line))
     return rows
-

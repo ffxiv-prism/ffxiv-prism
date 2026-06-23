@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import sys
 import tempfile
@@ -12,6 +12,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from ffxiv_prism.dataset.image_qa import annotate_image_row, read_image_dimensions
+from ffxiv_prism.paths import PROJECT_ROOT as PACKAGE_PROJECT_ROOT, portable_path, resolve_project_path
 
 
 class ImageQaTests(unittest.TestCase):
@@ -62,6 +63,11 @@ class ImageQaTests(unittest.TestCase):
             self.assertEqual(annotated["width"], 130)
             self.assertEqual(annotated["height"], 170)
 
+    def test_resolves_historical_project_absolute_path(self) -> None:
+        historical = r"C:\Pycproject\ffxiv-prism\data\processed\sample.png"
+
+        self.assertEqual(resolve_project_path(historical), PACKAGE_PROJECT_ROOT / "data" / "processed" / "sample.png")
+        self.assertEqual(portable_path(historical), "data/processed/sample.png")
 
 def make_png(width: int, height: int) -> bytes:
     signature = b"\x89PNG\r\n\x1a\n"

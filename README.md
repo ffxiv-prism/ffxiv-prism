@@ -1,4 +1,4 @@
-﻿# FFXIV Prism
+# FFXIV Prism
 
 FFXIV Prism is a local Python project for building a Final Fantasy XIV glamour
 appearance dataset. The current milestone is a source-backed gearset and gear
@@ -14,33 +14,37 @@ piece dataset with English and Simplified Chinese item names.
 
 ## Main Commands
 
-Use the local Anaconda `dataprocess` environment:
+Run commands through the local Anaconda `dataprocess` environment. The helper
+uses `FFXIV_PRISM_PYTHON` when set, otherwise it tries `conda run -n dataprocess`
+and common Anaconda install locations. Keep machine-specific paths out of Git.
+
+Optional per-machine override:
 
 ```powershell
-$py = 'C:\Softwares\Anaconda3\envs\dataprocess\python.exe'
+$env:FFXIV_PRISM_PYTHON = '<anaconda-root>\envs\dataprocess\python.exe'
 ```
 
 Run the standard refresh pipeline:
 
 ```powershell
-& $py scripts\run_data_pipeline.py
+powershell -ExecutionPolicy Bypass -File .\scripts\run_dataprocess.ps1 scripts\run_data_pipeline.py
 ```
 
 Run the full discovery plus refresh pipeline:
 
 ```powershell
-& $py scripts\run_data_pipeline.py --all
+powershell -ExecutionPolicy Bypass -File .\scripts\run_dataprocess.ps1 scripts\run_data_pipeline.py --all
 ```
 
 Run only selected stages:
 
 ```powershell
-& $py scripts\run_data_pipeline.py --stage collect-details --stage build-image-manifest
-& $py scripts\run_data_pipeline.py --stage cafemaker-zh
-& $py scripts\run_data_pipeline.py --stage huiji-missing-zh
-& $py scripts\run_data_pipeline.py --stage build-index
-& $py scripts\run_data_pipeline.py --stage validate-images
-& $py scripts\run_data_pipeline.py --stage build-sqlite
+powershell -ExecutionPolicy Bypass -File .\scripts\run_dataprocess.ps1 scripts\run_data_pipeline.py --stage collect-details --stage build-image-manifest
+powershell -ExecutionPolicy Bypass -File .\scripts\run_dataprocess.ps1 scripts\run_data_pipeline.py --stage cafemaker-zh
+powershell -ExecutionPolicy Bypass -File .\scripts\run_dataprocess.ps1 scripts\run_data_pipeline.py --stage huiji-missing-zh
+powershell -ExecutionPolicy Bypass -File .\scripts\run_dataprocess.ps1 scripts\run_data_pipeline.py --stage build-index
+powershell -ExecutionPolicy Bypass -File .\scripts\run_dataprocess.ps1 scripts\run_data_pipeline.py --stage validate-images
+powershell -ExecutionPolicy Bypass -File .\scripts\run_dataprocess.ps1 scripts\run_data_pipeline.py --stage build-sqlite
 ```
 
 For HuijiWiki enrichment, Selenium opens a dedicated Chrome profile. If
@@ -48,13 +52,13 @@ Cloudflare asks for verification, complete it in that automation window. Proxy
 usage is optional and is disabled by default; pass it only when needed:
 
 ```powershell
-& $py scripts\run_data_pipeline.py --stage huiji-missing-zh --huiji-proxy http://127.0.0.1:10808
+powershell -ExecutionPolicy Bypass -File .\scripts\run_dataprocess.ps1 scripts\run_data_pipeline.py --stage huiji-missing-zh --huiji-proxy http://127.0.0.1:10808
 ```
 
 Single-item Huiji lookup:
 
 ```powershell
-& $py scripts\search_huiji_item_zh_name.py "Augmented Courtly Lover's Surcoat of Maiming" --json
+powershell -ExecutionPolicy Bypass -File .\scripts\run_dataprocess.ps1 scripts\search_huiji_item_zh_name.py "Augmented Courtly Lover's Surcoat of Maiming" --json
 ```
 
 ## Pipeline Stages

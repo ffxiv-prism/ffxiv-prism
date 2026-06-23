@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import struct
@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, BinaryIO
 
 from ffxiv_prism.jsonl import append_jsonl, read_jsonl, write_json
-from ffxiv_prism.paths import PROCESSED_DIR, ensure_project_dirs
+from ffxiv_prism.paths import PROCESSED_DIR, ensure_project_dirs, portable_path, resolve_project_path
 
 
 DEFAULT_INDEX_PATH = PROCESSED_DIR / "eorzea_images_index.jsonl"
@@ -34,13 +34,13 @@ def build_image_qa_index(
 
     rows = read_jsonl(index_path)
     sha_counts = Counter(row.get("sha256") for row in rows if row.get("sha256"))
-    path_counts = Counter(row.get("local_path") for row in rows if row.get("local_path"))
+    path_counts = Counter(normalized_local_path(row) for row in rows if row.get("local_path"))
 
     qa_rows = [
         annotate_image_row(
             row,
             sha_duplicate_count=sha_counts.get(row.get("sha256"), 0),
-            path_reference_count=path_counts.get(row.get("local_path"), 0),
+            path_reference_count=path_counts.get(normalized_local_path(row), 0),
             min_width=min_width,
             min_height=min_height,
         )
@@ -53,15 +53,19 @@ def build_image_qa_index(
     summary = summarize_qa_rows(qa_rows)
     summary.update(
         {
-            "index": str(index_path),
-            "output": str(output_path),
-            "missing_manifest": str(missing_manifest_path),
+            "index": portable_path(index_path),
+            "output": portable_path(output_path),
+            "missing_manifest": portable_path(missing_manifest_path),
             "min_width": min_width,
             "min_height": min_height,
         }
     )
     write_json(summary_path, summary)
     return summary
+
+
+def normalized_local_path(row: dict[str, Any]) -> str | None:
+    return portable_path(resolve_project_path(row.get("local_path")))
 
 
 def annotate_image_row(
@@ -73,7 +77,9 @@ def annotate_image_row(
 ) -> dict[str, Any]:
     qa = dict(row)
     local_path = row.get("local_path")
-    path = Path(local_path) if local_path else None
+    path = resolve_project_path(local_path)
+    if path:
+        qa["local_path"] = portable_path(path)
     flags: list[str] = []
 
     qa["file_exists"] = False
@@ -288,7 +294,7 @@ def example_row(row: dict[str, Any]) -> dict[str, Any]:
         "gearset_slug": row.get("gearset_slug"),
         "image_part": row.get("image_part"),
         "dye_state": row.get("dye_state"),
-        "local_path": row.get("local_path"),
+        "local_path": portable_path(resolve_project_path(row.get("local_path"))),
         "source_image_url": row.get("source_image_url"),
     }
 

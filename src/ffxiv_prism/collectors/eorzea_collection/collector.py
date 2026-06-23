@@ -1,5 +1,4 @@
-# 功能：编排 Eorzea Collection 页面采集、图片下载、元数据落盘和变体跟踪。
-
+# 鍔熻兘锛氱紪鎺?Eorzea Collection 椤甸潰閲囬泦銆佸浘鐗囦笅杞姐€佸厓鏁版嵁钀界洏鍜屽彉浣撹窡韪€?
 from __future__ import annotations
 
 import hashlib
@@ -31,6 +30,8 @@ from ffxiv_prism.collectors.eorzea_collection.url_utils import (
 )
 from ffxiv_prism.jsonl import append_jsonl, write_json
 from ffxiv_prism.paths import (
+    portable_path,
+    portable_payload,
     CACHE_DIR,
     EORZEA_HTML_DIR,
     EORZEA_IMAGE_DIR,
@@ -284,7 +285,7 @@ class EorzeaCollectionCollector:
             return DownloadedImageRecord(
                 source_image_url=candidate.source_image_url,
                 source_page_url=candidate.source_page_url,
-                local_path=str(local_path),
+                local_path=portable_path(local_path) or str(local_path),
                 sha256=digest,
                 byte_size=local_path.stat().st_size,
                 from_cache=from_cache,
@@ -439,4 +440,4 @@ def print_summary(summary: CollectionSummary, extra: dict[str, Any] | None = Non
     payload: dict[str, Any] = {"summary": summary.__dict__}
     if extra:
         payload.update(extra)
-    print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+    print(json.dumps(portable_payload(payload), ensure_ascii=False, indent=2, sort_keys=True))

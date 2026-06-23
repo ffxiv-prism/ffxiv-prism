@@ -9,7 +9,7 @@
   "duplicate_rows_removed": 2000,
   "empty_name_en": 2931,
   "finished_at": "2026-06-22T08:06:58Z",
-  "output": "C:\\Pycproject\\ffxiv-prism\\data\\raw\\game_data\\cafemaker_item_names_raw.jsonl",
+  "output": "data\\raw\\game_data\\cafemaker_item_names_raw.jsonl",
   "page_size": 1000,
   "pages_fetched": 49,
   "results_total": 48800,

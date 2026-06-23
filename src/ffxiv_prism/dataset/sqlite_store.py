@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import sqlite3
@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from ffxiv_prism.jsonl import read_jsonl, write_json
-from ffxiv_prism.paths import EORZEA_METADATA_DIR, PROCESSED_DIR, ensure_project_dirs
+from ffxiv_prism.paths import EORZEA_METADATA_DIR, PROCESSED_DIR, ensure_project_dirs, portable_path, resolve_project_path
 
 
 DEFAULT_DB_PATH = PROCESSED_DIR / "eorzea.sqlite"
@@ -38,7 +38,8 @@ def build_eorzea_sqlite(
         db_path.unlink()
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with sqlite3.connect(db_path) as conn:
+    conn = sqlite3.connect(db_path)
+    try:
         conn.execute("PRAGMA foreign_keys = ON")
         create_schema(conn)
         gearset_ids = insert_gearsets(conn, gearsets)
@@ -49,13 +50,16 @@ def build_eorzea_sqlite(
         summary = summarize_sqlite(conn)
         summary.update(
             {
-                "database": str(db_path),
-                "gearsets_source": str(gearsets_path),
-                "gear_pieces_source": str(gear_pieces_path),
-                "images_source": str(images_path),
+                "database": portable_path(db_path),
+                "gearsets_source": portable_path(gearsets_path),
+                "gear_pieces_source": portable_path(gear_pieces_path),
+                "images_source": portable_path(images_path),
                 "gear_piece_image_links": link_count,
             }
         )
+        conn.commit()
+    finally:
+        conn.close()
 
     write_json(summary_path, summary)
     return summary
@@ -259,7 +263,7 @@ def insert_images(
     image_ids: dict[str, int] = {}
     for row in rows:
         source_image_url = row.get("source_image_url")
-        local_path = row.get("local_path")
+        local_path = portable_path(resolve_project_path(row.get("local_path")))
         if not source_image_url or not local_path:
             continue
         cursor = conn.execute(
