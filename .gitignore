@@ -30,7 +30,3 @@ data/raw/eorzea_collection/images/**
 
 # Generated repair manifest; summary JSON keeps the durable QA result.
 data/processed/eorzea_missing_images_manifest.jsonl
-# Machine-local environment overrides.
-.env
-.env.*
-*.local.ps1
