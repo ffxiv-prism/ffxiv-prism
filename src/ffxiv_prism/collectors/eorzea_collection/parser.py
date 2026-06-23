@@ -11,7 +11,6 @@ from urllib.parse import urlparse
 from ffxiv_prism.collectors.eorzea_collection.models import (
     GearPieceRecord,
     GearsetRecord,
-    GlamourVariantRecord,
     ImageCandidate,
 )
 from ffxiv_prism.collectors.eorzea_collection.image_url import (
@@ -202,18 +201,6 @@ def extract_pagination_links(html_text: str, page_url: str, path_prefix: str) ->
     return links
 
 
-def extract_glamour_links(html_text: str, page_url: str) -> list[str]:
-    parsed = parse_html(html_text, page_url)
-    links: list[str] = []
-    seen: set[str] = set()
-    for link in parsed.links:
-        path = urlparse(link.href).path
-        if path.startswith("/glamour/") and link.href not in seen:
-            links.append(link.href)
-            seen.add(link.href)
-    return links
-
-
 def parse_gearset_detail(
     html_text: str,
     page_url: str,
@@ -234,7 +221,6 @@ def parse_gearset_detail(
     seen_page_static_urls: set[str] = set()
     in_equipment = False
     current_slot: str | None = None
-    last_piece_index: int | None = None
 
     for event in parsed.events:
         if isinstance(event, TextEvent):
@@ -261,20 +247,6 @@ def parse_gearset_detail(
                         source_item_url=event.href,
                         occupied_slots=[current_slot],
                     )
-                )
-                last_piece_index = len(pieces) - 1
-                continue
-            if "Glamours using this piece" in link_text and last_piece_index is not None:
-                piece = pieces[last_piece_index]
-                pieces[last_piece_index] = GearPieceRecord(
-                    slot=piece.slot,
-                    name=piece.name,
-                    source_item_url=piece.source_item_url,
-                    glamours_using_piece_url=event.href,
-                    occupied_slots=piece.occupied_slots,
-                    blocked_slots=piece.blocked_slots,
-                    equip_conflict_note=piece.equip_conflict_note,
-                    equip_conflict_source=piece.equip_conflict_source,
                 )
 
         if isinstance(event, ImageEvent):
@@ -318,55 +290,6 @@ def parse_gearset_detail(
         missing_slots=missing_slots,
         pieces=pieces,
         images=images,
-    )
-
-
-def parse_glamour_detail(
-    html_text: str,
-    page_url: str,
-    related_piece_name: str | None = None,
-    related_piece_slot: str | None = None,
-    related_piece_url: str | None = None,
-) -> GlamourVariantRecord:
-    parsed = parse_html(html_text, page_url)
-    slug = extract_slug(page_url, "glamour")
-    title = title_from_text(parsed.title, suffix="| Eorzea Collection")
-    profile = infer_profile(parsed.text)
-    images: list[ImageCandidate] = []
-    seen: set[str] = set()
-
-    primary_gender = profile["genders"][0] if profile["genders"] else None
-    primary_race = profile["races"][0] if profile["races"] else None
-    for image in parsed.images:
-        for image_url in image.urls:
-            if image_url in seen or not should_keep_image(image_url):
-                continue
-            seen.add(image_url)
-            images.append(
-                ImageCandidate(
-                    source_image_url=image_url,
-                    source_page_url=page_url,
-                    image_kind="glamour_variant",
-                    glamour_slug=slug,
-                    piece_name=related_piece_name,
-                    slot=related_piece_slot,
-                    model_gender=infer_gender(image.alt) or primary_gender,
-                    race=infer_race(image.alt) or primary_race,
-                    alt_text=image.alt,
-                )
-            )
-
-    return GlamourVariantRecord(
-        source_page_url=page_url,
-        slug=slug,
-        title=title,
-        genders=profile["genders"],
-        races=profile["races"],
-        jobs=profile["jobs"],
-        images=images,
-        related_piece_name=related_piece_name,
-        related_piece_slot=related_piece_slot,
-        related_piece_url=related_piece_url,
     )
 
 
@@ -454,13 +377,11 @@ def extract_equipment_pieces(html_text: str, page_url: str) -> list[GearPieceRec
         name = first_item_name(chunk)
         if not name:
             continue
-        glamour_url = first_glamours_using_url(chunk, page_url)
         pieces.append(
             GearPieceRecord(
                 slot=slot,
                 name=name,
                 source_item_url=item_url,
-                glamours_using_piece_url=glamour_url,
                 occupied_slots=[slot],
             )
         )
@@ -488,13 +409,6 @@ def first_item_name(html_chunk: str) -> str | None:
     if not match:
         return None
     return clean_text(strip_tags(match.group(1)))
-
-
-def first_glamours_using_url(html_chunk: str, page_url: str) -> str | None:
-    match = re.search(r'href="([^"]*/glamours/[^"]*)"', html_chunk, re.I)
-    if not match:
-        return None
-    return absolute_url(html.unescape(match.group(1)), page_url)
 
 
 def infer_equipment_conflicts(
@@ -539,7 +453,6 @@ def infer_equipment_conflicts(
                 slot=piece.slot,
                 name=piece.name,
                 source_item_url=piece.source_item_url,
-                glamours_using_piece_url=piece.glamours_using_piece_url,
                 occupied_slots=occupied_slots,
                 blocked_slots=inferred_blocked_slots,
                 equip_conflict_note=(

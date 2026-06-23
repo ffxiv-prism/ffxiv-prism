@@ -14,13 +14,20 @@ SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from ffxiv_prism.jsonl import append_jsonl, write_json  # noqa: E402
+from ffxiv_prism.jsonl import append_jsonl, read_jsonl, write_json  # noqa: E402
 from ffxiv_prism.paths import GAME_DATA_RAW_DIR  # noqa: E402
 
 
 DEFAULT_BASE_URL = "https://cafemaker.wakingsands.com/Item"
 DEFAULT_OUTPUT = GAME_DATA_RAW_DIR / "cafemaker_item_names_raw.jsonl"
 DEFAULT_SUMMARY = GAME_DATA_RAW_DIR / "cafemaker_item_names_summary.json"
+ITEM_COLUMNS = [
+    "ID",
+    "Name",
+    "Name_en",
+    "EquipSlotCategoryTargetID",
+    "ItemUICategory.Name_en",
+]
 
 
 def main() -> int:
@@ -55,6 +62,7 @@ def main() -> int:
         tmp_output.write_text("", encoding="utf-8")
         page = 1
         pages_fetched = 0
+        written = 0
 
     page_total: int | None = None
     total_rows: int | None = None
@@ -104,15 +112,19 @@ def main() -> int:
         if args.delay > 0:
             time.sleep(args.delay)
 
-    tmp_output.replace(args.output)
+    deduped_rows, duplicate_rows_removed = dedupe_rows(read_jsonl(tmp_output))
+    args.output.write_text("", encoding="utf-8")
+    append_jsonl(args.output, deduped_rows)
+    tmp_output.unlink(missing_ok=True)
     final_counts = inspect_output(args.output)
     written = final_counts["rows"]
     empty_name_en = final_counts["empty_name_en"]
     summary = {
         "source": args.base_url,
-        "columns": ["ID", "Name", "Name_en"],
+        "columns": ITEM_COLUMNS,
         "output": str(args.output),
         "rows_written": written,
+        "duplicate_rows_removed": duplicate_rows_removed,
         "empty_name_en": empty_name_en,
         "pages_fetched": pages_fetched,
         "page_size": args.page_size,
@@ -128,7 +140,7 @@ def main() -> int:
 def fetch_page(base_url: str, page: int, page_size: int, timeout: float, retries: int) -> dict[str, Any]:
     query = urlencode(
         {
-            "columns": "ID,Name,Name_en",
+            "columns": ",".join(ITEM_COLUMNS),
             "limit": str(page_size),
             "page": str(page),
         }
@@ -162,8 +174,23 @@ def normalize_item_row(row: dict[str, Any]) -> dict[str, Any]:
         "game_item_id": item_id,
         "name_zh": str(row.get("Name") or "").strip() or None,
         "name_en": str(row.get("Name_en") or "").strip() or None,
+        "equip_slot_category_id": normalize_int(row.get("EquipSlotCategoryTargetID")),
+        "item_ui_category_en": normalize_nested_name(row.get("ItemUICategory")),
         "source": DEFAULT_BASE_URL,
     }
+
+
+def normalize_int(value: object) -> int | None:
+    try:
+        return int(value) if value not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
+
+
+def normalize_nested_name(value: object) -> str | None:
+    if not isinstance(value, dict):
+        return None
+    return str(value.get("Name_en") or "").strip() or None
 
 
 def count_lines(path: Path) -> int:
@@ -187,6 +214,21 @@ def inspect_output(path: Path) -> dict[str, int]:
             if not row.get("name_en"):
                 empty_name_en += 1
     return {"rows": rows, "empty_name_en": empty_name_en}
+
+
+def dedupe_rows(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+    deduped: list[dict[str, Any]] = []
+    seen_ids: set[int] = set()
+    duplicate_rows_removed = 0
+    for row in rows:
+        item_id = row.get("game_item_id")
+        if isinstance(item_id, int):
+            if item_id in seen_ids:
+                duplicate_rows_removed += 1
+                continue
+            seen_ids.add(item_id)
+        deduped.append(row)
+    return deduped, duplicate_rows_removed
 
 
 def print_progress(

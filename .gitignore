@@ -27,3 +27,6 @@ data/raw/eorzea_collection/images/**
 
 # Local safety backups created before in-place enrichment.
 *.before_*
+
+# Generated repair manifest; summary JSON keeps the durable QA result.
+data/processed/eorzea_missing_images_manifest.jsonl

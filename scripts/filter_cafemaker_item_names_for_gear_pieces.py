@@ -74,7 +74,7 @@ def filter_mapping(
 ) -> tuple[list[dict[str, Any]], set[str]]:
     output_rows: list[dict[str, Any]] = []
     matched_names: set[str] = set()
-    seen_rows: set[tuple[int | None, str, str]] = set()
+    seen_rows: set[tuple[int | None, str, str, int | None, str | None]] = set()
     for row in rows:
         name_en = str(row.get("name_en") or "").strip()
         name_zh = str(row.get("name_zh") or "").strip()
@@ -84,14 +84,18 @@ def filter_mapping(
         if normalized not in needed_names:
             continue
         item_id = normalize_item_id(row.get("game_item_id"))
-        dedupe_key = (item_id, name_en, name_zh)
+        equip_slot_category_id = normalize_item_id(row.get("equip_slot_category_id"))
+        item_ui_category_en = str(row.get("item_ui_category_en") or "").strip() or None
+        dedupe_key = (item_id, name_en, name_zh, equip_slot_category_id, item_ui_category_en)
         if dedupe_key in seen_rows:
             continue
         seen_rows.add(dedupe_key)
         matched_names.add(normalized)
         output_rows.append(
             {
+                "equip_slot_category_id": equip_slot_category_id,
                 "game_item_id": item_id,
+                "item_ui_category_en": item_ui_category_en,
                 "name_en": name_en,
                 "name_zh": name_zh,
                 "source": row.get("source") or "https://cafemaker.wakingsands.com/Item",

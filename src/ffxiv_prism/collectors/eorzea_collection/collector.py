@@ -8,23 +8,19 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from ffxiv_prism.collectors.eorzea_collection.http_client import PoliteHttpClient
 from ffxiv_prism.collectors.eorzea_collection.models import (
     DownloadedImageRecord,
-    GearPieceRecord,
     GearsetRecord,
-    GlamourVariantRecord,
     ImageCandidate,
     ImageUrlRecord,
 )
 from ffxiv_prism.collectors.eorzea_collection.parser import (
     extract_gearset_links,
-    extract_glamour_links,
     extract_pagination_links,
     parse_gearset_detail,
-    parse_glamour_detail,
 )
 from ffxiv_prism.collectors.eorzea_collection.url_utils import (
     BASE_URL,
@@ -49,7 +45,6 @@ class CollectionSummary:
     pages_from_cache: int = 0
     gearsets_parsed: int = 0
     gear_pieces_parsed: int = 0
-    glamour_variants_parsed: int = 0
     images_downloaded: int = 0
     images_from_cache: int = 0
     image_urls_checked: int = 0
@@ -124,12 +119,10 @@ class EorzeaCollectionCollector:
     def collect_gearset(
         self,
         gearset_url: str,
-        include_piece_glamours: bool = False,
-        max_glamours_per_piece: int = 0,
         guess_missing_model_variants: bool = False,
         races: tuple[str, ...] | list[str] | None = None,
         genders: tuple[str, ...] | list[str] | None = None,
-    ) -> tuple[GearsetRecord, list[GlamourVariantRecord], list[DownloadedImageRecord], CollectionSummary]:
+    ) -> tuple[GearsetRecord, list[object], list[DownloadedImageRecord], CollectionSummary]:
         gearset_url = absolute_url(gearset_url)
         slug = extract_slug(gearset_url, "gearset")
         summary = CollectionSummary()
@@ -155,16 +148,6 @@ class EorzeaCollectionCollector:
         append_jsonl(self.metadata_dir / "gearset_details_raw.jsonl", [gearset.to_dict()])
         append_jsonl(self.metadata_dir / "image_manifest_raw.jsonl", [image.to_dict() for image in downloaded_images])
 
-        glamour_variants: list[GlamourVariantRecord] = []
-        if include_piece_glamours and max_glamours_per_piece > 0:
-            variants, variant_images, variant_summary = self.collect_piece_glamour_variants(
-                gearset.pieces,
-                max_glamours_per_piece=max_glamours_per_piece,
-            )
-            glamour_variants.extend(variants)
-            downloaded_images.extend(variant_images)
-            summary = summary.add(**variant_summary.__dict__)
-
         write_json(
             self.metadata_dir / "latest_run_summary.json",
             {
@@ -173,7 +156,7 @@ class EorzeaCollectionCollector:
                 "summary": summary.__dict__,
             },
         )
-        return gearset, glamour_variants, downloaded_images, summary
+        return gearset, [], downloaded_images, summary
 
     def collect_gearset_image_urls(
         self,
@@ -228,99 +211,30 @@ class EorzeaCollectionCollector:
         )
         return gearset, manifest_records, summary
 
-    def collect_piece_glamour_variants(
+    def download_images(
         self,
-        pieces: list[GearPieceRecord],
-        max_glamours_per_piece: int,
-    ) -> tuple[list[GlamourVariantRecord], list[DownloadedImageRecord], CollectionSummary]:
-        variants: list[GlamourVariantRecord] = []
-        downloaded_images: list[DownloadedImageRecord] = []
-        summary = CollectionSummary()
-
-        for piece in pieces:
-            if not piece.glamours_using_piece_url:
-                continue
-            list_slug = f"piece-{short_hash(piece.glamours_using_piece_url)}"
-            try:
-                html_text, from_cache = self._fetch_html(piece.glamours_using_piece_url, "piece-glamours", list_slug)
-                summary = summary.add(
-                    pages_fetched=0 if from_cache else 1,
-                    pages_from_cache=1 if from_cache else 0,
-                )
-                glamour_urls = extract_glamour_links(html_text, piece.glamours_using_piece_url)
-                append_jsonl(
-                    self.metadata_dir / "gear_piece_glamour_links_raw.jsonl",
-                    [
-                        {
-                            "piece_name": piece.name,
-                            "piece_slot": piece.slot,
-                            "piece_url": piece.source_item_url,
-                            "glamour_url": glamour_url,
-                            "source_list_url": piece.glamours_using_piece_url,
-                            "discovered_at": timestamp(),
-                        }
-                        for glamour_url in glamour_urls
-                    ],
-                )
-                for glamour_url in glamour_urls[:max_glamours_per_piece]:
-                    variant, images, variant_summary = self.collect_glamour_variant(
-                        glamour_url,
-                        related_piece=piece,
-                    )
-                    variants.append(variant)
-                    downloaded_images.extend(images)
-                    summary = summary.add(**variant_summary.__dict__)
-            except Exception as exc:
-                self._log_error("piece_glamour_variants", piece.glamours_using_piece_url, exc)
-                summary = summary.add(errors=1)
-
-        if variants:
-            append_jsonl(self.metadata_dir / "glamour_variants_raw.jsonl", [variant.to_dict() for variant in variants])
-        if downloaded_images:
-            append_jsonl(self.metadata_dir / "image_manifest_raw.jsonl", [image.to_dict() for image in downloaded_images])
-        return variants, downloaded_images, summary
-
-    def collect_glamour_variant(
-        self,
-        glamour_url: str,
-        related_piece: GearPieceRecord | None = None,
-    ) -> tuple[GlamourVariantRecord, list[DownloadedImageRecord], CollectionSummary]:
-        glamour_url = absolute_url(glamour_url)
-        slug = extract_slug(glamour_url, "glamour")
-        summary = CollectionSummary()
-        html_text, from_cache = self._fetch_html(glamour_url, "glamour", slug)
-        summary = summary.add(
-            pages_fetched=0 if from_cache else 1,
-            pages_from_cache=1 if from_cache else 0,
-        )
-        variant = parse_glamour_detail(
-            html_text,
-            glamour_url,
-            related_piece_name=related_piece.name if related_piece else None,
-            related_piece_slot=related_piece.slot if related_piece else None,
-            related_piece_url=related_piece.source_item_url if related_piece else None,
-        )
-        images = self.download_images(variant.images)
-        summary = summary.add(
-            glamour_variants_parsed=1,
-            images_downloaded=sum(1 for image in images if not image.from_cache),
-            images_from_cache=sum(1 for image in images if image.from_cache),
-        )
-        return variant, images, summary
-
-    def download_images(self, image_candidates: list[ImageCandidate]) -> list[DownloadedImageRecord]:
+        image_candidates: list[ImageCandidate],
+        progress: Callable[[int, int, DownloadedImageRecord | None], None] | None = None,
+    ) -> list[DownloadedImageRecord]:
         if self.image_workers > 1:
-            return self._download_images_parallel(image_candidates)
+            return self._download_images_parallel(image_candidates, progress=progress)
 
         records: list[DownloadedImageRecord] = []
+        unique_candidates: list[ImageCandidate] = []
         seen: set[str] = set()
         for candidate in image_candidates:
             if candidate.source_image_url in seen:
                 continue
+            unique_candidates.append(candidate)
             seen.add(candidate.source_image_url)
+
+        total = len(unique_candidates)
+        for index, candidate in enumerate(unique_candidates, start=1):
             record = self._download_image_record(candidate)
             if record:
                 records.append(record)
+            if progress:
+                progress(index, total, record)
         return records
 
     def verify_image_urls(self, image_candidates: list[ImageCandidate], verify: bool = True) -> list[ImageUrlRecord]:
@@ -333,7 +247,11 @@ class EorzeaCollectionCollector:
             records.append(self._image_url_record(candidate, verify=verify))
         return records
 
-    def _download_images_parallel(self, image_candidates: list[ImageCandidate]) -> list[DownloadedImageRecord]:
+    def _download_images_parallel(
+        self,
+        image_candidates: list[ImageCandidate],
+        progress: Callable[[int, int, DownloadedImageRecord | None], None] | None = None,
+    ) -> list[DownloadedImageRecord]:
         unique_candidates: list[ImageCandidate] = []
         seen: set[str] = set()
         for candidate in image_candidates:
@@ -343,6 +261,8 @@ class EorzeaCollectionCollector:
             seen.add(candidate.source_image_url)
 
         records: list[DownloadedImageRecord] = []
+        completed = 0
+        total = len(unique_candidates)
         with ThreadPoolExecutor(max_workers=self.image_workers) as executor:
             future_to_candidate = {
                 executor.submit(self._download_image_record, candidate): candidate for candidate in unique_candidates
@@ -351,6 +271,9 @@ class EorzeaCollectionCollector:
                 record = future.result()
                 if record:
                     records.append(record)
+                completed += 1
+                if progress:
+                    progress(completed, total, record)
         records.sort(key=lambda record: record.source_image_url)
         return records
 
@@ -368,8 +291,6 @@ class EorzeaCollectionCollector:
                 image_kind=candidate.image_kind,
                 slot=candidate.slot,
                 gearset_slug=candidate.gearset_slug,
-                glamour_slug=candidate.glamour_slug,
-                piece_name=candidate.piece_name,
                 model_gender=candidate.model_gender,
                 race=candidate.race,
                 dye_state=candidate.dye_state,
@@ -425,8 +346,6 @@ class EorzeaCollectionCollector:
             image_kind=candidate.image_kind,
             slot=candidate.slot,
             gearset_slug=candidate.gearset_slug,
-            glamour_slug=candidate.glamour_slug,
-            piece_name=candidate.piece_name,
             model_gender=candidate.model_gender,
             race=candidate.race,
             image_variant=candidate.dye_state,
@@ -445,7 +364,7 @@ class EorzeaCollectionCollector:
         return text, result.from_cache
 
     def _download_image(self, candidate: ImageCandidate) -> tuple[Path, bool]:
-        group = candidate.gearset_slug or candidate.glamour_slug or "misc"
+        group = candidate.gearset_slug or "misc"
         suffix = extension_from_url(candidate.source_image_url, ".img")
         semantic_name = self._semantic_image_filename(candidate, suffix)
         target = self.image_dir / candidate.image_kind / group / semantic_name

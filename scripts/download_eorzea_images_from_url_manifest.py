@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -71,7 +72,10 @@ def main() -> int:
         image_workers=args.image_workers,
         respect_robots=args.respect_robots,
     )
-    downloaded_images = collector.download_images(candidates)
+    progress = ImageDownloadProgress(total=len(candidates))
+    progress.print(final=not candidates)
+    downloaded_images = collector.download_images(candidates, progress=progress.update)
+    progress.print(final=True)
     append_jsonl(EORZEA_METADATA_DIR / "image_manifest_raw.jsonl", [image.to_dict() for image in downloaded_images])
 
     summary = CollectionSummary(
@@ -87,6 +91,65 @@ def main() -> int:
         },
     )
     return 0
+
+
+class ImageDownloadProgress:
+    def __init__(self, total: int, interval_seconds: float = 5.0) -> None:
+        self.total = total
+        self.interval_seconds = interval_seconds
+        self.started_at = time.monotonic()
+        self.last_print_at = 0.0
+        self.downloaded = 0
+        self.from_cache = 0
+        self.failed = 0
+        self.current = 0
+        self.final_printed = False
+
+    def update(self, current: int, total: int, record: object | None) -> None:
+        self.current = current
+        self.total = total
+        if record is None:
+            self.failed += 1
+        elif getattr(record, "from_cache", False):
+            self.from_cache += 1
+        else:
+            self.downloaded += 1
+
+        now = time.monotonic()
+        if now - self.last_print_at >= self.interval_seconds or current >= total:
+            self.print(final=current >= total)
+            self.last_print_at = now
+
+    def print(self, final: bool) -> None:
+        if final and self.final_printed:
+            return
+        elapsed = max(time.monotonic() - self.started_at, 0.001)
+        current = min(self.current, self.total)
+        rate = current / elapsed if current else 0.0
+        remaining = max(self.total - current, 0)
+        eta = format_duration(remaining / rate) if rate > 0 else "unknown"
+        percent = (current / self.total * 100.0) if self.total else 100.0
+        line = (
+            f"Progress: {current}/{self.total} ({percent:5.1f}%) "
+            f"downloaded={self.downloaded} cached={self.from_cache} failed={self.failed} "
+            f"rate={rate:5.1f}/s eta={eta}"
+        )
+        if final:
+            print(f"\r{line}", file=sys.stderr, flush=True)
+            self.final_printed = True
+        else:
+            print(f"\r{line}", end="", file=sys.stderr, flush=True)
+
+
+def format_duration(seconds: float) -> str:
+    seconds = max(int(seconds), 0)
+    hours, remainder = divmod(seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    if hours:
+        return f"{hours}h{minutes:02d}m"
+    if minutes:
+        return f"{minutes}m{seconds:02d}s"
+    return f"{seconds}s"
 
 
 if __name__ == "__main__":

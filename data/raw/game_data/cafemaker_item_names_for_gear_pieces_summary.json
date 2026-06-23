@@ -1,6 +1,6 @@
 {
   "filtered_mapping_rows": 10532,
-  "finished_at": "2026-06-18T03:46:10Z",
+  "finished_at": "2026-06-22T08:07:44Z",
   "full_mapping": "C:\\Pycproject\\ffxiv-prism\\data\\raw\\game_data\\cafemaker_item_names_raw.jsonl",
   "full_mapping_rows": 48800,
   "matched_unique_english_names": 10524,

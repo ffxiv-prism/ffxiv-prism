@@ -59,8 +59,6 @@ def normalize_image_row(row: dict[str, Any]) -> dict[str, Any]:
         "image_kind": row.get("image_kind"),
         "slot": row.get("slot"),
         "gearset_slug": row.get("gearset_slug"),
-        "glamour_slug": row.get("glamour_slug"),
-        "piece_name": row.get("piece_name"),
         "model_gender": row.get("model_gender"),
         "race": row.get("race"),
         "dye_state": row.get("dye_state"),

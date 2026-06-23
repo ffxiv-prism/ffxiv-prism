@@ -2,16 +2,17 @@
   "columns": [
     "ID",
     "Name",
-    "Name_en"
+    "Name_en",
+    "EquipSlotCategoryTargetID",
+    "ItemUICategory.Name_en"
   ],
-  "duplicate_rows_removed": 1000,
+  "duplicate_rows_removed": 2000,
   "empty_name_en": 2931,
-  "finished_at": "2026-06-18T03:19:25Z",
-  "output": "data\\raw\\game_data\\cafemaker_item_names_raw.jsonl",
+  "finished_at": "2026-06-22T08:06:58Z",
+  "output": "C:\\Pycproject\\ffxiv-prism\\data\\raw\\game_data\\cafemaker_item_names_raw.jsonl",
   "page_size": 1000,
   "pages_fetched": 49,
   "results_total": 48800,
   "rows_written": 48800,
-  "source": "https://cafemaker.wakingsands.com/Item",
-  "unique_name_en": 45731
+  "source": "https://cafemaker.wakingsands.com/Item"
 }

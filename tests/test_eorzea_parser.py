@@ -14,7 +14,6 @@ if str(SRC_DIR) not in sys.path:
 from ffxiv_prism.collectors.eorzea_collection.parser import (
     extract_gearset_links,
     parse_gearset_detail,
-    parse_glamour_detail,
 )
 from ffxiv_prism.collectors.eorzea_collection.image_url import (
     generate_same_gearset_variant_urls,
@@ -56,10 +55,7 @@ class EorzeaParserTests(unittest.TestCase):
                 ("BODY", "Test Coat"),
             ],
         )
-        self.assertEqual(
-            record.pieces[0].glamours_using_piece_url,
-            "https://ffxiv.eorzeacollection.com/glamours?piece=test-hat",
-        )
+        self.assertFalse(hasattr(record.pieces[0], "glamours_using_piece_url"))
         self.assertTrue(any(image.model_gender == "female" and image.race == "hyur" for image in record.images))
         self.assertTrue(all("resources" not in image.source_image_url for image in record.images))
 
@@ -102,24 +98,6 @@ class EorzeaParserTests(unittest.TestCase):
         self.assertEqual(record.pieces[0].slot, "BODY")
         self.assertEqual(record.pieces[0].occupied_slots, ["BODY", "HANDS", "LEGS", "FEET"])
         self.assertEqual(record.pieces[0].blocked_slots, ["HANDS", "LEGS", "FEET"])
-        self.assertEqual(
-            record.pieces[0].glamours_using_piece_url,
-            "https://ffxiv.eorzeacollection.com/glamours/body/22115",
-        )
-
-    def test_parse_glamour_detail_profile(self) -> None:
-        html = """
-        <html><head><title>Street Mage | Eorzea Collection</title></head><body>
-        Female Miqo'te RDM
-        <img src="/storage/images/glamour-1.jpg" alt="Female Miqo'te red mage glamour">
-        </body></html>
-        """
-        record = parse_glamour_detail(html, "https://ffxiv.eorzeacollection.com/glamour/123")
-        self.assertEqual(record.slug, "123")
-        self.assertEqual(record.genders, ["Female"])
-        self.assertIn("Miqo'te", record.races)
-        self.assertEqual(record.jobs, ["RDM"])
-        self.assertEqual(record.images, [])
 
     def test_title_cleanup_handles_repeated_site_name(self) -> None:
         html = """

@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 import subprocess
@@ -16,11 +16,15 @@ STAGES: dict[str, list[list[str]]] = {
     "build-image-manifest": [["scripts/build_eorzea_image_url_manifest_from_detail_cache.py"]],
     "cafemaker-zh": [
         ["scripts/download_cafemaker_item_names.py"],
+        ["scripts/download_cafemaker_equip_slot_categories.py"],
         ["scripts/filter_cafemaker_item_names_for_gear_pieces.py"],
         ["scripts/enrich_gear_pieces_with_zh_names.py"],
+        ["scripts/enrich_gear_pieces_with_lodestone_equip_notes.py"],
     ],
     "huiji-missing-zh": [["scripts/search_huiji_item_zh_name.py", "--batch-missing", "--retry-failed"]],
     "build-index": [["scripts/build_eorzea_dataset_index.py"]],
+    "validate-images": [["scripts/validate_eorzea_images.py"]],
+    "build-sqlite": [["scripts/build_eorzea_sqlite.py"]],
 }
 
 
@@ -30,6 +34,8 @@ DEFAULT_STAGES = [
     "cafemaker-zh",
     "huiji-missing-zh",
     "build-index",
+    "validate-images",
+    "build-sqlite",
 ]
 
 
@@ -87,3 +93,9 @@ def quote_arg(value: str) -> str:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+
+
+
+

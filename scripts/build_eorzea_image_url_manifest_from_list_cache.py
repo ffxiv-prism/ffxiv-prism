@@ -349,8 +349,6 @@ def image_url_row(check: dict[str, object]) -> dict[str, object]:
         "image_kind": "gearset_static",
         "slot": meta.slot,
         "gearset_slug": meta.gearset_slug,
-        "glamour_slug": None,
-        "piece_name": None,
         "model_gender": meta.model_gender,
         "race": meta.race,
         "image_variant": meta.dye_state,

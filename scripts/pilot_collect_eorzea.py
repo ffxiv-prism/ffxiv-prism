@@ -45,20 +45,9 @@ def main() -> int:
         help="Comma-separated fixed gender slugs to collect, e.g. male,female. Defaults to genders exposed on the page.",
     )
     parser.add_argument(
-        "--include-piece-glamours",
-        action="store_true",
-        help="Deprecated: player glamour pages are not part of the canonical gear dataset.",
-    )
-    parser.add_argument(
         "--guess-missing-model-variants",
         action="store_true",
         help="Generate unlisted race/gender image URL candidates. This can be slow if many URLs do not exist.",
-    )
-    parser.add_argument(
-        "--max-glamours-per-piece",
-        type=int,
-        default=3,
-        help="Maximum glamour detail pages to collect per gear piece when variants are enabled.",
     )
     parser.add_argument(
         "--ignore-robots",
@@ -82,27 +71,22 @@ def main() -> int:
 
     combined = None
     gearsets = []
-    variants = []
     images = []
     for url in args.urls:
-        gearset, glamour_variants, downloaded_images, summary = collector.collect_gearset(
+        gearset, _unused_variants, downloaded_images, summary = collector.collect_gearset(
             url,
-            include_piece_glamours=args.include_piece_glamours,
-            max_glamours_per_piece=args.max_glamours_per_piece,
             guess_missing_model_variants=args.guess_missing_model_variants,
             races=split_csv(args.races),
             genders=split_csv(args.genders),
         )
         combined = summary if combined is None else combined.add(**summary.__dict__)
         gearsets.append(gearset)
-        variants.extend(glamour_variants)
         images.extend(downloaded_images)
 
     print_summary(
         combined,
         {
             "gearset_slugs": [gearset.slug for gearset in gearsets],
-            "variant_count": len(variants),
             "image_record_count": len(images),
         },
     )

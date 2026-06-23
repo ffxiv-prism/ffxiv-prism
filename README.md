@@ -1,4 +1,4 @@
-# FFXIV Prism
+﻿# FFXIV Prism
 
 FFXIV Prism is a local Python project for building a Final Fantasy XIV glamour
 appearance dataset. The current milestone is a source-backed gearset and gear
@@ -39,6 +39,8 @@ Run only selected stages:
 & $py scripts\run_data_pipeline.py --stage cafemaker-zh
 & $py scripts\run_data_pipeline.py --stage huiji-missing-zh
 & $py scripts\run_data_pipeline.py --stage build-index
+& $py scripts\run_data_pipeline.py --stage validate-images
+& $py scripts\run_data_pipeline.py --stage build-sqlite
 ```
 
 For HuijiWiki enrichment, Selenium opens a dedicated Chrome profile. If
@@ -65,8 +67,10 @@ Single-item Huiji lookup:
 4. `cafemaker-zh`: refresh CafeMaker name cache and exact English-to-Chinese matches.
 5. `huiji-missing-zh`: use Selenium/HuijiWiki to fill remaining Chinese names.
 6. `build-index`: build processed image index and coverage summary.
+7. `validate-images`: verify local image files and write image QA outputs.
+8. `build-sqlite`: build the normalized SQLite dataset.
 
-The default refresh pipeline runs stages 2 through 6. Use `--all` when the
+The default refresh pipeline runs stages 2 through 8. Use `--all` when the
 gearset discovery list itself should be refreshed.
 
 ## Dataset Files
@@ -83,6 +87,10 @@ Important text dataset files:
 - `data/raw/game_data/cafemaker_item_names_raw.jsonl`
 - `data/raw/game_data/cafemaker_item_names_for_gear_pieces_raw.jsonl`
 - `data/processed/eorzea_images_index.jsonl`
+- `data/processed/eorzea_images_qa_index.jsonl`
+- `data/processed/eorzea_image_qa_summary.json`
+- `data/processed/eorzea.sqlite`
+- `data/processed/eorzea_sqlite_summary.json`
 - `data/processed/eorzea_dataset_summary.json`
 
 Downloaded images and raw HTML caches are intentionally not versioned.
@@ -95,3 +103,46 @@ robots.txt checks for that run.
 
 Canonical images come from `gearsets.eorzeacollection.com` static gearset files.
 Player-uploaded glamour pages are intentionally excluded from the dataset.
+
+
+
+
+## Appearance Matching Plan
+
+The first matching milestone is a local visual retrieval loop over the normalized
+SQLite dataset:
+
+1. Build image embeddings for ready slot images from `v_piece_images`.
+2. Embed a reference image with the same model.
+3. Retrieve candidates by slot, then rerank with structural constraints and data
+   quality signals.
+4. Combine per-slot candidates into a glamour recommendation with source URLs,
+   local preview paths, and confidence notes.
+
+Dye handling is deliberately conservative:
+
+- A gear piece is known dyeable when any same-piece or same-gearset slot image has
+  a `dyed` variant.
+- Missing `dyed` variants do not prove that a piece is undyeable; they mean the
+  dataset lacks positive dye evidence.
+- `dyed` images are evidence for dyeability only. Their current colors must not be
+  used as visual matching features.
+- When a candidate is dyeable, color mismatch should not penalize it strongly,
+  because the player can recolor it in game.
+- When a candidate has no dyeability evidence, color can remain part of reranking,
+  but it should be treated as a weaker signal than shape, silhouette, slot, and
+  style.
+
+A practical first scoring shape is:
+
+```text
+score =
+  visual_embedding_similarity
++ silhouette_or_style_bonus
++ slot_and_constraint_fit
++ data_quality_bonus
+- non_dyeable_color_mismatch_penalty
+```
+
+Color features should therefore be stored separately from embeddings and applied
+only during reranking with dyeability awareness.
