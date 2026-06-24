@@ -52,7 +52,7 @@ Variant sources:
 
 - Gearset static images from `https://gearsets.eorzeacollection.com/...`.
 - Gearset detail pages only as an index that exposes the static image URLs and equipment names.
-- Do not use player-uploaded glamour pages as canonical training/evaluation data.
+- Do not use player-uploaded glamour pages as canonical single-item renders.`n  Keep a separate, bounded `glamour_examples` collection for whole-outfit`n  understanding and evaluation, with page URLs, creator attribution, equipment`n  labels, and image provenance.
 - When a detail page exposes multiple role-specific gearsets in the same series, collect each role-specific gearset because `fending`, `casting`, `healing`, and other role variants may have different appearances.
 - Keep `front` and `back` images as full-set views. They are not single slots, but they are useful for whole-outfit matching and visual QA.
 
@@ -298,3 +298,32 @@ Current local scripts:
 - `scripts/pilot_collect_eorzea.py`: collect one or more gearset detail pages and the static gearset image URLs exposed on those pages.
 - `scripts/discover_eorzea_gearsets.py`: discover gearset detail URLs from paginated list pages.
 - `scripts/build_eorzea_dataset_index.py`: dedupe downloaded images and summarize slot/gender/race coverage.
+## Player Glamour Example Pilot
+
+Player-uploaded glamour pages can provide weakly supervised whole-outfit data:
+several in-game screenshots are paired with the five core armor slots`n(HEAD/BODY/HANDS/LEGS/FEET), item names,
+dyes, character model, intended jobs, and level. These records must remain
+separate from canonical gearset images because poses, lighting, reshade presets,
+backgrounds, occlusion, and multi-slot equipment make them a different data
+modality.
+
+Collection rules:
+
+- Use explicit glamour URLs or a reviewed allowlist; do not crawl the full site.
+- Keep a hard page limit, one browser session, sequential requests, and delays.
+- Use the browser-like HTTP session first and keep normal browser access as an`n  explicit fallback. Cache HTML locally. Do not automate Cloudflare
+  verification or attempt to bypass access controls.
+- Download screenshot bodies only from the current glamour ID's public static
+  image directory.
+- Reject navigation icons, item icons, related-card thumbnails, non-image responses,
+  undecodable files, and images smaller than 200x200.
+- Preserve creator attribution and source page/image URLs.
+- Keep screenshot bodies local; source-control only metadata and processed labels.
+- Resolve item names against the normalized local SQLite dataset when possible.
+- Expand multi-slot items across their occupied slots in the processed labels.
+
+Pilot outputs:
+
+- `data/raw/eorzea_collection/glamours/metadata/glamour_examples_raw.jsonl`
+- `data/processed/glamour_examples.jsonl`
+- `data/processed/glamour_examples_summary.json`

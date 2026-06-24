@@ -101,6 +101,7 @@ Deliverables:
 - Slot segmentation or approximate region extraction.
 - Reference tags and image embeddings by region.
 - Confidence scores and missing-slot handling.
+- A separate source-backed player glamour example set pairing whole screenshots with explicit equipment labels.
 
 Relevant directories:
 

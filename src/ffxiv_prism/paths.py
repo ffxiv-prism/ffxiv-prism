@@ -21,6 +21,10 @@ EORZEA_RAW_DIR = RAW_DIR / "eorzea_collection"
 EORZEA_HTML_DIR = EORZEA_RAW_DIR / "html"
 EORZEA_IMAGE_DIR = EORZEA_RAW_DIR / "images"
 EORZEA_METADATA_DIR = EORZEA_RAW_DIR / "metadata"
+EORZEA_GLAMOUR_DIR = EORZEA_RAW_DIR / "glamours"
+EORZEA_GLAMOUR_HTML_DIR = EORZEA_GLAMOUR_DIR / "html"
+EORZEA_GLAMOUR_IMAGE_DIR = EORZEA_GLAMOUR_DIR / "images"
+EORZEA_GLAMOUR_METADATA_DIR = EORZEA_GLAMOUR_DIR / "metadata"
 
 
 def ensure_project_dirs() -> None:
@@ -41,6 +45,10 @@ def ensure_project_dirs() -> None:
         EORZEA_HTML_DIR,
         EORZEA_IMAGE_DIR,
         EORZEA_METADATA_DIR,
+        EORZEA_GLAMOUR_DIR,
+        EORZEA_GLAMOUR_HTML_DIR,
+        EORZEA_GLAMOUR_IMAGE_DIR,
+        EORZEA_GLAMOUR_METADATA_DIR,
     ):
         path.mkdir(parents=True, exist_ok=True)
 

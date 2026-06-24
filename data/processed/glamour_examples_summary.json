@@ -1,0 +1,11 @@
+{
+  "glamour_records": 5,
+  "image_examples": 20,
+  "missing_images": [],
+  "output": "data/processed/glamour_examples.jsonl",
+  "slot_label_status": {
+    "direct": 22,
+    "occupied_by_multislot": 3
+  },
+  "source": "data/raw/eorzea_collection/glamours/metadata/glamour_examples_raw.jsonl"
+}

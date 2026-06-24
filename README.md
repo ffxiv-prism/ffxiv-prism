@@ -14,11 +14,12 @@ piece dataset with English and Simplified Chinese item names.
 
 ## Main Commands
 
-Use the local Anaconda `dataprocess` environment. Keep the environment name the
-same on each machine, and let `python` come from the activated environment.
+Use the dedicated Anaconda `ffxiv-prism` environment with Python 3.12. Create
+it from the checked-in environment file when setting up a new machine:
 
 ```powershell
-conda activate dataprocess
+conda env create -f environment.yml
+conda activate ffxiv-prism
 ```
 
 Run the standard refresh pipeline:
@@ -103,10 +104,45 @@ approval. Pass `--respect-robots` on a command when you want to re-enable
 robots.txt checks for that run.
 
 Canonical images come from `gearsets.eorzeacollection.com` static gearset files.
-Player-uploaded glamour pages are intentionally excluded from the dataset.
+Player-uploaded glamour pages are excluded from the canonical single-piece image`ndataset. A separate, bounded `glamour_examples` dataset may retain their`nsource-backed screenshots and equipment labels for whole-outfit understanding`nand evaluation.
 
 
 
+
+## Labeled Player Glamour Examples
+
+Player-uploaded glamour pages are collected separately from canonical gearset
+images. Each page supplies several in-game screenshots plus an equipment list,
+dyes, character model, level, tags, and provenance. The default collector uses a
+browser-like HTTP session, warming the site home page before loading explicit
+glamour URLs. A normal Chrome session remains available with
+`--fetch-mode browser` when needed.
+
+Collect a small explicit allowlist, with a hard per-run page bound:
+
+```powershell
+python scripts\collect_eorzea_glamours.py 302518 --refresh --max-pages 1
+```
+
+The image filter accepts only the current glamour's static gallery directory,
+requires an image content type, verifies the body with Pillow, and rejects images
+smaller than 200x200. Navigation icons, slot icons, item icons, advertisements,
+and related-glamour thumbnails are therefore excluded.
+Cached pages are parsed without revisiting the site on later runs. Build the
+image-level manifest, including labels inherited from multi-slot equipment:
+
+```powershell
+python scripts\build_glamour_examples_dataset.py
+```
+
+Important outputs:
+
+- `data/raw/eorzea_collection/glamours/metadata/glamour_examples_raw.jsonl`
+- `data/processed/glamour_examples.jsonl`
+- `data/processed/glamour_examples_summary.json`
+
+Raw HTML and player screenshots remain local cache artifacts. The JSONL records
+retain source URLs and must not be treated as canonical item renders.
 
 ## Appearance Matching Plan
 
@@ -147,3 +183,122 @@ score =
 
 Color features should therefore be stored separately from embeddings and applied
 only during reranking with dyeability awareness.
+
+## Visual Retrieval MVP
+
+Build a CPU-compatible CLIP index for normal slot images:
+
+```powershell
+python scripts\build_visual_index.py --batch-size 16
+```
+
+For a quick smoke test, build a bounded index first:
+
+```powershell
+python scripts\build_visual_index.py --limit 100 --output-dir data\indexes\clip-smoke
+```
+
+Search one armor slot:
+
+```powershell
+python scripts\search_visual_index.py reference.png --slot BODY --top-k 10
+
+# Restrict candidates to the target character model when known.
+python scripts\search_visual_index.py reference.png --slot BODY --gender female --race hyur
+```
+
+Run the checked-in 10-case transformed-query evaluation set. It measures whether
+mirroring, cropping, and mild color changes still retrieve the correct piece:
+
+```powershell
+python scripts\evaluate_visual_retrieval.py --top-k 10
+```
+
+Run the separate cross-model stress set. This intentionally asks female and male
+views of the same item to retrieve each other, even when their designs differ:
+
+```powershell
+python scripts\evaluate_visual_retrieval.py `
+  --cases data\samples\retrieval_eval_cross_view.jsonl `
+  --output data\processed\retrieval_eval_cross_view_results.json `
+  --top-k 10
+```
+
+Regenerate deterministic evaluation cases when the dataset changes:
+
+```powershell
+python scripts\build_retrieval_eval_set.py --mode transformed `
+  --output data\samples\retrieval_eval.jsonl
+python scripts\build_retrieval_eval_set.py --mode cross-view `
+  --output data\samples\retrieval_eval_cross_view.jsonl
+```
+
+Generate larger on-disk noise suites. Each profile samples six pieces per slot
+and writes real JPEG query images with flips, non-uniform stretching, rotation,
+shear, blur, compression, and deterministic pixel noise:
+
+```powershell
+python scripts\build_augmented_retrieval_eval_set.py `
+  --profile mild --per-slot 6 `
+  --output data\samples\retrieval_eval_mild.jsonl
+
+python scripts\build_augmented_retrieval_eval_set.py `
+  --profile stress --per-slot 6 `
+  --output data\samples\retrieval_eval_stress.jsonl
+```
+
+Evaluate both generated suites:
+
+```powershell
+python scripts\evaluate_visual_retrieval.py `
+  --cases data\samples\retrieval_eval_mild.jsonl `
+  --output data\processed\retrieval_eval_mild_results.json
+
+python scripts\evaluate_visual_retrieval.py `
+  --cases data\samples\retrieval_eval_stress.jsonl `
+  --output data\processed\retrieval_eval_stress_results.json
+```
+
+The generated JPEG bodies stay under `data/samples/retrieval_eval_images/` and
+are ignored by Git; their JSONL manifests remain source-controlled and
+reproducible from the local source image cache.
+
+The default index excludes `dyed` images so current dye colors do not become the
+primary visual signal. Generated indexes and evaluation outputs remain local.
+
+## Next Milestone: Whole-Outfit Screenshot Understanding
+
+The next milestone is an end-to-end baseline that accepts a real player glamour
+screenshot, extracts approximate regions for the five core armor slots, searches
+the existing single-piece CLIP index, and compares the results with the equipment
+labels collected from the source glamour page.
+
+Implementation plan:
+
+1. Expand the reviewed player-glamour allowlist to 50-100 pages, covering both
+   model genders, several races, varied styles, and complete and multi-slot
+   outfits.
+2. Measure item-to-SQLite resolution coverage and investigate unmatched core
+   armor items before treating the labels as evaluation truth.
+3. Split examples by `glamour_id`, never by image, so multiple screenshots of the
+   same outfit cannot leak across development and validation sets.
+4. Build a deterministic person/outfit crop and approximate HEAD, BODY, HANDS,
+   LEGS, and FEET regions from each full screenshot.
+5. Search each visible region against its corresponding slot index, with optional
+   model gender and race filters.
+6. Evaluate Recall@1, Recall@5, Recall@10, and MRR per slot and overall. Report
+   empty slots, multi-slot items, unmatched labels, and invisible or occluded
+   regions separately.
+7. Save annotated crop-debug images and retrieval previews for human review
+   before adding more complex segmentation or reranking.
+
+Initial acceptance criteria:
+
+- At least 50 labeled glamour pages and 150 usable screenshots.
+- At least 95% of non-empty core-slot labels resolved to local item records, or
+  explicitly categorized as missing canonical data.
+- A reproducible split manifest grouped by `glamour_id`.
+- One CLI command that produces five-slot candidates and an evaluation report
+  from the labeled screenshot set.
+- Crop-debug output that makes region failures inspectable without rerunning the
+  collector.

@@ -30,3 +30,17 @@ data/raw/eorzea_collection/images/**
 
 # Generated repair manifest; summary JSON keeps the durable QA result.
 data/processed/eorzea_missing_images_manifest.jsonl
+# Generated visual retrieval indexes and evaluation outputs.
+data/indexes/**
+!data/indexes/.gitkeep
+data/samples/retrieval_eval.generated.jsonl
+data/processed/retrieval_eval_results.json
+data/processed/retrieval_eval_cross_view_results.json
+data/samples/retrieval_eval_images/**
+data/processed/retrieval_eval_mild_results.json
+data/processed/retrieval_eval_stress_results.json
+# Player-uploaded glamour pages and screenshots are local source caches.
+data/raw/eorzea_collection/glamours/html/**
+!data/raw/eorzea_collection/glamours/html/.gitkeep
+data/raw/eorzea_collection/glamours/images/**
+!data/raw/eorzea_collection/glamours/images/.gitkeep

@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 from pathlib import Path
@@ -15,6 +15,19 @@ def append_jsonl(path: Path, rows: Iterable[dict[str, Any]]) -> int:
     with path.open("a", encoding="utf-8") as handle:
         for row in rows:
             handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True))
+            handle.write("\n")
+            count += 1
+    return count
+
+
+def write_jsonl(path: Path, rows: Iterable[dict[str, Any]]) -> int:
+    """Replace a JSONL file and return the number of written rows."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    count = 0
+    with path.open("w", encoding="utf-8") as handle:
+        for row in rows:
+            handle.write(json.dumps(portable_payload(row), ensure_ascii=False, sort_keys=True))
             handle.write("\n")
             count += 1
     return count
