@@ -1,10 +1,10 @@
 {
-  "collected_this_run": 5,
-  "core_slot_labels": 22,
+  "collected_this_run": 15,
+  "core_slot_labels": 243,
   "errors": [],
-  "finished_at": "2026-06-24T09:31:59Z",
-  "image_count_total": 20,
+  "finished_at": "2026-06-25T01:55:45Z",
+  "image_count_total": 192,
   "output": "data/raw/eorzea_collection/glamours/metadata/glamour_examples_raw.jsonl",
-  "records_total": 5,
-  "requested": 5
+  "records_total": 50,
+  "requested": 15
 }
