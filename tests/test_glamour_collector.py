@@ -33,6 +33,42 @@ class GlamourCollectorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "outside glamour"):
             MODULE.validate_record(record)
 
+    def test_require_all_core_items_matched_rejects_unmatched_nonempty_slot(self) -> None:
+        record = {
+            "equipment": [
+                {
+                    "slot": "BODY",
+                    "is_core_slot": True,
+                    "is_empty": False,
+                    "item_name": "Missing Coat",
+                    "matched_piece_ids": [99],
+                    "piece_match_type": "appearance_equivalent",
+                }
+            ]
+        }
+        with self.assertRaisesRegex(ValueError, "BODY=Missing Coat"):
+            MODULE.require_all_core_items_matched(record)
+
+    def test_require_all_core_items_matched_allows_empty_slots(self) -> None:
+        record = {
+            "equipment": [
+                {
+                    "slot": "HEAD",
+                    "is_core_slot": True,
+                    "is_empty": True,
+                    "item_name": None,
+                    "matched_piece_ids": [],
+                },
+                {
+                    "slot": "BODY",
+                    "is_core_slot": True,
+                    "is_empty": False,
+                    "item_name": "Known Coat",
+                    "matched_piece_ids": [42],
+                },
+            ]
+        }
+        MODULE.require_all_core_items_matched(record)
 
 def png_bytes(size: tuple[int, int]) -> bytes:
     buffer = io.BytesIO()

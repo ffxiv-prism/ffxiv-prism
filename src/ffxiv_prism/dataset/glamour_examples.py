@@ -29,7 +29,11 @@ def build_glamour_examples_dataset(
     rows = []
     missing_images = []
     slot_status = Counter()
+    piece_match_status = Counter()
     for record in source_records:
+        for item in record.get("equipment", []):
+            if item.get("is_core_slot") and not item.get("is_empty"):
+                piece_match_status[item.get("piece_match_type") or "legacy_unknown"] += 1
         resolved_slots = resolve_core_slots(record.get("equipment", []))
         for label in resolved_slots.values():
             slot_status[label["label_type"]] += 1
@@ -73,6 +77,7 @@ def build_glamour_examples_dataset(
         "image_examples": len(rows),
         "missing_images": missing_images,
         "slot_label_status": dict(sorted(slot_status.items())),
+        "piece_match_status": dict(sorted(piece_match_status.items())),
     }
     write_json(summary_path, summary)
     return summary
@@ -105,6 +110,9 @@ def resolve_core_slots(equipment: list[dict[str, Any]]) -> dict[str, dict[str, A
                 "source_slot": slot,
                 "item_name": None,
                 "piece_ids": [],
+                "piece_match_type": "empty",
+                "matched_piece_names": [],
+                "appearance_equivalence_rule": None,
                 "dyes": [],
             }
     return result
@@ -116,6 +124,9 @@ def label_from_item(item: dict[str, Any], label_type: str, source_slot: str) -> 
         "source_slot": source_slot,
         "item_name": item.get("item_name"),
         "piece_ids": item.get("matched_piece_ids", []),
+        "piece_match_type": item.get("piece_match_type"),
+        "matched_piece_names": item.get("matched_piece_names", []),
+        "appearance_equivalence_rule": item.get("appearance_equivalence_rule"),
         "site_item_id": item.get("site_item_id"),
         "lodestone_url": item.get("lodestone_url"),
         "dyes": item.get("dyes", []),

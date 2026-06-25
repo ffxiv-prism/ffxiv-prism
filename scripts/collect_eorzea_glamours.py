@@ -67,9 +67,16 @@ def main() -> int:
     parser.add_argument("--wait-seconds", type=int, default=90)
     parser.add_argument("--headless", action="store_true", help="Only applies to --fetch-mode browser.")
     parser.add_argument("--no-images", action="store_true")
+    parser.add_argument(
+        "--require-all-core-matched",
+        action="store_true",
+        help="Reject a glamour when any non-empty core slot lacks an exact local piece match.",
+    )
     parser.add_argument("--refresh", action="store_true", help="Refetch cached HTML and images.")
     parser.add_argument("--max-pages", type=int, default=10, help="Hard safety bound for one run.")
     args = parser.parse_args()
+    if args.require_all_core_matched and not args.db.is_file():
+        parser.error(f"--require-all-core-matched requires an existing database: {args.db}")
 
     urls = normalize_urls(args.urls, args.url_file)
     if not urls:
@@ -111,6 +118,8 @@ def main() -> int:
                 record["collected_at"] = utc_now()
                 if args.db.exists():
                     enrich_equipment_from_sqlite(record, args.db)
+                if args.require_all_core_matched:
+                    require_all_core_items_matched(record)
                 if args.no_images:
                     record["images"] = []
                 else:
@@ -215,6 +224,33 @@ def validate_record(record: dict) -> None:
     if slots != list(CORE_SLOTS):
         raise ValueError(f"Expected exactly five core slots, got {slots}")
 
+
+def is_exact_piece_match(item: dict) -> bool:
+    match_type = item.get("piece_match_type")
+    if match_type is None:
+        return bool(item.get("matched_piece_ids"))
+    return match_type == "exact_item"
+
+
+def unmatched_core_items(record: dict) -> list[dict]:
+    return [
+        item
+        for item in record.get("equipment", [])
+        if item.get("is_core_slot")
+        and not item.get("is_empty")
+        and not is_exact_piece_match(item)
+    ]
+
+
+def require_all_core_items_matched(record: dict) -> None:
+    unmatched = unmatched_core_items(record)
+    if not unmatched:
+        return
+    details = ", ".join(
+        f"{item.get('slot')}={item.get('item_name') or 'unknown'}"
+        for item in unmatched
+    )
+    raise ValueError(f"Non-exact non-empty core items: {details}")
 
 def collect_images(record: dict, refresh: bool, session: cloudscraper.CloudScraper) -> list[dict]:
     results = []

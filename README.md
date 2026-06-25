@@ -127,6 +127,23 @@ Collect a small explicit allowlist, with a hard per-run page bound:
 python scripts\collect_eorzea_glamours.py 302518 --refresh --max-pages 1
 ```
 
+For training and evaluation collections, require every non-empty core slot to
+resolve to the exact local item record before downloading screenshots:
+
+```powershell
+python scripts\collect_eorzea_glamours.py --url-file candidates.txt `
+  --max-pages 50 --require-all-core-matched
+```
+
+Equipment resolution distinguishes three outcomes:
+
+- `exact_item`: the uploaded glamour item matches a local item name exactly.
+- `appearance_equivalent`: a known variant name points to the same appearance,
+  such as augmented, replica, Anemos, or costume variants. Retrieval may return
+  these candidates, but presentation must label them as same appearance with a
+  different item ID.
+- `unmatched`: no trustworthy exact or same-appearance local candidate exists.
+
 The image filter accepts only the current glamour's static gallery directory,
 requires an image content type, verifies the body with Pillow, and rejects images
 smaller than 200x200. Navigation icons, slot icons, item icons, advertisements,

@@ -61,41 +61,81 @@ def enrich_equipment_from_sqlite(record: dict[str, Any], db_path: Path) -> dict[
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
+        all_rows = conn.execute(
+            """
+            SELECT piece_id, slot, name_en, occupied_slots_json, blocked_slots_json
+            FROM gear_pieces
+            ORDER BY piece_id
+            """
+        ).fetchall()
         for item in record.get("equipment", []):
             name = item.get("item_name")
             if not name:
-                item["matched_piece_ids"] = []
-                item["occupied_slots"] = []
+                set_piece_matches(item, [], "empty")
                 continue
-            rows = conn.execute(
-                """
-                SELECT piece_id, slot, occupied_slots_json, blocked_slots_json
-                FROM gear_pieces
-                WHERE name_en = ?
-                ORDER BY piece_id
-                """,
-                (name,),
-            ).fetchall()
-            item["matched_piece_ids"] = [int(row["piece_id"]) for row in rows]
-            item["matched_piece_slots"] = sorted({row["slot"] for row in rows})
-            item["occupied_slots"] = sorted(
-                {
-                    slot
-                    for row in rows
-                    for slot in parse_json_list(row["occupied_slots_json"])
-                }
-            )
-            item["blocked_slots"] = sorted(
-                {
-                    slot
-                    for row in rows
-                    for slot in parse_json_list(row["blocked_slots_json"])
-                }
-            )
+
+            rows = [row for row in all_rows if row["name_en"] == name]
+            match_type = "exact_item"
+            equivalence_rule = None
+            if not rows:
+                key = appearance_name_key(name)
+                rows = [
+                    row
+                    for row in all_rows
+                    if row["slot"] == item.get("slot")
+                    and appearance_name_key(row["name_en"]) == key
+                ]
+                match_type = "appearance_equivalent" if rows else "unmatched"
+                equivalence_rule = "normalized_variant_name" if rows else None
+
+            set_piece_matches(item, rows, match_type, equivalence_rule)
     finally:
         conn.close()
     return record
 
+
+def set_piece_matches(
+    item: dict[str, Any],
+    rows: list[sqlite3.Row],
+    match_type: str,
+    equivalence_rule: str | None = None,
+) -> None:
+    item["piece_match_type"] = match_type
+    item["appearance_equivalence_rule"] = equivalence_rule
+    item["matched_piece_ids"] = [int(row["piece_id"]) for row in rows]
+    item["matched_piece_names"] = sorted(
+        {str(row["name_en"]) for row in rows if row["name_en"]}
+    )
+    item["matched_piece_slots"] = sorted({row["slot"] for row in rows})
+    item["occupied_slots"] = sorted(
+        {
+            slot
+            for row in rows
+            for slot in parse_json_list(row["occupied_slots_json"])
+        }
+    )
+    item["blocked_slots"] = sorted(
+        {
+            slot
+            for row in rows
+            for slot in parse_json_list(row["blocked_slots_json"])
+        }
+    )
+
+
+def appearance_name_key(value: str | None) -> str:
+    normalized = re.sub(r"[^a-z0-9+]+", " ", (value or "").lower()).strip()
+    variant_prefixes = ("augmented ", "antiquated ", "anemos ", "replica ")
+    changed = True
+    while changed:
+        changed = False
+        for prefix in variant_prefixes:
+            if normalized.startswith(prefix):
+                normalized = normalized[len(prefix):].strip()
+                changed = True
+    normalized = re.sub(r"\bcostume\b", "", normalized)
+    normalized = re.sub(r"\s*\+\d+$", "", normalized)
+    return " ".join(normalized.split())
 
 def extract_equipment(soup: BeautifulSoup) -> list[dict[str, Any]]:
     equipment: list[dict[str, Any]] = []

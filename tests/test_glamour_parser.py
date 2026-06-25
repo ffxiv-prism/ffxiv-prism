@@ -1,8 +1,15 @@
 from __future__ import annotations
 
+import sqlite3
+import tempfile
 import unittest
+from pathlib import Path
 
-from ffxiv_prism.collectors.eorzea_collection.glamour_parser import parse_glamour_page
+from ffxiv_prism.collectors.eorzea_collection.glamour_parser import (
+    appearance_name_key,
+    enrich_equipment_from_sqlite,
+    parse_glamour_page,
+)
 
 
 HTML = """
@@ -66,6 +73,64 @@ class GlamourParserTests(unittest.TestCase):
         self.assertEqual(head["dyes"], ["Dark Purple", "Undyed"])
         self.assertTrue(hands["is_empty"])
 
+
+    def test_enrichment_marks_same_model_variant_without_claiming_exact_id(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "test.sqlite"
+            conn = sqlite3.connect(db_path)
+            conn.execute(
+                """
+                CREATE TABLE gear_pieces (
+                    piece_id INTEGER,
+                    slot TEXT,
+                    name_en TEXT,
+                    occupied_slots_json TEXT,
+                    blocked_slots_json TEXT
+                )
+                """
+            )
+            conn.execute(
+                "INSERT INTO gear_pieces VALUES (?, ?, ?, ?, ?)",
+                (7, "HANDS", "Nightsteel Gauntlets of Maiming", "[]", "[]"),
+            )
+            conn.commit()
+            conn.close()
+
+            record = {
+                "equipment": [
+                    {
+                        "slot": "HANDS",
+                        "is_core_slot": True,
+                        "is_empty": False,
+                        "item_name": "Augmented Nightsteel Gauntlets of Maiming",
+                    }
+                ]
+            }
+            enrich_equipment_from_sqlite(record, db_path)
+            item = record["equipment"][0]
+            self.assertEqual(item["piece_match_type"], "appearance_equivalent")
+            self.assertEqual(item["matched_piece_ids"], [7])
+            self.assertEqual(item["matched_piece_names"], ["Nightsteel Gauntlets of Maiming"])
+            self.assertEqual(item["appearance_equivalence_rule"], "normalized_variant_name")
+    def test_appearance_name_key_normalizes_known_same_model_variants(self) -> None:
+        self.assertEqual(
+            appearance_name_key("Augmented Nightsteel Gauntlets of Maiming"),
+            appearance_name_key("Nightsteel Gauntlets of Maiming"),
+        )
+        self.assertEqual(
+            appearance_name_key("Fieldfiend's Costume Hat"),
+            appearance_name_key("Fieldfiend's Hat"),
+        )
+        self.assertEqual(
+            appearance_name_key("Anemos Channeler's Armlets"),
+            appearance_name_key("Channeler's Armlets"),
+        )
+
+    def test_appearance_name_key_keeps_unrelated_items_distinct(self) -> None:
+        self.assertNotEqual(
+            appearance_name_key("Ascension Longkilt of Casting"),
+            appearance_name_key("Anabaseios Longkilt of Casting"),
+        )
 
 if __name__ == "__main__":
     unittest.main()
