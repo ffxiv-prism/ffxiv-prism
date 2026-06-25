@@ -104,7 +104,10 @@ approval. Pass `--respect-robots` on a command when you want to re-enable
 robots.txt checks for that run.
 
 Canonical images come from `gearsets.eorzeacollection.com` static gearset files.
-Player-uploaded glamour pages are excluded from the canonical single-piece image`ndataset. A separate, bounded `glamour_examples` dataset may retain their`nsource-backed screenshots and equipment labels for whole-outfit understanding`nand evaluation.
+Player-uploaded glamour pages are excluded from the canonical single-piece image
+dataset. A separate, bounded `glamour_examples` dataset may retain their
+source-backed screenshots and equipment labels for whole-outfit understanding
+and evaluation.
 
 
 
