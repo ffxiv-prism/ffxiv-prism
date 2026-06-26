@@ -312,6 +312,53 @@ Implementation plan:
 7. Save annotated crop-debug images and retrieval previews for human review
    before adding more complex segmentation or reranking.
 
+### Pose-Driven Outfit Region Debugging
+
+Player screenshots are treated as single-person images. The baseline first runs
+ViTPose over the full image. When that pose is weak, it searches overlapping,
+center-biased windows for the best single pose; it does not count or classify
+multiple people. A second pass tightens the box around the selected skeleton.
+
+Each slot receives multiple pose-relative crops. These are intentionally
+slightly redundant because glamour model coverage does not always follow body
+anatomy: long sleeves can be part of body gear or hand gear, long boots can cover
+shin areas, and head items can be hats, hair ornaments, eyewear, masks, or other
+small accessories.
+
+- HEAD: full head, upper-accessory, face-accessory, and head-with-shoulders context crops. These are tagged when they may include face or hair features.
+- BODY: torso, torso-plus-upper-arm overlap, and wider body context crops. The upper-arm overlap crop is tagged as BODY/HANDS-ambiguous.
+- HANDS: left/right arm crops, forearm-focused crops for long gloves, and combined arm-cover context.
+- LEGS: left/right leg crops, thigh-focused crops that reduce boot leakage, lower-leg/boot-overlap crops, and combined lower-body context.
+- FEET: left/right foot crops, boot-height crops for long boots, and combined lower-leg context.
+
+The JSON manifest includes each crop's `role` (`primary`, `auxiliary`, or
+`context`) and `tags` such as `body_hands_overlap`, `legs_feet_overlap`,
+`may_include_face_hair`, and `long_boot_focus`. Retrieval should treat primary
+crops as precision evidence, auxiliary overlap crops as recall evidence, and
+context crops as tie-breakers or visual-debug evidence. If adjacent slots
+strongly disagree, the overlap-tagged crops should be down-weighted rather than
+forcing a hard boundary between equipment slots.
+
+Run a small visual QA batch:
+
+```powershell
+python scripts\debug_outfit_regions.py reference.png `
+  --output-dir data\debug\outfit-regions\sample
+```
+
+Run all labeled screenshots:
+
+```powershell
+python scripts\debug_outfit_regions.py `
+  --dataset data\processed\glamour_examples.jsonl `
+  --output-dir data\debug\outfit-regions\full --quiet
+```
+
+The command writes skeleton/region overlays, crop contact sheets, individual
+crops, JSON manifests, and a visibility summary. Generated debug assets remain
+local. Slots marked `pose_uncertain` or `out_of_frame` should be excluded from
+retrieval evaluation; `partially_visible` and `occluded` crops should be retained
+with reduced weight.
 Initial acceptance criteria:
 
 - At least 50 labeled glamour pages and 150 usable screenshots.
