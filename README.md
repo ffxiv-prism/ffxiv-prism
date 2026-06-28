@@ -1,5 +1,9 @@
 # FFXIV Prism
 
+Current visual-recognition status, reproducible commands, rejected experiments,
+and next steps are recorded in
+[`docs/handoff_2026-06-29.md`](docs/handoff_2026-06-29.md).
+
 FFXIV Prism is a local Python project for building a Final Fantasy XIV glamour
 appearance dataset. The current milestone is a source-backed gearset and gear
 piece dataset with English and Simplified Chinese item names.
@@ -206,6 +210,20 @@ only during reranking with dyeability awareness.
 
 ## Visual Retrieval MVP
 
+The dedicated Conda environment keeps Hugging Face, Torch, and pip caches under
+the project `var/cache/` directory on the D drive. Activate it before running
+GPU experiments:
+
+```powershell
+conda activate ffxiv-prism
+```
+
+Verify the CUDA runtime before a long indexing run:
+
+```powershell
+python -c "import torch; print(torch.__version__, torch.cuda.is_available(), torch.cuda.get_device_name(0))"
+```
+
 Build a CPU-compatible CLIP index for normal slot images:
 
 ```powershell
@@ -285,6 +303,51 @@ reproducible from the local source image cache.
 
 The default index excludes `dyed` images so current dye colors do not become the
 primary visual signal. Generated indexes and evaluation outputs remain local.
+
+### Screenshot-to-Render Domain Adapter
+
+Train and evaluate the slot-conditioned low-rank adapter on deterministic
+`glamour_id` groups:
+
+```powershell
+python scripts\train_glamour_adapter.py --device cuda
+```
+
+The command uses 30/10/10 glamour groups for training, validation, and held-out
+testing. It also evaluates DINOv2/CLIP score fusion and a cascade that takes
+Top-1 from the precision fusion model while filling the rest of Top-10 from the
+higher-recall adapted DINOv2 model. The checkpoint is written under
+`data/models/`; generated checkpoints and reports stay local.
+
+### Human Parsing and Background Masks
+
+Build both person-foreground and strict slot-mask DINOv2 query caches:
+
+```powershell
+python scripts\build_masked_glamour_crop_embeddings.py --device cuda
+```
+
+Train the person-mask adapter without changing the clean-render candidate
+index:
+
+```powershell
+python scripts\train_glamour_adapter.py `
+  --crop-cache data\processed\glamour_crop_embeddings_facebook-dinov2-base-color-mask-person.npz `
+  --checkpoint data\models\glamour_adapter_dinov2_base_mask_person.pt `
+  --output data\processed\glamour_adapter_eval_dinov2_base_mask_person.json `
+  --device cuda
+```
+
+Combine person-mask Top-1 precision with the raw-image cascade's retrieval tail:
+
+```powershell
+python scripts\evaluate_mask_ensemble.py
+```
+
+Human parsing uses SegFormer clothing labels, dilated and feathered before
+compositing onto the same black background used by transparent clean renders.
+Strict slot masks fall back to the full person mask when the requested semantic
+region is too small.
 
 ## Next Milestone: Whole-Outfit Screenshot Understanding
 

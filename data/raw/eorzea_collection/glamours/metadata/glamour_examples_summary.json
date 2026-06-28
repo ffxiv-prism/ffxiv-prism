@@ -1,9 +1,19 @@
 {
-  "core_slot_labels": 246,
-  "errors": [],
-  "image_count_total": 201,
+  "collected_this_run": 5,
+  "core_slot_labels": 2611,
+  "errors": [
+    {
+      "error": "ValueError: Non-exact non-empty core items: LEGS=Edengate Pantaloons of Healing",
+      "url": "https://ffxiv.eorzeacollection.com/glamour/108554"
+    },
+    {
+      "error": "ValueError: Non-exact non-empty core items: FEET=Hard Leather Caligae",
+      "url": "https://ffxiv.eorzeacollection.com/glamour/108416"
+    }
+  ],
+  "finished_at": "2026-06-28T15:11:39Z",
+  "image_count_total": 2169,
   "output": "data/raw/eorzea_collection/glamours/metadata/glamour_examples_raw.jsonl",
-  "records_total": 50,
-  "removed_non_exact_records": 20,
-  "selection_policy": "all_nonempty_core_slots_exact_item"
+  "records_total": 534,
+  "requested": 7
 }

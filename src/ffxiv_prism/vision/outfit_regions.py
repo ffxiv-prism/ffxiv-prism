@@ -1,12 +1,22 @@
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
 import numpy as np
+
+# Initialize Conda's BLAS/OpenMP runtime before CUDA PyTorch loads its bundled
+# copy. If Torch is already loaded, do not introduce the second runtime merely
+# by importing this geometry module.
+if "torch" not in sys.modules:
+    np.linalg.inv(np.eye(2, dtype=np.float32))
+
 import torch
 from PIL import Image, ImageDraw, ImageFont
+
+from ffxiv_prism.paths import CACHE_DIR
 
 DEFAULT_POSE_MODEL = "usyd-community/vitpose-base-simple"
 KEYPOINT_NAMES = (
@@ -46,18 +56,33 @@ class CropRegion:
 
 def _install_vitpose_pil_fallbacks() -> None:
     """Patch two SciPy-only helpers with NumPy/Pillow equivalents."""
-    import transformers.models.vitpose.image_processing_pil_vitpose as vitpose_module
+    import transformers.utils as transformers_utils
+
+    original_scipy_check = transformers_utils.is_scipy_available
+    transformers_utils.is_scipy_available = lambda: False
+    try:
+        import transformers.models.vitpose.image_processing_pil_vitpose as vitpose_module
+    finally:
+        transformers_utils.is_scipy_available = original_scipy_check
 
     if getattr(vitpose_module, "_ffxiv_prism_patched", False):
         return
 
     def pil_warp_affine(src: np.ndarray, M: np.ndarray, size: tuple[int, int]) -> np.ndarray:
-        inverse = np.linalg.inv(np.vstack([M, [0.0, 0.0, 1.0]]))
+        a, b, c = (float(value) for value in M[0])
+        d, e, f = (float(value) for value in M[1])
+        determinant = a * e - b * d
+        if abs(determinant) < 1e-12:
+            raise ValueError("Affine transform is singular")
         coefficients = tuple(
             float(value)
             for value in (
-                inverse[0, 0], inverse[0, 1], inverse[0, 2],
-                inverse[1, 0], inverse[1, 1], inverse[1, 2],
+                e / determinant,
+                -b / determinant,
+                (b * f - e * c) / determinant,
+                -d / determinant,
+                a / determinant,
+                (d * c - a * f) / determinant,
             )
         )
         array = np.asarray(src)
@@ -109,12 +134,27 @@ class SinglePersonPoseEstimator:
 
         self.model_id = model_id
         self.device = torch.device(device)
+        cache_dir = CACHE_DIR / "huggingface" / "hub"
         try:
-            self.processor = VitPoseImageProcessorPil.from_pretrained(model_id, local_files_only=True)
-            self.model = VitPoseForPoseEstimation.from_pretrained(model_id, local_files_only=True)
+            self.processor = VitPoseImageProcessorPil.from_pretrained(
+                model_id,
+                cache_dir=cache_dir,
+                local_files_only=True,
+            )
+            self.model = VitPoseForPoseEstimation.from_pretrained(
+                model_id,
+                cache_dir=cache_dir,
+                local_files_only=True,
+            )
         except OSError:
-            self.processor = VitPoseImageProcessorPil.from_pretrained(model_id)
-            self.model = VitPoseForPoseEstimation.from_pretrained(model_id)
+            self.processor = VitPoseImageProcessorPil.from_pretrained(
+                model_id,
+                cache_dir=cache_dir,
+            )
+            self.model = VitPoseForPoseEstimation.from_pretrained(
+                model_id,
+                cache_dir=cache_dir,
+            )
         self.model = self.model.to(self.device).eval()
 
     def estimate(self, image: Image.Image, refine: bool = True) -> tuple[list[Keypoint], tuple[int, int, int, int]]:

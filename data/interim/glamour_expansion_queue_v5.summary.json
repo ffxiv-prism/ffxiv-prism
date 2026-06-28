@@ -1,0 +1,621 @@
+{
+  "discovered_candidate_count": 121,
+  "excluded_attempted_count": 465,
+  "existing_glamour_count": 376,
+  "output": "data/interim/glamour_expansion_queue_v5.txt",
+  "prefer_recent": true,
+  "selected": [
+    {
+      "glamour_id": 306959,
+      "related_link_count": 8,
+      "source_glamour_count": 8
+    },
+    {
+      "glamour_id": 191369,
+      "related_link_count": 7,
+      "source_glamour_count": 7
+    },
+    {
+      "glamour_id": 191609,
+      "related_link_count": 6,
+      "source_glamour_count": 6
+    },
+    {
+      "glamour_id": 107749,
+      "related_link_count": 4,
+      "source_glamour_count": 4
+    },
+    {
+      "glamour_id": 314598,
+      "related_link_count": 2,
+      "source_glamour_count": 2
+    },
+    {
+      "glamour_id": 311991,
+      "related_link_count": 2,
+      "source_glamour_count": 2
+    },
+    {
+      "glamour_id": 307102,
+      "related_link_count": 2,
+      "source_glamour_count": 2
+    },
+    {
+      "glamour_id": 81925,
+      "related_link_count": 2,
+      "source_glamour_count": 2
+    },
+    {
+      "glamour_id": 65551,
+      "related_link_count": 2,
+      "source_glamour_count": 2
+    },
+    {
+      "glamour_id": 342510,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 342502,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 342492,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 341435,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 340206,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 339608,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 339249,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 337853,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 337356,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 337355,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 336184,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 335960,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 334303,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 334301,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 334066,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 333766,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 333377,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 331950,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 331449,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 330566,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 328846,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 328463,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 327809,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 327807,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 327797,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 326252,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 326147,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 325098,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 324869,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 322609,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 322574,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 321620,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 320587,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 319241,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 315524,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 314915,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 312456,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 310632,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 310629,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 307811,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 302849,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 302714,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 298706,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 298519,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 296336,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 296299,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 294794,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 290506,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 289523,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 287781,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 286540,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 285614,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 281814,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 280273,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 275632,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 275555,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 274975,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 272101,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 270740,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 270717,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 270586,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 269870,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 263476,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 262511,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 257482,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 255424,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 254533,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 253578,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 252947,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 252007,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 251255,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 250842,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 249435,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 246926,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 238584,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 233053,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 230230,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 226215,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 223293,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 219921,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 215998,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 215871,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 211411,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 210128,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 206601,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 196696,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 183104,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 181018,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 180249,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 179591,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 179368,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 179089,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 178906,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 178726,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 178006,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 177925,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 177144,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 177141,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 168675,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 164071,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 163352,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 159614,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 147116,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 142029,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 109600,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 108789,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 86793,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 86069,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 75115,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 59911,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 6220,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    },
+    {
+      "glamour_id": 6209,
+      "related_link_count": 1,
+      "source_glamour_count": 1
+    }
+  ],
+  "selected_count": 121,
+  "shards": [
+    "data/interim/glamour_expansion_queue_v5.part001.txt",
+    "data/interim/glamour_expansion_queue_v5.part002.txt",
+    "data/interim/glamour_expansion_queue_v5.part003.txt"
+  ],
+  "source": "data/raw/eorzea_collection/glamours/metadata/glamour_examples_raw.jsonl"
+}

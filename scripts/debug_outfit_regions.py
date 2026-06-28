@@ -29,6 +29,11 @@ def main() -> int:
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--no-refine", action="store_true")
     parser.add_argument("--quiet", action="store_true")
+    parser.add_argument(
+        "--skip-existing",
+        action="store_true",
+        help="Reuse an existing per-image region manifest and crops.",
+    )
     args = parser.parse_args()
 
     image_paths = list(args.images)
@@ -47,15 +52,31 @@ def main() -> int:
     summaries = []
     visibility_counts: Counter[tuple[str, str]] = Counter()
     for image_path in image_paths:
+        stem = f"{image_path.parent.name}-{image_path.stem}"
+        manifest_path = args.output_dir / stem / f"{stem}-regions.json"
+        if args.skip_existing and manifest_path.is_file():
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            summaries.append(manifest)
+            for slot in ("HEAD", "BODY", "HANDS", "LEGS", "FEET"):
+                slot_regions = [
+                    region
+                    for region in manifest.get("regions", [])
+                    if region.get("slot") == slot
+                ]
+                if slot_regions:
+                    best = max(
+                        slot_regions,
+                        key=lambda region: float(region.get("confidence", 0.0)),
+                    )
+                    visibility_counts[(slot, str(best["visibility"]))] += 1
+            continue
         image = Image.open(image_path).convert("RGB")
         keypoints, person_box = estimator.estimate(image, refine=not args.no_refine)
         regions = build_outfit_regions(keypoints, image.size)
-        stem = f"{image_path.parent.name}-{image_path.stem}"
         crop_dir = args.output_dir / stem / "crops"
         crop_paths = save_region_crops(image, regions, crop_dir, stem)
         overlay_path = args.output_dir / stem / f"{stem}-overlay.jpg"
         sheet_path = args.output_dir / stem / f"{stem}-crops.jpg"
-        manifest_path = args.output_dir / stem / f"{stem}-regions.json"
         overlay_path.parent.mkdir(parents=True, exist_ok=True)
         render_debug_overlay(image, keypoints, person_box, regions).save(overlay_path, quality=94)
         render_crop_contact_sheet(image, regions).save(sheet_path, quality=92)

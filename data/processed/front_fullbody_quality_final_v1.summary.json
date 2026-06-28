@@ -1,0 +1,22 @@
+{
+  "accepted": 273,
+  "coverage": 0.14505844845908608,
+  "examples": 1882,
+  "output": "data/processed/front_fullbody_quality_final_v1.jsonl",
+  "rejected": 1609,
+  "source_manifest": "data/processed/front_fullbody_quality_v4.jsonl",
+  "visual_rejection_reason_counts": {
+    "back_view": 25,
+    "dark_side_view": 1,
+    "front_back_comparison": 3,
+    "head_cropped": 1,
+    "multiple_subjects_and_small": 1,
+    "person_too_small": 12,
+    "reclined_pose": 1,
+    "side_or_back_view": 4,
+    "side_view": 8,
+    "small_crouched_pose": 1
+  },
+  "visual_rejections_applied": 57,
+  "visual_reviews": "data/processed/front_fullbody_visual_reviews_v1.jsonl"
+}

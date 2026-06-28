@@ -33,6 +33,7 @@ data/processed/eorzea_missing_images_manifest.jsonl
 # Generated visual retrieval indexes and evaluation outputs.
 data/indexes/**
 !data/indexes/.gitkeep
+data/models/**
 data/samples/retrieval_eval.generated.jsonl
 data/processed/retrieval_eval_results.json
 data/processed/retrieval_eval_cross_view_results.json
@@ -43,6 +44,20 @@ data/processed/retrieval_eval_mild_results.json
 data/processed/retrieval_eval_stress_results.json
 data/processed/glamour_crop_embeddings*.npz
 data/processed/glamour_matching_eval_results*.json
+data/processed/glamour_adapter_eval*.json
+data/processed/glamour_query_encoder_eval*.json
+data/processed/glamour_query_encoder_*_eval.json
+data/processed/glamour_query_embeddings*.npz
+data/processed/glamour_pair_reranker_eval*.json
+data/processed/glamour_pair_reranker_blind*.json
+data/processed/glamour_matching_eval_*.json
+data/processed/synthetic_query_encoder_*.json
+data/processed/glamour_mask_*_summary.json
+data/processed/glamour_mask_ensemble_eval.json
+data/processed/glamour_examples_blind_*.jsonl
+data/processed/front_fullbody_quality_v*.jsonl
+data/processed/front_fullbody_quality_v*.summary.json
+data/processed/front_fullbody_quality_clip_ensemble_pilot*
 # Player-uploaded glamour pages and screenshots are local source caches.
 data/raw/eorzea_collection/glamours/html/**
 !data/raw/eorzea_collection/glamours/html/.gitkeep

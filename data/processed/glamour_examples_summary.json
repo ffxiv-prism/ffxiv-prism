@@ -1,15 +1,15 @@
 {
-  "glamour_records": 50,
-  "image_examples": 201,
+  "glamour_records": 534,
+  "image_examples": 2169,
   "missing_images": [],
   "output": "data/processed/glamour_examples.jsonl",
   "piece_match_status": {
-    "exact_item": 246
+    "exact_item": 2611
   },
   "slot_label_status": {
-    "direct": 246,
-    "empty_or_unlabeled": 1,
-    "occupied_by_multislot": 3
+    "direct": 2611,
+    "empty_or_unlabeled": 41,
+    "occupied_by_multislot": 18
   },
   "source": "data/raw/eorzea_collection/glamours/metadata/glamour_examples_raw.jsonl"
 }

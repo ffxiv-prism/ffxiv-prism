@@ -1,0 +1,161 @@
+from __future__ import annotations
+
+import tempfile
+import unittest
+from pathlib import Path
+
+from ffxiv_prism.jsonl import write_jsonl
+from scripts.train_glamour_adapter import TrainingSample
+from scripts.train_glamour_query_encoder import (
+    SlotAttentionPooler,
+    apply_training_reviews,
+    group_training_samples,
+    load_foreground_allowlist,
+    prune_training_samples,
+)
+import torch
+
+
+class QueryEncoderTests(unittest.TestCase):
+    def test_visual_review_can_reject_image_or_one_slot(self) -> None:
+        records = {
+            "reject": [{"slot": "BODY"}, {"slot": "HEAD"}],
+            "partial": [{"slot": "BODY"}, {"slot": "FEET"}],
+        }
+        reviews = {
+            "reject": {"decision": "reject"},
+            "partial": {
+                "decision": "accept",
+                "slot_usability": {"FEET": "unusable"},
+            },
+        }
+
+        filtered = apply_training_reviews(records, reviews)
+
+        self.assertEqual(filtered["reject"], [])
+        self.assertEqual(filtered["partial"], [{"slot": "BODY"}])
+
+    def test_slot_attention_starts_as_cls_identity(self) -> None:
+        pooler = SlotAttentionPooler(8)
+        tokens = torch.randn(2, 5, 8)
+
+        output = pooler(tokens, "BODY")
+        expected = torch.nn.functional.normalize(tokens[:, 0], dim=-1)
+
+        self.assertTrue(torch.allclose(output, expected, atol=1e-6))
+
+    def test_groups_multiple_crops_from_one_example_slot(self) -> None:
+        samples = {
+            slot: []
+            for slot in ("HEAD", "BODY", "HANDS", "LEGS", "FEET")
+        }
+        samples["BODY"] = [
+            TrainingSample("a.jpg", (2, 3), 0.8),
+            TrainingSample("b.jpg", (2, 3), 0.6),
+        ]
+        records = {
+            "example:0": [
+                {"path": Path("a.jpg"), "slot": "BODY"},
+                {"path": Path("b.jpg"), "slot": "BODY"},
+            ]
+        }
+
+        grouped = group_training_samples(samples, records)
+
+        self.assertEqual(len(grouped["BODY"]), 1)
+        self.assertEqual(grouped["BODY"][0].paths, ("a.jpg", "b.jpg"))
+        self.assertEqual(grouped["BODY"][0].positives, (2, 3))
+        self.assertAlmostEqual(grouped["BODY"][0].weight, 0.7)
+
+    def test_can_group_multiple_views_of_one_glamour(self) -> None:
+        samples = {
+            slot: []
+            for slot in ("HEAD", "BODY", "HANDS", "LEGS", "FEET")
+        }
+        samples["FEET"] = [
+            TrainingSample("front.jpg", (7,), 0.9),
+            TrainingSample("side.jpg", (7,), 0.5),
+        ]
+        records = {
+            "42:0": [{"path": Path("front.jpg"), "slot": "FEET"}],
+            "42:1": [{"path": Path("side.jpg"), "slot": "FEET"}],
+        }
+
+        grouped = group_training_samples(
+            samples,
+            records,
+            group_ids={"42:0": "42", "42:1": "42"},
+        )
+
+        self.assertEqual(len(grouped["FEET"]), 1)
+        self.assertEqual(grouped["FEET"][0].paths, ("front.jpg", "side.jpg"))
+        self.assertAlmostEqual(grouped["FEET"][0].weight, 0.7)
+
+    def test_foreground_allowlist_honors_flags_and_visual_override(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "queue.jsonl"
+            write_jsonl(
+                path,
+                [
+                    {
+                        "example_id": "clean",
+                        "automatic_stats": {"quality_flags": []},
+                        "vision_review": {"decision": None},
+                    },
+                    {
+                        "example_id": "flagged",
+                        "automatic_stats": {"quality_flags": ["large_hole_repair"]},
+                        "vision_review": {"decision": None},
+                    },
+                    {
+                        "example_id": "accepted",
+                        "automatic_stats": {"quality_flags": ["large_hole_repair"]},
+                        "vision_review": {"decision": "accept"},
+                    },
+                ],
+            )
+
+            allowed = load_foreground_allowlist(path)
+
+        self.assertEqual(allowed, {"clean", "accepted"})
+
+    def test_hand_training_keeps_complete_arm_context(self) -> None:
+        samples = {
+            slot: []
+            for slot in ("HEAD", "BODY", "HANDS", "LEGS", "FEET")
+        }
+        records = {"example:0": []}
+        for index, (name, role) in enumerate(
+            (
+                ("hands_left", "primary"),
+                ("hands_right", "primary"),
+                ("hands_forearm_left", "auxiliary"),
+                ("hands_forearm_right", "auxiliary"),
+                ("hands_arm_cover_context", "context"),
+            )
+        ):
+            path = f"{index}.jpg"
+            samples["HANDS"].append(TrainingSample(path, (1,), 1.0))
+            records["example:0"].append(
+                {
+                    "path": Path(path),
+                    "slot": "HANDS",
+                    "name": name,
+                    "role": role,
+                    "visibility": "visible",
+                    "confidence": 1.0,
+                    "tags": [],
+                }
+            )
+
+        selected = prune_training_samples(samples, records, 3)
+
+        self.assertEqual(len(selected["HANDS"]), 3)
+        self.assertIn(
+            "4.jpg",
+            {sample.path for sample in selected["HANDS"]},
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()
