@@ -2,7 +2,9 @@
 
 Current visual-recognition status, reproducible commands, rejected experiments,
 and next steps are recorded in
-[`docs/handoff_2026-06-29.md`](docs/handoff_2026-06-29.md).
+[`docs/handoff_2026-06-29.md`](docs/handoff_2026-06-29.md). The latest SAM2
+slot-mask ablation is recorded in
+[`docs/sam2_mask_ablation_2026-06-29.md`](docs/sam2_mask_ablation_2026-06-29.md).
 
 FFXIV Prism is a local Python project for building a Final Fantasy XIV glamour
 appearance dataset. The current milestone is a source-backed gearset and gear

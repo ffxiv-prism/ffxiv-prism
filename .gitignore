@@ -54,6 +54,7 @@ data/processed/glamour_matching_eval_*.json
 data/processed/synthetic_query_encoder_*.json
 data/processed/glamour_mask_*_summary.json
 data/processed/glamour_mask_ensemble_eval.json
+data/processed/sam2_mask_ablation*.json
 data/processed/glamour_examples_blind_*.jsonl
 data/processed/front_fullbody_quality_v*.jsonl
 data/processed/front_fullbody_quality_v*.summary.json
