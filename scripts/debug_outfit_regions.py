@@ -26,7 +26,7 @@ def main() -> int:
     parser.add_argument("--limit", type=int)
     parser.add_argument("--output-dir", type=Path, default=Path("data/debug/outfit-regions"))
     parser.add_argument("--model-id", default=DEFAULT_POSE_MODEL)
-    parser.add_argument("--device", default="cpu")
+    parser.add_argument("--device", default="auto")
     parser.add_argument("--no-refine", action="store_true")
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument(

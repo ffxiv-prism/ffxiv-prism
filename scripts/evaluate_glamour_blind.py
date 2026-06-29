@@ -16,6 +16,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from ffxiv_prism.jsonl import read_jsonl, write_json
 from ffxiv_prism.paths import CACHE_DIR, PROCESSED_DIR, portable_path
+from ffxiv_prism.torch_device import resolve_torch_device
 from ffxiv_prism.vision.evaluation_split import load_split_assignments
 from scripts.evaluate_glamour_matching import (
     ROLE_PROFILES,
@@ -73,7 +74,7 @@ def main() -> int:
     parser.add_argument("--reranker-checkpoint", type=Path, default=DEFAULT_RERANKER)
     parser.add_argument("--tuning-report", type=Path, default=DEFAULT_TUNING_REPORT)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
-    parser.add_argument("--device", default="cuda")
+    parser.add_argument("--device", default="auto")
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--retrieval-image-k", type=int, default=400)
     parser.add_argument("--candidate-k", type=int, default=200)
@@ -134,7 +135,8 @@ def main() -> int:
             raise ValueError("Quality manifest retained no blind images")
     records = collect_crop_records(examples, args.regions_dir)
 
-    device = torch.device(args.device)
+    device = resolve_torch_device(args.device)
+    args.device = str(device)
     metadata = read_jsonl(args.index_dir / "metadata.jsonl")
     candidate_embeddings = np.load(
         args.index_dir / "embeddings.npy",

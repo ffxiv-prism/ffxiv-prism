@@ -18,13 +18,24 @@ piece dataset with English and Simplified Chinese item names.
 
 ## Main Commands
 
-Use the dedicated Anaconda `ffxiv-prism` environment with Python 3.12. Create
-it from the checked-in environment file when setting up a new machine:
+Use Python 3.12 and select the environment that matches the machine:
 
 ```powershell
-conda env create -f environment.yml
-conda activate ffxiv-prism
+# CPU-only development machine
+conda env create -f environment-cpu.yml
+conda activate ffxiv-prism-cpu
+
+# NVIDIA GPU development machine (CUDA 13.0)
+conda env create -f environment-gpu.yml
+conda activate ffxiv-prism-gpu
 ```
+
+`environment.yml` remains a hardware-neutral fallback. Model commands default
+to `--device auto`: CUDA is selected when the installed PyTorch build can use
+it, otherwise execution falls back to CPU. Pass `--device cpu` for a forced CPU
+run or `--device cuda` when a missing CUDA runtime should be treated as an
+error. CPU training is supported but is substantially slower, so start with a
+small `--batch-size` and bounded inputs for smoke tests.
 
 Run the standard refresh pipeline:
 
@@ -210,18 +221,13 @@ only during reranking with dyeability awareness.
 
 ## Visual Retrieval MVP
 
-The dedicated Conda environment keeps Hugging Face, Torch, and pip caches under
-the project `var/cache/` directory on the D drive. Activate it before running
-GPU experiments:
+The project keeps Hugging Face model files under `var/cache/`. Activate the CPU
+or GPU environment described above before running model workloads.
+
+Verify the selected PyTorch runtime before a long indexing or training run:
 
 ```powershell
-conda activate ffxiv-prism
-```
-
-Verify the CUDA runtime before a long indexing run:
-
-```powershell
-python -c "import torch; print(torch.__version__, torch.cuda.is_available(), torch.cuda.get_device_name(0))"
+python -c "import torch; print(torch.__version__); print('cuda' if torch.cuda.is_available() else 'cpu'); print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU mode')"
 ```
 
 Build a CPU-compatible CLIP index for normal slot images:
@@ -310,7 +316,7 @@ Train and evaluate the slot-conditioned low-rank adapter on deterministic
 `glamour_id` groups:
 
 ```powershell
-python scripts\train_glamour_adapter.py --device cuda
+python scripts\train_glamour_adapter.py --device auto
 ```
 
 The command uses 30/10/10 glamour groups for training, validation, and held-out
@@ -324,7 +330,7 @@ higher-recall adapted DINOv2 model. The checkpoint is written under
 Build both person-foreground and strict slot-mask DINOv2 query caches:
 
 ```powershell
-python scripts\build_masked_glamour_crop_embeddings.py --device cuda
+python scripts\build_masked_glamour_crop_embeddings.py --device auto
 ```
 
 Train the person-mask adapter without changing the clean-render candidate
@@ -335,7 +341,7 @@ python scripts\train_glamour_adapter.py `
   --crop-cache data\processed\glamour_crop_embeddings_facebook-dinov2-base-color-mask-person.npz `
   --checkpoint data\models\glamour_adapter_dinov2_base_mask_person.pt `
   --output data\processed\glamour_adapter_eval_dinov2_base_mask_person.json `
-  --device cuda
+  --device auto
 ```
 
 Combine person-mask Top-1 precision with the raw-image cascade's retrieval tail:

@@ -17,6 +17,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from ffxiv_prism.jsonl import read_jsonl, write_json
 from ffxiv_prism.paths import CACHE_DIR, PROCESSED_DIR, portable_path
+from ffxiv_prism.torch_device import resolve_torch_device
 from ffxiv_prism.vision.human_parsing import (
     DEFAULT_HUMAN_PARSING_MODEL,
     HumanParser,
@@ -47,7 +48,7 @@ def main() -> int:
     parser.add_argument("--output-dir", type=Path, default=PROCESSED_DIR)
     parser.add_argument("--qa-dir", type=Path, default=DEFAULT_QA_DIR)
     parser.add_argument("--qa-limit", type=int, default=30)
-    parser.add_argument("--device", default="cuda")
+    parser.add_argument("--device", default="auto")
     parser.add_argument("--batch-size", type=int, default=12)
     parser.add_argument("--limit", type=int, default=None)
     args = parser.parse_args()
@@ -174,7 +175,7 @@ def load_rgb(path: Path) -> Image.Image:
 def load_dino_encoder(model_id: str, device: str) -> tuple[torch.nn.Module, torch.device]:
     from transformers import AutoModel
 
-    torch_device = torch.device(device)
+    torch_device = resolve_torch_device(device)
     model = AutoModel.from_pretrained(
         model_id,
         cache_dir=CACHE_DIR / "huggingface" / "hub",

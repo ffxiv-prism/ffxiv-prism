@@ -19,6 +19,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from ffxiv_prism.jsonl import read_jsonl, write_json
 from ffxiv_prism.paths import CACHE_DIR, PROCESSED_DIR, portable_path
+from ffxiv_prism.torch_device import resolve_torch_device
 from scripts.evaluate_glamour_embedding_model import DINO_MEAN, DINO_STD
 from scripts.evaluate_glamour_matching import SLOTS
 from scripts.train_glamour_adapter import build_candidate_state
@@ -46,7 +47,7 @@ def main() -> int:
     parser.add_argument("--resume-checkpoint", type=Path)
     parser.add_argument("--checkpoint", type=Path, default=DEFAULT_CHECKPOINT)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
-    parser.add_argument("--device", default="cuda")
+    parser.add_argument("--device", default="auto")
     parser.add_argument("--seed", type=int, default=20260628)
     parser.add_argument("--unfreeze-blocks", type=int, default=1)
     parser.add_argument("--epochs", type=int, default=2)
@@ -61,7 +62,8 @@ def main() -> int:
     args = parser.parse_args()
 
     set_seed(args.seed)
-    device = torch.device(args.device)
+    device = resolve_torch_device(args.device)
+    args.device = str(device)
     metadata = read_jsonl(args.index_dir / "metadata.jsonl")
     candidate_embeddings = np.load(
         args.index_dir / "embeddings.npy",

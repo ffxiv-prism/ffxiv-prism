@@ -17,6 +17,7 @@ import torch
 from PIL import Image, ImageDraw, ImageFont
 
 from ffxiv_prism.paths import CACHE_DIR
+from ffxiv_prism.torch_device import resolve_torch_device
 
 DEFAULT_POSE_MODEL = "usyd-community/vitpose-base-simple"
 KEYPOINT_NAMES = (
@@ -128,12 +129,12 @@ def _install_vitpose_pil_fallbacks() -> None:
 
 
 class SinglePersonPoseEstimator:
-    def __init__(self, model_id: str = DEFAULT_POSE_MODEL, device: str = "cpu") -> None:
+    def __init__(self, model_id: str = DEFAULT_POSE_MODEL, device: str = "auto") -> None:
         _install_vitpose_pil_fallbacks()
         from transformers import VitPoseForPoseEstimation, VitPoseImageProcessorPil
 
         self.model_id = model_id
-        self.device = torch.device(device)
+        self.device = resolve_torch_device(device)
         cache_dir = CACHE_DIR / "huggingface" / "hub"
         try:
             self.processor = VitPoseImageProcessorPil.from_pretrained(

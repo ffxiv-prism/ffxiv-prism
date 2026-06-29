@@ -16,6 +16,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from ffxiv_prism.jsonl import read_jsonl, write_json, write_jsonl
 from ffxiv_prism.paths import PROCESSED_DIR, portable_path
+from ffxiv_prism.torch_device import resolve_torch_device
 from ffxiv_prism.vision.evaluation_quality import (
     FrontFullBodyThresholds,
     QUALITY_POLICY_VERSION,
@@ -34,7 +35,7 @@ def main() -> int:
     )
     parser.add_argument("--regions-dir", type=Path, required=True)
     parser.add_argument("--clip-model-id", default="openai/clip-vit-base-patch32")
-    parser.add_argument("--clip-device", default="cuda")
+    parser.add_argument("--clip-device", default="auto")
     parser.add_argument("--clip-batch-size", type=int, default=32)
     parser.add_argument("--min-clip-front-probability", type=float, default=0.50)
     parser.add_argument("--max-clip-multiple-probability", type=float, default=0.10)
@@ -177,7 +178,7 @@ def score_clip_views(
 ) -> list[dict[str, float]]:
     from transformers import CLIPModel, CLIPProcessor
 
-    resolved_device = torch.device(device)
+    resolved_device = resolve_torch_device(device)
     cache_dir = PROJECT_ROOT / "var" / "cache" / "huggingface" / "hub"
     processor = CLIPProcessor.from_pretrained(
         model_id,

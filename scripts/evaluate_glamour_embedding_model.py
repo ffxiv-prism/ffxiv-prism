@@ -17,6 +17,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from ffxiv_prism.jsonl import read_jsonl, write_json, write_jsonl
 from ffxiv_prism.paths import CACHE_DIR, PROCESSED_DIR, portable_path, resolve_project_path
+from ffxiv_prism.torch_device import resolve_torch_device
 from ffxiv_prism.vision.evaluation_split import load_split_assignments
 from ffxiv_prism.vision.retrieval import DEFAULT_INDEX_DIR, load_index
 
@@ -63,7 +64,7 @@ def main() -> int:
     parser.add_argument("--index-dir", type=Path, default=None)
     parser.add_argument("--crop-cache", type=Path, default=None)
     parser.add_argument("--output", type=Path, default=None)
-    parser.add_argument("--device", default="cpu")
+    parser.add_argument("--device", default="auto")
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--candidate-k", type=int, default=200)
     parser.add_argument("--top-k", type=int, default=10)
@@ -71,6 +72,7 @@ def main() -> int:
     parser.add_argument("--limit-candidates", type=int, default=None, help="Debug only: build a partial candidate index.")
     parser.add_argument("--limit-crops", type=int, default=None, help="Debug only: embed only the first N crop files.")
     args = parser.parse_args()
+    args.device = str(resolve_torch_device(args.device))
 
     slug = safe_slug(
         f"{args.model_id}-{args.preprocess}"
@@ -202,7 +204,7 @@ class EmbeddingEncoder:
     def __init__(self, model_id: str, kind: str, device: str, preprocess: str) -> None:
         self.model_id = model_id
         self.kind = kind
-        self.device = torch.device(device)
+        self.device = resolve_torch_device(device)
         self.preprocess = preprocess
 
     def encode_paths(self, paths: Sequence[Path], batch_size: int) -> np.ndarray:
@@ -444,11 +446,12 @@ def search_crops(
         slot: np.asarray([index for index, row in enumerate(metadata) if row.get("slot") == slot], dtype=np.int64)
         for slot in SLOTS
     }
-    use_cuda = torch.device(device).type == "cuda"
+    torch_device = resolve_torch_device(device)
+    use_cuda = torch_device.type == "cuda"
     slot_tensors = {}
     if use_cuda:
         slot_tensors = {
-            slot: torch.tensor(np.asarray(candidate_embeddings[indices]), device=device)
+            slot: torch.tensor(np.asarray(candidate_embeddings[indices]), device=torch_device)
             for slot, indices in slot_indices.items()
         }
     results: dict[str, list[dict[str, Any]]] = {}
@@ -459,7 +462,7 @@ def search_crops(
                 continue
             indices = slot_indices[record["slot"]]
             if use_cuda:
-                query = torch.as_tensor(crop_embeddings[path], device=device)
+                query = torch.as_tensor(crop_embeddings[path], device=torch_device)
                 scores_tensor = slot_tensors[record["slot"]] @ query
                 order = torch.argsort(scores_tensor, descending=True).cpu().numpy()
                 scores = scores_tensor.cpu().numpy()

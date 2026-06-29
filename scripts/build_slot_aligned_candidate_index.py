@@ -15,6 +15,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from ffxiv_prism.jsonl import read_jsonl, write_json, write_jsonl
 from ffxiv_prism.paths import CACHE_DIR, portable_path
+from ffxiv_prism.torch_device import resolve_torch_device
 from scripts.evaluate_glamour_embedding_model import DINO_MEAN, DINO_STD
 
 DEFAULT_INPUT = Path("data/indexes/facebook-dinov2-base-color")
@@ -32,12 +33,13 @@ def main() -> int:
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--model-id", default="facebook/dinov2-base")
     parser.add_argument("--batch-size", type=int, default=64)
-    parser.add_argument("--device", default="cuda")
+    parser.add_argument("--device", default="auto")
     args = parser.parse_args()
 
     source_rows = read_jsonl(args.input_dir / "metadata.jsonl")
     rows = expand_slot_aligned_rows(source_rows)
-    device = torch.device(args.device)
+    device = resolve_torch_device(args.device)
+    args.device = str(device)
     from transformers import AutoModel
 
     model = AutoModel.from_pretrained(

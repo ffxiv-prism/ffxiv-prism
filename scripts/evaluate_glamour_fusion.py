@@ -15,6 +15,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from ffxiv_prism.jsonl import read_jsonl, write_json
 from ffxiv_prism.paths import PROCESSED_DIR, portable_path
+from ffxiv_prism.torch_device import resolve_torch_device
 from scripts.evaluate_glamour_matching import (
     ROLE_PROFILES,
     SLOTS,
@@ -45,7 +46,7 @@ def main() -> int:
     parser.add_argument("--examples", type=Path, default=PROCESSED_DIR / "glamour_examples.jsonl")
     parser.add_argument("--regions-dir", type=Path, default=Path("data/debug/outfit-regions/overlap-final-201"))
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
-    parser.add_argument("--device", default="cuda")
+    parser.add_argument("--device", default="auto")
     parser.add_argument("--candidate-k", type=int, default=200)
     parser.add_argument("--top-k", type=int, default=10)
     parser.add_argument(
@@ -54,6 +55,7 @@ def main() -> int:
         default=True,
     )
     args = parser.parse_args()
+    args.device = str(resolve_torch_device(args.device))
 
     weights = parse_weights(args.first_weights)
     first = load_source(args.first_index, args.first_crops)
@@ -192,7 +194,7 @@ def build_fused_search_results(
         if str(record["path"]) in first_crop_embeddings
     }
     results: dict[str, list[dict[str, Any]]] = {}
-    torch_device = torch.device(device)
+    torch_device = resolve_torch_device(device)
 
     for slot in SLOTS:
         indices = np.asarray(

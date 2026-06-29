@@ -8,6 +8,7 @@ import torch
 from PIL import Image, ImageDraw, ImageFilter
 
 from ffxiv_prism.paths import CACHE_DIR
+from ffxiv_prism.torch_device import resolve_torch_device
 
 DEFAULT_HUMAN_PARSING_MODEL = "mattmdjaga/segformer_b2_clothes"
 DEFAULT_HUGGINGFACE_CACHE = CACHE_DIR / "huggingface" / "hub"
@@ -66,13 +67,13 @@ class HumanParser:
     def __init__(
         self,
         model_id: str = DEFAULT_HUMAN_PARSING_MODEL,
-        device: str = "cuda",
+        device: str = "auto",
         cache_dir: str | None = None,
     ) -> None:
         from transformers import AutoImageProcessor, AutoModelForSemanticSegmentation
 
         self.model_id = model_id
-        self.device = torch.device(device)
+        self.device = resolve_torch_device(device)
         resolved_cache = cache_dir or str(DEFAULT_HUGGINGFACE_CACHE)
         self.processor = AutoImageProcessor.from_pretrained(
             model_id,

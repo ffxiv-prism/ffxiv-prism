@@ -11,6 +11,7 @@ from PIL import Image, ImageEnhance, ImageFile, ImageFilter, ImageOps
 
 from ffxiv_prism.jsonl import read_jsonl, write_json, write_jsonl
 from ffxiv_prism.paths import INDEXES_DIR, PROCESSED_DIR, portable_path, resolve_project_path
+from ffxiv_prism.torch_device import resolve_torch_device
 
 DEFAULT_MODEL_ID = "openai/clip-vit-base-patch32"
 DEFAULT_INDEX_DIR = INDEXES_DIR / "clip-vit-base-patch32"
@@ -34,7 +35,7 @@ class ClipImageEncoder:
         from transformers import AutoProcessor, CLIPModel
 
         self.torch = torch
-        self.device = choose_device(torch, device)
+        self.device = str(resolve_torch_device(device, torch_module=torch))
         self.model_id = model_id
         try:
             self.processor = AutoProcessor.from_pretrained(model_id, local_files_only=True)
@@ -85,13 +86,8 @@ class ClipImageEncoder:
 
 
 def choose_device(torch: Any, requested: str) -> str:
-    if requested != "auto":
-        return requested
-    if torch.cuda.is_available():
-        return "cuda"
-    if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-        return "mps"
-    return "cpu"
+    """Backward-compatible wrapper around the shared device resolver."""
+    return str(resolve_torch_device(requested, torch_module=torch))
 
 
 def open_rgb(path: Path) -> Image.Image:

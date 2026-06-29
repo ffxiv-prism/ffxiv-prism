@@ -46,7 +46,7 @@ def main() -> int:
     parser.add_argument("--regions-dir", type=Path, default=DEFAULT_REGIONS)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--model-id", default=DEFAULT_HUMAN_PARSING_MODEL)
-    parser.add_argument("--device", default="cuda")
+    parser.add_argument("--device", default="auto")
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--limit", type=int)
     parser.add_argument("--qa-limit", type=int, default=60)
