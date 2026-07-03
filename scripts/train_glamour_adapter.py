@@ -732,7 +732,8 @@ def cascade_outcomes(
             (
                 result["rank"]
                 for result in results
-                if result.get("appearance_key") == expected_key
+                if int(result["piece_id"]) in expected_ids
+                or result.get("appearance_key") == expected_key
             ),
             None,
         )

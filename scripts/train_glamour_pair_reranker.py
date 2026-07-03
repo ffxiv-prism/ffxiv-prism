@@ -18,6 +18,8 @@ if str(PROJECT_ROOT) not in sys.path:
 from ffxiv_prism.jsonl import read_jsonl, write_json
 from ffxiv_prism.paths import CACHE_DIR, PROCESSED_DIR, portable_path
 from ffxiv_prism.torch_device import resolve_torch_device
+from ffxiv_prism.vision.evaluation_domains import build_domain_balance_weights
+from ffxiv_prism.vision.evaluation_quality import filter_examples_by_quality
 from ffxiv_prism.vision.evaluation_split import (
     development_split_map,
     load_split_assignments,
@@ -35,8 +37,9 @@ from scripts.train_glamour_adapter import (
 )
 from scripts.train_glamour_query_encoder import (
     encode_records,
+    filter_crop_records_by_slots,
     group_training_samples,
-    load_training_checkpoint,
+    load_query_head_from_checkpoint,
     prune_training_samples,
     set_seed,
 )
@@ -52,6 +55,27 @@ DEFAULT_OUTPUT = PROCESSED_DIR / "glamour_pair_reranker_eval.json"
 DEFAULT_QUERY_CACHE = PROCESSED_DIR / "glamour_query_embeddings_v5_624.npz"
 
 
+def combine_group_weights(
+    *weight_maps: dict[str, float],
+) -> dict[str, float]:
+    group_ids = {
+        group_id
+        for weight_map in weight_maps
+        for group_id in weight_map
+    }
+    return {
+        group_id: float(
+            np.prod(
+                [
+                    weight_map.get(group_id, 1.0)
+                    for weight_map in weight_maps
+                ]
+            )
+        )
+        for group_id in group_ids
+    }
+
+
 class PairReranker(nn.Module):
     def __init__(
         self,
@@ -59,10 +83,14 @@ class PairReranker(nn.Module):
         hidden_dimension: int = 256,
         slot_dimension: int = 16,
         per_slot_heads: bool = False,
+        dropout: float = 0.1,
     ) -> None:
         super().__init__()
+        if not 0.0 <= dropout < 1.0:
+            raise ValueError("dropout must be in [0, 1)")
         self.dimension = dimension
         self.per_slot_heads = per_slot_heads
+        self.dropout = dropout
         self.slot_embeddings = nn.ParameterDict(
             {
                 slot: nn.Parameter(torch.randn(slot_dimension) * 0.02)
@@ -74,7 +102,7 @@ class PairReranker(nn.Module):
             self.residual = nn.Sequential(
                 nn.Linear(input_dimension, hidden_dimension),
                 nn.GELU(),
-                nn.Dropout(0.1),
+                nn.Dropout(dropout),
                 nn.Linear(hidden_dimension, hidden_dimension // 2),
                 nn.GELU(),
             )
@@ -98,7 +126,7 @@ class PairReranker(nn.Module):
             self.residual = nn.Sequential(
                 nn.Linear(input_dimension, hidden_dimension),
                 nn.GELU(),
-                nn.Dropout(0.1),
+                nn.Dropout(dropout),
                 nn.Linear(hidden_dimension, hidden_dimension // 2),
                 nn.GELU(),
                 nn.Linear(hidden_dimension // 2, 1),
@@ -145,6 +173,21 @@ def main() -> int:
         type=Path,
         default=PROCESSED_DIR / "glamour_examples.jsonl",
     )
+    parser.add_argument(
+        "--quality-manifest",
+        type=Path,
+        help=(
+            "Optional JSONL quality manifest. Only examples with passed=true "
+            "are used for training and evaluation."
+        ),
+    )
+    parser.add_argument(
+        "--slots",
+        nargs="+",
+        choices=SLOTS,
+        default=list(SLOTS),
+        help="Train and evaluate only the selected equipment slots.",
+    )
     parser.add_argument("--regions-dir", type=Path, default=DEFAULT_REGIONS)
     parser.add_argument("--split-manifest", type=Path, default=DEFAULT_SPLIT)
     parser.add_argument(
@@ -159,14 +202,43 @@ def main() -> int:
     parser.add_argument("--seed", type=int, default=20260627)
     parser.add_argument("--epochs", type=int, default=30)
     parser.add_argument("--patience", type=int, default=5)
+    parser.add_argument(
+        "--fixed-epochs",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "Train for exactly --epochs without inspecting validation metrics "
+            "between epochs. This avoids selecting a checkpoint on the public "
+            "validation split."
+        ),
+    )
     parser.add_argument("--batch-size", type=int, default=12)
     parser.add_argument("--learning-rate", type=float, default=2e-4)
     parser.add_argument("--weight-decay", type=float, default=0.01)
+    parser.add_argument("--dropout", type=float, default=0.1)
     parser.add_argument("--hard-image-k", type=int, default=128)
     parser.add_argument("--retrieval-image-k", type=int, default=400)
     parser.add_argument("--candidate-k", type=int, default=200)
     parser.add_argument("--top-k", type=int, default=10)
     parser.add_argument("--max-crops-per-example-slot", type=int, default=2)
+    parser.add_argument(
+        "--query-aggregate",
+        choices=("logmeanexp", "max"),
+        default="logmeanexp",
+        help=(
+            "Aggregate multiple query crops/views during training. max aligns "
+            "the loss with the strongest-evidence inference configuration."
+        ),
+    )
+    parser.add_argument(
+        "--candidate-view-aggregate",
+        choices=("max", "top2_mean"),
+        default="max",
+        help=(
+            "Collapse clean-render crop variants per piece by max score, or "
+            "average the two best distinct candidate crop types."
+        ),
+    )
     parser.add_argument(
         "--per-slot-heads",
         action=argparse.BooleanOptionalAction,
@@ -179,7 +251,34 @@ def main() -> int:
         default=False,
         help="Aggregate all training views sharing one glamour label.",
     )
+    parser.add_argument(
+        "--domain-balanced",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Apply capped inverse-sqrt race/gender training weights.",
+    )
+    parser.add_argument("--domain-balance-max-weight", type=float, default=3.0)
+    parser.add_argument(
+        "--replay-quality-manifest",
+        type=Path,
+        help=(
+            "Optional older quality manifest whose accepted train groups are "
+            "upweighted to reduce forgetting during data expansion."
+        ),
+    )
+    parser.add_argument(
+        "--replay-weight",
+        type=float,
+        default=1.0,
+        help="Training weight for groups accepted by --replay-quality-manifest.",
+    )
     args = parser.parse_args()
+    if args.replay_weight <= 0:
+        parser.error("--replay-weight must be positive")
+    if args.replay_weight != 1.0 and args.replay_quality_manifest is None:
+        parser.error(
+            "--replay-weight requires --replay-quality-manifest"
+        )
 
     set_seed(args.seed)
     device = resolve_torch_device(args.device)
@@ -190,7 +289,15 @@ def main() -> int:
         mmap_mode="r",
     )
     examples = read_jsonl(args.examples)
+    if args.quality_manifest is not None:
+        examples = filter_examples_by_quality(
+            examples,
+            read_jsonl(args.quality_manifest),
+        )
+        if not examples:
+            raise ValueError("Quality manifest accepted no training examples")
     records = collect_crop_records(examples, args.regions_dir)
+    records = filter_crop_records_by_slots(records, args.slots)
     assignments = load_split_assignments(args.split_manifest)
     split_map = development_split_map(
         {str(example["glamour_id"]) for example in examples},
@@ -251,15 +358,58 @@ def main() -> int:
         if args.group_by_glamour
         else None
     )
+    domain_weights, domain_balance_report = (
+        build_domain_balance_weights(
+            split_examples["train"],
+            group_by_glamour=args.group_by_glamour,
+            max_weight=args.domain_balance_max_weight,
+        )
+        if args.domain_balanced
+        else ({}, None)
+    )
+    replay_weights: dict[str, float] = {}
+    replay_report = None
+    if args.replay_quality_manifest is not None:
+        replay_example_ids = {
+            str(row["example_id"])
+            for row in read_jsonl(args.replay_quality_manifest)
+            if row.get("passed")
+        }
+        replay_group_ids = {
+            (
+                str(example["glamour_id"])
+                if args.group_by_glamour
+                else str(example["example_id"])
+            )
+            for example in split_examples["train"]
+            if str(example["example_id"]) in replay_example_ids
+        }
+        replay_weights = {
+            group_id: args.replay_weight
+            for group_id in replay_group_ids
+        }
+        replay_report = {
+            "quality_manifest": portable_path(
+                args.replay_quality_manifest
+            ),
+            "weight": args.replay_weight,
+            "weighted_group_count": len(replay_group_ids),
+        }
+    combined_group_weights = combine_group_weights(
+        domain_weights,
+        replay_weights,
+    )
     grouped_samples = group_training_samples(
         samples,
         split_records["train"],
         group_ids=training_group_ids,
+        group_weights=combined_group_weights,
     )
 
     reranker = PairReranker(
         int(candidate_embeddings.shape[1]),
         per_slot_heads=args.per_slot_heads,
+        dropout=args.dropout,
     ).to(device)
     optimizer = torch.optim.AdamW(
         reranker.parameters(),
@@ -283,60 +433,78 @@ def main() -> int:
             args.hard_image_k,
             args.batch_size,
             device,
+            query_aggregate=args.query_aggregate,
         )
-        validation_search = rerank_crops(
-            reranker,
-            metadata,
-            candidate_embeddings,
-            split_records["validation"],
-            query_embeddings,
-            args.retrieval_image_k,
-            args.candidate_k,
-            device,
-        )
-        selection = select_on_validation_and_evaluate_test(
-            {
-                "validation": split_examples["validation"],
-                "test": split_examples["validation"],
-            },
-            {
-                "validation": split_records["validation"],
-                "test": split_records["validation"],
-            },
-            validation_search,
-            available_piece_ids,
-            available_appearance_keys,
-            args.top_k,
-        )
-        validation = selection["validation"]
-        score = (
-            validation["appearance_recall_at_1"],
-            validation["appearance_mrr"],
-            validation["appearance_recall_at_k"],
-        )
-        if score > best_score:
-            best_score = score
+        if args.fixed_epochs:
             best_epoch = epoch
             best_state = copy.deepcopy(reranker.state_dict())
-            stale_epochs = 0
+            history.append(
+                {
+                    "epoch": epoch,
+                    "train_loss": loss,
+                    "validation": None,
+                }
+            )
+            print(
+                f"epoch={epoch} loss={loss:.4f} "
+                "validation=deferred fixed_epochs=true",
+                flush=True,
+            )
         else:
-            stale_epochs += 1
-        history.append(
-            {
-                "epoch": epoch,
-                "train_loss": loss,
-                "validation": validation,
-            }
-        )
-        print(
-            f"epoch={epoch} loss={loss:.4f} "
-            f"val@1={validation['appearance_recall_at_1']:.3f} "
-            f"val@{args.top_k}={validation['appearance_recall_at_k']:.3f} "
-            f"mrr={validation['appearance_mrr']:.3f} best_epoch={best_epoch}",
-            flush=True,
-        )
-        if stale_epochs >= args.patience:
-            break
+            validation_search = rerank_crops(
+                reranker,
+                metadata,
+                candidate_embeddings,
+                split_records["validation"],
+                query_embeddings,
+                args.retrieval_image_k,
+                args.candidate_k,
+                device,
+                candidate_view_aggregate=args.candidate_view_aggregate,
+            )
+            selection = select_on_validation_and_evaluate_test(
+                {
+                    "validation": split_examples["validation"],
+                    "test": split_examples["validation"],
+                },
+                {
+                    "validation": split_records["validation"],
+                    "test": split_records["validation"],
+                },
+                validation_search,
+                available_piece_ids,
+                available_appearance_keys,
+                args.top_k,
+            )
+            validation = selection["validation"]
+            score = (
+                validation["appearance_recall_at_1"],
+                validation["appearance_mrr"],
+                validation["appearance_recall_at_k"],
+            )
+            if score > best_score:
+                best_score = score
+                best_epoch = epoch
+                best_state = copy.deepcopy(reranker.state_dict())
+                stale_epochs = 0
+            else:
+                stale_epochs += 1
+            history.append(
+                {
+                    "epoch": epoch,
+                    "train_loss": loss,
+                    "validation": validation,
+                }
+            )
+            print(
+                f"epoch={epoch} loss={loss:.4f} "
+                f"val@1={validation['appearance_recall_at_1']:.3f} "
+                f"val@{args.top_k}={validation['appearance_recall_at_k']:.3f} "
+                f"mrr={validation['appearance_mrr']:.3f} best_epoch={best_epoch}",
+                flush=True,
+            )
+            if stale_epochs >= args.patience:
+                break
 
     if best_state is None:
         raise RuntimeError("Reranker training produced no checkpoint")
@@ -349,6 +517,13 @@ def main() -> int:
             "dimension": reranker.dimension,
             "per_slot_heads": reranker.per_slot_heads,
             "group_by_glamour": args.group_by_glamour,
+            "domain_balanced": args.domain_balanced,
+            "query_aggregate": args.query_aggregate,
+            "fixed_epochs": args.fixed_epochs,
+            "dropout": args.dropout,
+            "candidate_view_aggregate": args.candidate_view_aggregate,
+            "domain_balance": domain_balance_report,
+            "replay": replay_report,
             "query_checkpoint": portable_path(args.query_checkpoint),
             "best_epoch": best_epoch,
             "seed": args.seed,
@@ -369,6 +544,7 @@ def main() -> int:
         args.retrieval_image_k,
         args.candidate_k,
         device,
+        candidate_view_aggregate=args.candidate_view_aggregate,
     )
     evaluation = select_on_validation_and_evaluate_test(
         split_examples,
@@ -394,6 +570,16 @@ def main() -> int:
             "learning_rate": args.learning_rate,
             "hard_image_k": args.hard_image_k,
             "group_by_glamour": args.group_by_glamour,
+            "query_aggregate": args.query_aggregate,
+            "fixed_epochs": args.fixed_epochs,
+            "dropout": args.dropout,
+            "candidate_view_aggregate": args.candidate_view_aggregate,
+            "domain_balanced": args.domain_balanced,
+            "domain_balance": domain_balance_report,
+            "replay": replay_report,
+            "quality_manifest": portable_path(args.quality_manifest),
+            "quality_example_count": len(examples),
+            "slots": list(args.slots),
             "history": history,
         },
         "evaluation": evaluation,
@@ -428,16 +614,21 @@ def load_or_build_query_embeddings(
         }
     )
     if args.query_cache.is_file():
-        cached = np.load(args.query_cache, allow_pickle=False)
-        if (
-            [str(value) for value in cached["paths"].tolist()] == paths
-            and str(cached["checkpoint"].tolist()) == str(args.query_checkpoint)
-        ):
+        with np.load(args.query_cache, allow_pickle=False) as cached:
+            cached_paths = [str(value) for value in cached["paths"].tolist()]
+            cached_checkpoint = str(cached["checkpoint"].tolist())
+            cached_embeddings = (
+                np.asarray(cached["embeddings"]).copy()
+                if cached_paths == paths
+                and cached_checkpoint == str(args.query_checkpoint)
+                else None
+            )
+        if cached_embeddings is not None:
             return {
                 path: embedding
                 for path, embedding in zip(
                     paths,
-                    cached["embeddings"],
+                    cached_embeddings,
                     strict=True,
                 )
             }
@@ -449,15 +640,14 @@ def load_or_build_query_embeddings(
         cache_dir=CACHE_DIR / "huggingface" / "hub",
         local_files_only=True,
     ).to(device)
-    load_training_checkpoint(
+    query_head = load_query_head_from_checkpoint(
         args.query_checkpoint,
         model,
-        None,
         device,
     )
     embeddings = encode_records(
         model,
-        None,
+        query_head,
         records,
         batch_size=32,
         device=device,
@@ -481,6 +671,8 @@ def train_epoch(
     hard_image_k: int,
     batch_size: int,
     device: torch.device,
+    *,
+    query_aggregate: str = "logmeanexp",
 ) -> float:
     reranker.train()
     losses = []
@@ -518,10 +710,10 @@ def train_epoch(
                             slot,
                         )
                     )
-                scores = torch.logsumexp(
+                scores = aggregate_crop_scores(
                     torch.stack(crop_scores),
-                    dim=0,
-                ) - np.log(len(crop_scores))
+                    query_aggregate,
+                )
                 positive_set = set(sample.positives)
                 positive_positions = [
                     index
@@ -545,6 +737,21 @@ def train_epoch(
     return float(np.mean(losses)) if losses else 0.0
 
 
+def aggregate_crop_scores(
+    crop_scores: torch.Tensor,
+    strategy: str,
+) -> torch.Tensor:
+    if crop_scores.ndim < 1 or crop_scores.shape[0] < 1:
+        raise ValueError("crop_scores must contain at least one query")
+    if strategy == "max":
+        return crop_scores.max(dim=0).values
+    if strategy == "logmeanexp":
+        return torch.logsumexp(crop_scores, dim=0) - np.log(
+            crop_scores.shape[0]
+        )
+    raise ValueError(f"Unsupported query aggregation: {strategy}")
+
+
 @torch.inference_mode()
 def rerank_crops(
     reranker: PairReranker,
@@ -555,6 +762,8 @@ def rerank_crops(
     retrieval_image_k: int,
     candidate_k: int,
     device: torch.device,
+    *,
+    candidate_view_aggregate: str = "max",
 ) -> dict[str, list[dict[str, Any]]]:
     reranker.eval()
     slot_indices = {
@@ -594,7 +803,7 @@ def rerank_crops(
                 candidate_tensor,
                 slot,
             ).cpu().tolist()
-            best_by_piece = {}
+            best_by_piece_and_view: dict[int, dict[str, dict[str, Any]]] = {}
             for local_index, score in zip(
                 local_order.cpu().tolist(),
                 scores,
@@ -604,10 +813,12 @@ def rerank_crops(
                 row = metadata[global_index]
                 for piece in row["pieces"]:
                     piece_id = int(piece["piece_id"])
-                    current = best_by_piece.get(piece_id)
+                    candidate_view = str(row.get("candidate_crop") or "default")
+                    views = best_by_piece_and_view.setdefault(piece_id, {})
+                    current = views.get(candidate_view)
                     if current is not None and current["score"] >= score:
                         continue
-                    best_by_piece[piece_id] = {
+                    views[candidate_view] = {
                         "rank": 0,
                         "score": float(score),
                         **piece,
@@ -617,9 +828,14 @@ def rerank_crops(
                         "model_gender": row.get("model_gender"),
                         "race": row.get("race"),
                         "dye_state": row.get("dye_state"),
+                        "candidate_crop": row.get("candidate_crop"),
                     }
+            best_by_piece = [
+                aggregate_candidate_views(views, candidate_view_aggregate)
+                for views in best_by_piece_and_view.values()
+            ]
             ranked = sorted(
-                best_by_piece.values(),
+                best_by_piece,
                 key=lambda item: item["score"],
                 reverse=True,
             )[:candidate_k]
@@ -627,6 +843,31 @@ def rerank_crops(
                 row["rank"] = rank
             results[path] = ranked
     return results
+
+
+def aggregate_candidate_views(
+    views: dict[str, dict[str, Any]],
+    strategy: str,
+) -> dict[str, Any]:
+    if not views:
+        raise ValueError("candidate views must not be empty")
+    ranked = sorted(
+        views.values(),
+        key=lambda item: float(item["score"]),
+        reverse=True,
+    )
+    output = dict(ranked[0])
+    output["best_view_score"] = float(ranked[0]["score"])
+    output["candidate_view_count"] = len(ranked)
+    if strategy == "max":
+        return output
+    if strategy == "top2_mean":
+        selected = ranked[:2]
+        output["score"] = sum(float(row["score"]) for row in selected) / len(
+            selected
+        )
+        return output
+    raise ValueError(f"unsupported candidate view aggregation: {strategy}")
 
 
 if __name__ == "__main__":

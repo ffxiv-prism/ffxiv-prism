@@ -7,8 +7,10 @@ from pathlib import Path
 from ffxiv_prism.jsonl import write_jsonl
 from scripts.train_glamour_adapter import TrainingSample
 from scripts.train_glamour_query_encoder import (
+    LowRankResidualPooler,
     SlotAttentionPooler,
     apply_training_reviews,
+    filter_crop_records_by_slots,
     group_training_samples,
     load_foreground_allowlist,
     prune_training_samples,
@@ -17,6 +19,34 @@ import torch
 
 
 class QueryEncoderTests(unittest.TestCase):
+    def test_low_rank_adapter_starts_as_normalized_cls_identity(self) -> None:
+        pooler = LowRankResidualPooler(8, rank=2)
+        tokens = torch.randn(3, 5, 8)
+
+        output = pooler(tokens, "BODY")
+        expected = torch.nn.functional.normalize(tokens[:, 0], dim=-1)
+
+        self.assertTrue(torch.allclose(output, expected, atol=1e-6))
+
+    def test_filters_crop_records_to_selected_slots(self) -> None:
+        records = {
+            "10:0": [
+                {"slot": "BODY", "path": "body.jpg"},
+                {"slot": "HANDS", "path": "hands.jpg"},
+            ],
+            "11:0": [{"slot": "HEAD", "path": "head.jpg"}],
+        }
+
+        filtered = filter_crop_records_by_slots(records, ["BODY", "HEAD"])
+
+        self.assertEqual(
+            filtered,
+            {
+                "10:0": [{"slot": "BODY", "path": "body.jpg"}],
+                "11:0": [{"slot": "HEAD", "path": "head.jpg"}],
+            },
+        )
+
     def test_visual_review_can_reject_image_or_one_slot(self) -> None:
         records = {
             "reject": [{"slot": "BODY"}, {"slot": "HEAD"}],
@@ -90,6 +120,51 @@ class QueryEncoderTests(unittest.TestCase):
         self.assertEqual(len(grouped["FEET"]), 1)
         self.assertEqual(grouped["FEET"][0].paths, ("front.jpg", "side.jpg"))
         self.assertAlmostEqual(grouped["FEET"][0].weight, 0.7)
+
+    def test_domain_weight_scales_group_loss_weight(self) -> None:
+        samples = {
+            slot: []
+            for slot in ("HEAD", "BODY", "HANDS", "LEGS", "FEET")
+        }
+        samples["BODY"] = [TrainingSample("rare.jpg", (4,), 0.5)]
+        records = {
+            "9:0": [{"path": Path("rare.jpg"), "slot": "BODY"}],
+        }
+
+        grouped = group_training_samples(
+            samples,
+            records,
+            group_weights={"9:0": 2.0},
+        )
+
+        self.assertAlmostEqual(grouped["BODY"][0].weight, 1.0)
+
+    def test_distinct_group_weights_are_applied_to_the_right_groups(self) -> None:
+        samples = {
+            slot: []
+            for slot in ("HEAD", "BODY", "HANDS", "LEGS", "FEET")
+        }
+        samples["BODY"] = [
+            TrainingSample("old.jpg", (4,), 0.5),
+            TrainingSample("new.jpg", (5,), 0.5),
+        ]
+        records = {
+            "old:0": [{"path": Path("old.jpg"), "slot": "BODY"}],
+            "new:0": [{"path": Path("new.jpg"), "slot": "BODY"}],
+        }
+
+        grouped = group_training_samples(
+            samples,
+            records,
+            group_weights={"old:0": 2.0, "new:0": 0.5},
+        )
+        weights_by_path = {
+            sample.paths[0]: sample.weight
+            for sample in grouped["BODY"]
+        }
+
+        self.assertAlmostEqual(weights_by_path["old.jpg"], 1.0)
+        self.assertAlmostEqual(weights_by_path["new.jpg"], 0.25)
 
     def test_foreground_allowlist_honors_flags_and_visual_override(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

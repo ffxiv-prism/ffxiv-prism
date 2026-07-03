@@ -34,10 +34,22 @@ def main() -> int:
     parser.add_argument("--model-id", default="facebook/dinov2-base")
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--device", default="auto")
+    parser.add_argument(
+        "--body-crop-policy",
+        choices=("upper", "multiscale"),
+        default="upper",
+        help=(
+            "Use the historical upper-body crop, or add a tighter torso crop "
+            "as a second clean-render candidate."
+        ),
+    )
     args = parser.parse_args()
 
     source_rows = read_jsonl(args.input_dir / "metadata.jsonl")
-    rows = expand_slot_aligned_rows(source_rows)
+    rows = expand_slot_aligned_rows(
+        source_rows,
+        body_crop_policy=args.body_crop_policy,
+    )
     device = resolve_torch_device(args.device)
     args.device = str(device)
     from transformers import AutoModel
@@ -74,7 +86,13 @@ def main() -> int:
             "aligned_candidate_count": len(rows),
             "slot_policy": {
                 "HEAD": ["full"],
-                "BODY": ["upper_body"],
+                "BODY": [
+                    name
+                    for name, _ in crop_variants_for_slot(
+                        "BODY",
+                        body_crop_policy=args.body_crop_policy,
+                    )
+                ],
                 "HANDS": [
                     "both_hands",
                     "left_arm_tight",
@@ -95,11 +113,16 @@ def main() -> int:
 
 def expand_slot_aligned_rows(
     rows: Sequence[dict[str, Any]],
+    *,
+    body_crop_policy: str = "upper",
 ) -> list[dict[str, Any]]:
     output = []
     for row in rows:
         slot = str(row.get("slot", ""))
-        variants = crop_variants_for_slot(slot)
+        variants = crop_variants_for_slot(
+            slot,
+            body_crop_policy=body_crop_policy,
+        )
         for name, box in variants:
             aligned = dict(row)
             aligned["candidate_crop"] = name
@@ -112,9 +135,19 @@ def expand_slot_aligned_rows(
 
 def crop_variants_for_slot(
     slot: str,
+    *,
+    body_crop_policy: str = "upper",
 ) -> tuple[tuple[str, tuple[float, float, float, float]], ...]:
     if slot == "BODY":
-        return (("upper_body", (0.0, 0.0, 1.0, 0.72)),)
+        upper = ("upper_body", (0.0, 0.0, 1.0, 0.72))
+        if body_crop_policy == "upper":
+            return (upper,)
+        if body_crop_policy == "multiscale":
+            return (
+                upper,
+                ("torso_core", (0.06, 0.14, 0.94, 0.62)),
+            )
+        raise ValueError(f"unsupported BODY crop policy: {body_crop_policy}")
     if slot == "HANDS":
         return (
             # Most canonical hand renders use a crossed-arms pose.  A full-width

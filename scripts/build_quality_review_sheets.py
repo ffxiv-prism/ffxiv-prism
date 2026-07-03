@@ -18,6 +18,11 @@ def main() -> int:
         description="Build boundary-case review sheets for a quality manifest."
     )
     parser.add_argument("--manifest", type=Path, required=True)
+    parser.add_argument(
+        "--exclude-manifest",
+        type=Path,
+        help="Exclude example IDs already covered by an earlier manifest.",
+    )
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--count-per-group", type=int, default=20)
     parser.add_argument("--columns", type=int, default=5)
@@ -29,6 +34,16 @@ def main() -> int:
     args = parser.parse_args()
 
     rows = read_jsonl(args.manifest)
+    if args.exclude_manifest is not None:
+        excluded = {
+            str(row["example_id"])
+            for row in read_jsonl(args.exclude_manifest)
+        }
+        rows = [
+            row
+            for row in rows
+            if str(row["example_id"]) not in excluded
+        ]
     passed = sorted(
         (row for row in rows if row.get("passed")),
         key=lambda row: float(row.get("quality_score", 0.0)),

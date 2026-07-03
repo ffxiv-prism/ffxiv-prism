@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import unittest
 
-from ffxiv_prism.vision.evaluation_quality import assess_front_full_body
+from ffxiv_prism.vision.evaluation_quality import (
+    assess_front_full_body,
+    filter_examples_by_quality,
+    summarize_quality_split_coverage,
+)
 
 
 def pose_rows(points: dict[str, tuple[float, float]]) -> list[dict[str, float | str]]:
@@ -28,6 +32,69 @@ FRONTAL = {
 
 
 class EvaluationQualityTests(unittest.TestCase):
+    def test_filters_examples_to_passed_quality_rows(self) -> None:
+        examples = [
+            {"example_id": "10:0"},
+            {"example_id": "10:1"},
+            {"example_id": "11:0"},
+        ]
+        quality_rows = [
+            {"example_id": "10:0", "passed": True},
+            {"example_id": "10:1", "passed": False},
+        ]
+
+        filtered = filter_examples_by_quality(examples, quality_rows)
+
+        self.assertEqual(filtered, [{"example_id": "10:0"}])
+
+    def test_summarizes_quality_split_coverage(self) -> None:
+        examples = [
+            {
+                "example_id": "10:0",
+                "glamour_id": 10,
+                "core_slot_labels": {
+                    "BODY": {"item_name": "Coat", "piece_ids": [1]},
+                    "HEAD": {"item_name": "Hat", "piece_ids": [2]},
+                },
+            },
+            {
+                "example_id": "10:1",
+                "glamour_id": 10,
+                "core_slot_labels": {"BODY": {"item_name": "Coat", "piece_ids": [1]}},
+            },
+            {
+                "example_id": "20:0",
+                "glamour_id": 20,
+                "core_slot_labels": {"BODY": {"item_name": "Robe"}},
+            },
+        ]
+        quality_rows = [
+            {"example_id": "10:0", "passed": True},
+            {"example_id": "10:1", "passed": False, "rejection_reasons": ["back_view"]},
+            {"example_id": "20:0", "passed": True},
+        ]
+
+        summary = summarize_quality_split_coverage(
+            examples,
+            quality_rows,
+            {"10": "development_test", "20": "train"},
+            target_groups=2,
+            target_cases=4,
+            slots=("HEAD", "BODY"),
+        )
+
+        self.assertEqual(summary["accepted_image_count"], 2)
+        self.assertTrue(summary["case_policy"]["require_piece_ids"])
+        self.assertEqual(summary["rejected_reason_counts"], {"back_view": 1})
+        self.assertEqual(summary["splits"]["development_test"]["image_count"], 1)
+        self.assertEqual(summary["splits"]["development_test"]["glamour_group_count"], 1)
+        self.assertEqual(summary["splits"]["development_test"]["by_slot"]["BODY"], 1)
+        self.assertEqual(summary["splits"]["development_test"]["slot_case_count"], 2)
+        self.assertEqual(summary["splits"]["train"]["slot_case_count"], 0)
+        self.assertFalse(summary["sealed_target"]["ready"])
+        self.assertEqual(summary["sealed_target"]["group_gap"], 1)
+        self.assertEqual(summary["sealed_target"]["case_gap"], 2)
+
     def test_accepts_large_frontal_full_body_pose(self) -> None:
         result = assess_front_full_body(
             {

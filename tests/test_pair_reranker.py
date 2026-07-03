@@ -4,7 +4,12 @@ import unittest
 
 import torch
 
-from scripts.train_glamour_pair_reranker import PairReranker
+from scripts.train_glamour_pair_reranker import (
+    PairReranker,
+    aggregate_candidate_views,
+    aggregate_crop_scores,
+    combine_group_weights,
+)
 
 
 class PairRerankerTests(unittest.TestCase):
@@ -37,6 +42,46 @@ class PairRerankerTests(unittest.TestCase):
                     atol=1e-6,
                 )
             )
+
+    def test_max_aggregation_keeps_strongest_query_evidence(self) -> None:
+        scores = torch.tensor([[1.0, 4.0], [3.0, 2.0]])
+
+        aggregated = aggregate_crop_scores(scores, "max")
+
+        self.assertTrue(torch.equal(aggregated, torch.tensor([3.0, 4.0])))
+
+    def test_logmeanexp_matches_single_query(self) -> None:
+        scores = torch.tensor([[1.5, -2.0]])
+
+        aggregated = aggregate_crop_scores(scores, "logmeanexp")
+
+        self.assertTrue(torch.allclose(aggregated, scores[0]))
+
+    def test_rejects_unknown_aggregation(self) -> None:
+        with self.assertRaises(ValueError):
+            aggregate_crop_scores(torch.ones(1, 2), "median")
+
+    def test_top2_mean_uses_distinct_candidate_views(self) -> None:
+        views = {
+            "upper_body": {"score": 3.0, "piece_id": 1},
+            "torso_core": {"score": 1.0, "piece_id": 1},
+        }
+
+        result = aggregate_candidate_views(views, "top2_mean")
+
+        self.assertEqual(result["score"], 2.0)
+        self.assertEqual(result["best_view_score"], 3.0)
+        self.assertEqual(result["candidate_view_count"], 2)
+
+    def test_group_weights_multiply_replay_and_domain_factors(self) -> None:
+        combined = combine_group_weights(
+            {"old": 1.2, "rare-old": 1.5},
+            {"old": 1.5, "new": 1.0, "rare-old": 1.5},
+        )
+
+        self.assertAlmostEqual(combined["old"], 1.8)
+        self.assertAlmostEqual(combined["rare-old"], 2.25)
+        self.assertAlmostEqual(combined["new"], 1.0)
 
 
 if __name__ == "__main__":

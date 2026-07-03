@@ -72,6 +72,14 @@ def main() -> int:
         action="store_true",
         help="Reject a glamour when any non-empty core slot lacks an exact local piece match.",
     )
+    parser.add_argument(
+        "--require-model-race",
+        help="Skip the record before image download unless its parsed model race matches.",
+    )
+    parser.add_argument(
+        "--require-model-gender",
+        help="Skip the record before image download unless its parsed model gender matches.",
+    )
     parser.add_argument("--refresh", action="store_true", help="Refetch cached HTML and images.")
     parser.add_argument("--max-pages", type=int, default=10, help="Hard safety bound for one run.")
     args = parser.parse_args()
@@ -88,6 +96,7 @@ def main() -> int:
     driver = None
     session = None
     collected = []
+    skipped = []
     errors = []
     try:
         for index, url in enumerate(urls):
@@ -113,6 +122,21 @@ def main() -> int:
 
                 record = parse_glamour_page(html, resolved_url)
                 validate_record(record)
+                skip_reason = model_scope_skip_reason(
+                    record,
+                    required_race=args.require_model_race,
+                    required_gender=args.require_model_gender,
+                )
+                if skip_reason:
+                    skipped.append(
+                        {
+                            "url": url,
+                            "glamour_id": int(record["glamour_id"]),
+                            "reason": skip_reason,
+                        }
+                    )
+                    print(f"SKIP {url}: {skip_reason}", flush=True)
+                    continue
                 record["html_cache_path"] = portable_path(cache_path)
                 record["fetch_method"] = fetch_method
                 record["collected_at"] = utc_now()
@@ -147,6 +171,8 @@ def main() -> int:
         "records_total": len(rows),
         "requested": len(urls),
         "collected_this_run": len(collected),
+        "skipped_this_run": len(skipped),
+        "skipped": skipped,
         "errors": errors,
         "image_count_total": sum(len(row.get("images", [])) for row in rows),
         "core_slot_labels": sum(
@@ -158,7 +184,10 @@ def main() -> int:
         "finished_at": utc_now(),
     }
     write_json(args.summary, summary)
-    print(f"records_total={len(rows)} collected={len(collected)} errors={len(errors)}")
+    print(
+        f"records_total={len(rows)} collected={len(collected)} "
+        f"skipped={len(skipped)} errors={len(errors)}"
+    )
     return 1 if errors else 0
 
 
@@ -218,6 +247,21 @@ def validate_record(record: dict) -> None:
     invalid_images = [url for url in record.get("image_urls", []) if not url.startswith(expected_prefix)]
     if invalid_images:
         raise ValueError(f"Image URLs outside glamour {glamour_id}: {invalid_images}")
+
+
+def model_scope_skip_reason(
+    record: dict,
+    *,
+    required_race: str | None,
+    required_gender: str | None,
+) -> str | None:
+    model_race = str(record.get("model_race") or "").strip()
+    model_gender = str(record.get("model_gender") or "").strip().lower()
+    if required_race and model_race.casefold() != required_race.strip().casefold():
+        return f"model_race={model_race!r} does not match {required_race!r}"
+    if required_gender and model_gender != required_gender.strip().lower():
+        return f"model_gender={model_gender!r} does not match {required_gender!r}"
+    return None
     if not record.get("image_urls"):
         raise ValueError("No player glamour screenshots found")
     slots = [item.get("slot") for item in record.get("equipment", [])]

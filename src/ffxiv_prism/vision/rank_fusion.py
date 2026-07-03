@@ -3,6 +3,53 @@ from __future__ import annotations
 from typing import Any
 
 
+def relative_ranking_margin(case: dict[str, Any]) -> float:
+    results = case.get("results", [])
+    if len(results) < 2:
+        return 0.0
+    first = float(results[0].get("score", 0.0))
+    second = float(results[1].get("score", 0.0))
+    return (first - second) / max(abs(first), 1e-9)
+
+
+def route_case_results_by_margin(
+    primary_cases: list[dict[str, Any]],
+    secondary_cases: list[dict[str, Any]],
+    *,
+    primary_margin_scale: float = 1.0,
+) -> list[dict[str, Any]]:
+    """Select one complete ranking using only its normalized top-score margin."""
+    secondary_by_key = {
+        (str(case["example_id"]), str(case["slot"])): case
+        for case in secondary_cases
+    }
+    routed = []
+    for primary in primary_cases:
+        key = (str(primary["example_id"]), str(primary["slot"]))
+        secondary = secondary_by_key.get(key)
+        use_secondary = (
+            primary.get("status") == "eligible"
+            and secondary is not None
+            and secondary.get("status") == "eligible"
+            and relative_ranking_margin(secondary)
+            > relative_ranking_margin(primary) * primary_margin_scale
+        )
+        selected = secondary if use_secondary else primary
+        output = dict(selected)
+        output["routing"] = {
+            "selected": "secondary" if use_secondary else "primary",
+            "primary_margin": relative_ranking_margin(primary),
+            "secondary_margin": (
+                relative_ranking_margin(secondary)
+                if secondary is not None
+                else None
+            ),
+            "primary_margin_scale": primary_margin_scale,
+        }
+        routed.append(output)
+    return routed
+
+
 def fuse_case_results_rrf(
     primary_cases: list[dict[str, Any]],
     secondary_cases: list[dict[str, Any]],

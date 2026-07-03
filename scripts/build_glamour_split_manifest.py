@@ -41,13 +41,14 @@ def main() -> int:
             for example in read_jsonl(args.examples)
         }
     )
+    previous_payload = {}
     assignments = {}
     if args.output.is_file():
-        previous = json.loads(args.output.read_text(encoding="utf-8"))
+        previous_payload = json.loads(args.output.read_text(encoding="utf-8"))
         assignments.update(
             {
                 str(glamour_id): str(role)
-                for glamour_id, role in previous.get("assignments", {}).items()
+                for glamour_id, role in previous_payload.get("assignments", {}).items()
             }
         )
     if args.base_report.is_file():
@@ -65,7 +66,22 @@ def main() -> int:
             stable_new_group_role(glamour_id, args.seed),
         )
     counts = Counter(assignments[glamour_id] for glamour_id in glamour_ids)
+    preserved = {
+        key: value
+        for key, value in previous_payload.items()
+        if key
+        not in {
+            "assignments",
+            "base_report",
+            "counts",
+            "policy",
+            "seed",
+            "source_examples",
+            "version",
+        }
+    }
     payload = {
+        **preserved,
         "version": 2,
         "seed": args.seed,
         "policy": (

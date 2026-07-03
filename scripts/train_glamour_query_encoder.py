@@ -7,7 +7,7 @@ import sys
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 import numpy as np
 import torch
@@ -21,6 +21,8 @@ if str(PROJECT_ROOT) not in sys.path:
 from ffxiv_prism.jsonl import read_jsonl, write_json
 from ffxiv_prism.paths import CACHE_DIR, PROCESSED_DIR, portable_path
 from ffxiv_prism.torch_device import resolve_torch_device
+from ffxiv_prism.vision.evaluation_domains import build_domain_balance_weights
+from ffxiv_prism.vision.evaluation_quality import filter_examples_by_quality
 from ffxiv_prism.vision.evaluation_split import (
     development_split_map,
     load_split_assignments,
@@ -100,6 +102,26 @@ class SlotAttentionPooler(nn.Module):
         return torch.nn.functional.normalize(cls + gate * residual, dim=-1)
 
 
+class LowRankResidualPooler(nn.Module):
+    """Identity-initialized low-rank residual over the frozen CLS token."""
+
+    def __init__(self, dimension: int, rank: int) -> None:
+        super().__init__()
+        if rank < 1:
+            raise ValueError("adapter rank must be positive")
+        self.rank = rank
+        self.down = nn.Linear(dimension, rank, bias=False)
+        self.up = nn.Linear(rank, dimension, bias=False)
+        nn.init.normal_(self.down.weight, std=0.02)
+        nn.init.zeros_(self.up.weight)
+
+    def forward(self, tokens: torch.Tensor, slot: str) -> torch.Tensor:
+        del slot
+        cls = tokens[:, 0]
+        residual = self.up(torch.nn.functional.gelu(self.down(cls)))
+        return torch.nn.functional.normalize(cls + residual, dim=-1)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
@@ -110,9 +132,38 @@ def main() -> int:
     parser.add_argument("--model-id", default="facebook/dinov2-base")
     parser.add_argument("--index-dir", type=Path, default=DEFAULT_INDEX)
     parser.add_argument(
+        "--preprocess",
+        choices=("color", "gray"),
+        default="color",
+        help="Apply the same color or grayscale preprocessing to query crops.",
+    )
+    parser.add_argument(
+        "--candidate-race",
+        help="Restrict canonical candidate images to one normalized race value.",
+    )
+    parser.add_argument(
+        "--candidate-model-gender",
+        help="Restrict canonical candidate images to one normalized gender value.",
+    )
+    parser.add_argument(
         "--examples",
         type=Path,
         default=PROCESSED_DIR / "glamour_examples.jsonl",
+    )
+    parser.add_argument(
+        "--quality-manifest",
+        type=Path,
+        help=(
+            "Optional JSONL quality manifest. Only examples with passed=true "
+            "are used for training and evaluation."
+        ),
+    )
+    parser.add_argument(
+        "--slots",
+        nargs="+",
+        choices=SLOTS,
+        default=list(SLOTS),
+        help="Train and evaluate only the selected equipment slots.",
     )
     parser.add_argument("--regions-dir", type=Path, default=DEFAULT_RAW_REGIONS)
     parser.add_argument(
@@ -137,12 +188,30 @@ def main() -> int:
     parser.add_argument("--seed", type=int, default=20260627)
     parser.add_argument("--unfreeze-blocks", type=int, default=2)
     parser.add_argument(
+        "--adapter-rank",
+        type=int,
+        default=0,
+        help=(
+            "Freeze DINOv2 and train an identity-initialized low-rank "
+            "residual query head. Zero keeps last-block fine-tuning."
+        ),
+    )
+    parser.add_argument(
         "--slot-attention",
         action=argparse.BooleanOptionalAction,
         default=True,
     )
     parser.add_argument("--epochs", type=int, default=12)
     parser.add_argument("--patience", type=int, default=4)
+    parser.add_argument(
+        "--fixed-epochs",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "Train for exactly --epochs and defer validation evaluation until "
+            "the checkpoint is frozen."
+        ),
+    )
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--learning-rate", type=float, default=2e-5)
     parser.add_argument("--weight-decay", type=float, default=0.01)
@@ -172,6 +241,21 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--domain-balanced",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "Apply capped inverse-sqrt race/gender weights to training groups. "
+            "Validation remains unweighted."
+        ),
+    )
+    parser.add_argument(
+        "--domain-balance-max-weight",
+        type=float,
+        default=3.0,
+        help="Maximum raw upweight applied to a rare race/gender domain.",
+    )
+    parser.add_argument(
         "--foreground-review-queue",
         type=Path,
         default=None,
@@ -194,6 +278,14 @@ def main() -> int:
     args = parser.parse_args()
     if not 0.0 <= args.alternate_probability <= 1.0:
         raise ValueError("alternate-probability must be between 0 and 1")
+    if args.epochs < 0:
+        parser.error("--epochs must not be negative")
+    if args.epochs == 0 and not args.fixed_epochs:
+        parser.error("--epochs 0 requires --fixed-epochs")
+    if args.adapter_rank < 0:
+        parser.error("--adapter-rank must not be negative")
+    if args.adapter_rank and args.slot_attention:
+        parser.error("--adapter-rank cannot be combined with --slot-attention")
 
     set_seed(args.seed)
     device = resolve_torch_device(args.device)
@@ -203,9 +295,43 @@ def main() -> int:
         args.index_dir / "embeddings.npy",
         mmap_mode="r",
     )
+    if args.candidate_race or args.candidate_model_gender:
+        candidate_indices = [
+            index
+            for index, row in enumerate(metadata)
+            if (
+                not args.candidate_race
+                or str(row.get("race") or "").lower()
+                == args.candidate_race.lower()
+            )
+            and (
+                not args.candidate_model_gender
+                or str(row.get("model_gender") or "").lower()
+                == args.candidate_model_gender.lower()
+            )
+        ]
+        if not candidate_indices:
+            raise ValueError("Candidate race/gender filter accepted no index rows")
+        metadata = [metadata[index] for index in candidate_indices]
+        candidate_embeddings = np.asarray(
+            candidate_embeddings[candidate_indices],
+            dtype=np.float32,
+        )
     examples = read_jsonl(args.examples)
+    if args.quality_manifest is not None:
+        examples = filter_examples_by_quality(
+            examples,
+            read_jsonl(args.quality_manifest),
+        )
+        if not examples:
+            raise ValueError("Quality manifest accepted no training examples")
     records = collect_crop_records(examples, args.regions_dir)
     alternate_records = collect_crop_records(examples, args.alternate_regions_dir)
+    records = filter_crop_records_by_slots(records, args.slots)
+    alternate_records = filter_crop_records_by_slots(
+        alternate_records,
+        args.slots,
+    )
     review_queue = args.foreground_review_queue
     if review_queue is None:
         candidate_queue = args.alternate_regions_dir / "vision_review_queue.jsonl"
@@ -290,10 +416,20 @@ def main() -> int:
         if args.group_by_glamour
         else None
     )
+    domain_weights, domain_balance_report = (
+        build_domain_balance_weights(
+            split_examples["train"],
+            group_by_glamour=args.group_by_glamour,
+            max_weight=args.domain_balance_max_weight,
+        )
+        if args.domain_balanced
+        else ({}, None)
+    )
     grouped_samples = group_training_samples(
         samples,
         split_records["train"],
         group_ids=training_group_ids,
+        group_weights=domain_weights,
     )
 
     from transformers import AutoModel
@@ -303,12 +439,21 @@ def main() -> int:
         cache_dir=CACHE_DIR / "huggingface" / "hub",
         local_files_only=True,
     ).to(device)
-    trainable_names = unfreeze_last_blocks(model, args.unfreeze_blocks)
-    pooler = (
-        SlotAttentionPooler(int(candidate_embeddings.shape[1])).to(device)
-        if args.slot_attention
-        else None
-    )
+    if args.adapter_rank:
+        for parameter in model.parameters():
+            parameter.requires_grad = False
+        trainable_names: set[str] = set()
+        pooler: nn.Module | None = LowRankResidualPooler(
+            int(candidate_embeddings.shape[1]),
+            args.adapter_rank,
+        ).to(device)
+    else:
+        trainable_names = unfreeze_last_blocks(model, args.unfreeze_blocks)
+        pooler = (
+            SlotAttentionPooler(int(candidate_embeddings.shape[1])).to(device)
+            if args.slot_attention
+            else None
+        )
     if args.resume_checkpoint is not None:
         load_training_checkpoint(
             args.resume_checkpoint,
@@ -341,6 +486,14 @@ def main() -> int:
     best_score = (-1.0, -1.0, -1.0)
     stale_epochs = 0
     history = []
+    if args.fixed_epochs and args.epochs == 0:
+        best_state = {
+            name: parameter.detach().cpu().clone()
+            for name, parameter in model.state_dict().items()
+            if name in trainable_names
+        }
+        if pooler is not None:
+            best_pooler_state = copy.deepcopy(pooler.state_dict())
     for epoch in range(1, args.epochs + 1):
         loss = train_epoch(
             model=model,
@@ -358,45 +511,9 @@ def main() -> int:
             hard_negative_margin=args.hard_negative_margin,
             device=device,
             augment=args.augment,
+            preprocess=args.preprocess,
         )
-        validation_embeddings = encode_records(
-            model,
-            pooler,
-            split_records["validation"],
-            args.batch_size,
-            device,
-        )
-        validation_search = search_crops(
-            metadata,
-            candidate_embeddings,
-            split_records["validation"],
-            validation_embeddings,
-            args.candidate_k,
-            device=args.device,
-        )
-        selection = select_on_validation_and_evaluate_test(
-            {
-                "validation": split_examples["validation"],
-                "test": split_examples["validation"],
-            },
-            {
-                "validation": split_records["validation"],
-                "test": split_records["validation"],
-            },
-            validation_search,
-            available_piece_ids,
-            available_appearance_keys,
-            args.top_k,
-        )
-        validation = selection["validation"]
-        score = (
-            validation["appearance_recall_at_1"],
-            validation["appearance_mrr"],
-            validation["appearance_recall_at_k"],
-        )
-        improved = score > best_score
-        if improved:
-            best_score = score
+        if args.fixed_epochs:
             best_epoch = epoch
             best_state = {
                 name: parameter.detach().cpu().clone()
@@ -405,25 +522,85 @@ def main() -> int:
             }
             if pooler is not None:
                 best_pooler_state = copy.deepcopy(pooler.state_dict())
-            stale_epochs = 0
+            history.append(
+                {
+                    "epoch": epoch,
+                    "train_loss": loss,
+                    "validation": None,
+                }
+            )
+            print(
+                f"epoch={epoch} loss={loss:.4f} "
+                "validation=deferred fixed_epochs=true",
+                flush=True,
+            )
         else:
-            stale_epochs += 1
-        history.append(
-            {
-                "epoch": epoch,
-                "train_loss": loss,
-                "validation": validation,
-            }
-        )
-        print(
-            f"epoch={epoch} loss={loss:.4f} "
-            f"val@1={validation['appearance_recall_at_1']:.3f} "
-            f"val@{args.top_k}={validation['appearance_recall_at_k']:.3f} "
-            f"mrr={validation['appearance_mrr']:.3f} best_epoch={best_epoch}",
-            flush=True,
-        )
-        if stale_epochs >= args.patience:
-            break
+            validation_embeddings = encode_records(
+                model,
+                pooler,
+                split_records["validation"],
+                args.batch_size,
+                device,
+                preprocess=args.preprocess,
+            )
+            validation_search = search_crops(
+                metadata,
+                candidate_embeddings,
+                split_records["validation"],
+                validation_embeddings,
+                args.candidate_k,
+                device=args.device,
+            )
+            selection = select_on_validation_and_evaluate_test(
+                {
+                    "validation": split_examples["validation"],
+                    "test": split_examples["validation"],
+                },
+                {
+                    "validation": split_records["validation"],
+                    "test": split_records["validation"],
+                },
+                validation_search,
+                available_piece_ids,
+                available_appearance_keys,
+                args.top_k,
+            )
+            validation = selection["validation"]
+            score = (
+                validation["appearance_recall_at_1"],
+                validation["appearance_mrr"],
+                validation["appearance_recall_at_k"],
+            )
+            improved = score > best_score
+            if improved:
+                best_score = score
+                best_epoch = epoch
+                best_state = {
+                    name: parameter.detach().cpu().clone()
+                    for name, parameter in model.state_dict().items()
+                    if name in trainable_names
+                }
+                if pooler is not None:
+                    best_pooler_state = copy.deepcopy(pooler.state_dict())
+                stale_epochs = 0
+            else:
+                stale_epochs += 1
+            history.append(
+                {
+                    "epoch": epoch,
+                    "train_loss": loss,
+                    "validation": validation,
+                }
+            )
+            print(
+                f"epoch={epoch} loss={loss:.4f} "
+                f"val@1={validation['appearance_recall_at_1']:.3f} "
+                f"val@{args.top_k}={validation['appearance_recall_at_k']:.3f} "
+                f"mrr={validation['appearance_mrr']:.3f} best_epoch={best_epoch}",
+                flush=True,
+            )
+            if stale_epochs >= args.patience:
+                break
 
     if best_state is None:
         raise RuntimeError("Query encoder training produced no checkpoint")
@@ -443,10 +620,17 @@ def main() -> int:
             "trainable_state_dict": best_state,
             "trainable_parameter_names": sorted(trainable_names),
             "slot_attention": args.slot_attention,
+            "adapter_rank": args.adapter_rank,
+            "query_head_type": (
+                "low_rank_adapter"
+                if args.adapter_rank
+                else ("slot_attention" if args.slot_attention else "none")
+            ),
             "pooler_state_dict": (
                 None if pooler is None else pooler.state_dict()
             ),
             "best_epoch": best_epoch,
+            "fixed_epochs": args.fixed_epochs,
             "seed": args.seed,
         },
         args.checkpoint,
@@ -473,6 +657,7 @@ def main() -> int:
             relevant_records,
             args.batch_size,
             device,
+            preprocess=args.preprocess,
         )
         search = search_crops(
             metadata,
@@ -507,12 +692,16 @@ def main() -> int:
                 else sum(parameter.numel() for parameter in pooler.parameters())
             ),
             "slot_attention": args.slot_attention,
+            "adapter_rank": args.adapter_rank,
             "checkpoint": portable_path(args.checkpoint),
             "best_epoch": best_epoch,
         },
         "training": {
             "seed": args.seed,
             "learning_rate": args.learning_rate,
+            "preprocess": args.preprocess,
+            "augment": args.augment,
+            "fixed_epochs": args.fixed_epochs,
             "weight_decay": args.weight_decay,
             "temperature": args.temperature,
             "hard_negative_weight": args.hard_negative_weight,
@@ -522,8 +711,15 @@ def main() -> int:
             "alternate_probability": args.alternate_probability,
             "max_crops_per_example_slot": args.max_crops_per_example_slot,
             "group_by_glamour": args.group_by_glamour,
+            "domain_balanced": args.domain_balanced,
+            "domain_balance": domain_balance_report,
             "foreground_review_queue": portable_path(review_queue),
             "vision_reviews": portable_path(args.vision_reviews),
+            "quality_manifest": portable_path(args.quality_manifest),
+            "quality_example_count": len(examples),
+            "candidate_race": args.candidate_race,
+            "candidate_model_gender": args.candidate_model_gender,
+            "slots": list(args.slots),
             "alternate_path_count": len(alternate_paths),
             "history": history,
         },
@@ -561,6 +757,21 @@ def set_seed(seed: int) -> None:
         torch.cuda.manual_seed_all(seed)
 
 
+def filter_crop_records_by_slots(
+    records: dict[str, list[dict[str, Any]]],
+    slots: Sequence[str],
+) -> dict[str, list[dict[str, Any]]]:
+    allowed = set(slots)
+    return {
+        example_id: [
+            record
+            for record in rows
+            if str(record.get("slot")) in allowed
+        ]
+        for example_id, rows in records.items()
+    }
+
+
 def unfreeze_last_blocks(
     model: torch.nn.Module,
     block_count: int,
@@ -587,7 +798,7 @@ def unfreeze_last_blocks(
 def load_training_checkpoint(
     path: Path,
     model: torch.nn.Module,
-    pooler: SlotAttentionPooler | None,
+    pooler: nn.Module | None,
     device: torch.device,
 ) -> None:
     payload = torch.load(path, map_location=device, weights_only=True)
@@ -595,15 +806,45 @@ def load_training_checkpoint(
     state.update(payload["trainable_state_dict"])
     model.load_state_dict(state)
     saved_attention = bool(payload.get("slot_attention", False))
-    if saved_attention != (pooler is not None):
+    if saved_attention != isinstance(pooler, SlotAttentionPooler):
         raise ValueError(
             "Checkpoint slot-attention setting does not match this run"
+        )
+    saved_adapter_rank = int(payload.get("adapter_rank", 0))
+    actual_adapter_rank = (
+        pooler.rank
+        if isinstance(pooler, LowRankResidualPooler)
+        else 0
+    )
+    if saved_adapter_rank != actual_adapter_rank:
+        raise ValueError(
+            "Checkpoint low-rank adapter setting does not match this run"
         )
     if pooler is not None:
         pooler_state = payload.get("pooler_state_dict")
         if pooler_state is None:
             raise ValueError("Checkpoint has no slot-attention pooler state")
         pooler.load_state_dict(pooler_state)
+
+
+def load_query_head_from_checkpoint(
+    path: Path,
+    model: torch.nn.Module,
+    device: torch.device,
+) -> nn.Module | None:
+    payload = torch.load(path, map_location=device, weights_only=True)
+    adapter_rank = int(payload.get("adapter_rank", 0))
+    if adapter_rank:
+        pooler: nn.Module | None = LowRankResidualPooler(
+            int(model.config.hidden_size),
+            adapter_rank,
+        ).to(device)
+    elif bool(payload.get("slot_attention", False)):
+        pooler = SlotAttentionPooler(int(model.config.hidden_size)).to(device)
+    else:
+        pooler = None
+    load_training_checkpoint(path, model, pooler, device)
+    return pooler
 
 
 def align_alternate_paths(
@@ -725,6 +966,7 @@ def group_training_samples(
     samples: dict[str, list[Any]],
     records: dict[str, list[dict[str, Any]]],
     group_ids: dict[str, str] | None = None,
+    group_weights: Mapping[str, float] | None = None,
 ) -> dict[str, list[GroupedTrainingSample]]:
     example_by_path = {
         str(record["path"]): example_id
@@ -745,7 +987,7 @@ def group_training_samples(
                     else example_id
                 )
                 grouped[group_id].append(sample)
-        for rows in grouped.values():
+        for group_id, rows in grouped.items():
             positive_sets = {sample.positives for sample in rows}
             if len(positive_sets) != 1:
                 raise ValueError("Grouped crop positives are inconsistent")
@@ -753,7 +995,14 @@ def group_training_samples(
                 GroupedTrainingSample(
                     paths=tuple(sample.path for sample in rows),
                     positives=rows[0].positives,
-                    weight=float(np.mean([sample.weight for sample in rows])),
+                    weight=(
+                        float(np.mean([sample.weight for sample in rows]))
+                        * (
+                            float(group_weights.get(group_id, 1.0))
+                            if group_weights is not None
+                            else 1.0
+                        )
+                    ),
                 )
             )
     return grouped_output
@@ -789,6 +1038,7 @@ def train_epoch(
     hard_negative_margin: float,
     device: torch.device,
     augment: bool,
+    preprocess: str,
 ) -> float:
     model.train()
     losses = []
@@ -812,7 +1062,11 @@ def train_epoch(
                     for path in sample.paths
                 )
                 group_ranges.append((group_start, len(paths)))
-            pixels = load_pixel_batch(paths, augment=augment).to(device)
+            pixels = load_pixel_batch(
+                paths,
+                augment=augment,
+                preprocess=preprocess,
+            ).to(device)
             optimizer.zero_grad(set_to_none=True)
             with torch.autocast(
                 device_type=device.type,
@@ -918,6 +1172,8 @@ def encode_records(
     records: dict[str, list[dict[str, Any]]],
     batch_size: int,
     device: torch.device,
+    *,
+    preprocess: str = "color",
 ) -> dict[str, np.ndarray]:
     model.eval()
     if pooler is not None:
@@ -936,7 +1192,11 @@ def encode_records(
         )
         for start in range(0, len(paths), batch_size):
             batch_paths = paths[start : start + batch_size]
-            pixels = load_pixel_batch(batch_paths, augment=False).to(device)
+            pixels = load_pixel_batch(
+                batch_paths,
+                augment=False,
+                preprocess=preprocess,
+            ).to(device)
             tokens = model(pixel_values=pixels).last_hidden_state
             outputs = (
                 pooler(tokens, slot)
@@ -957,6 +1217,7 @@ def load_pixel_batch(
     paths: Sequence[str],
     *,
     augment: bool,
+    preprocess: str = "color",
 ) -> torch.Tensor:
     arrays = []
     for path in paths:
@@ -964,6 +1225,13 @@ def load_pixel_batch(
             image = source.convert("RGB")
         if augment:
             image = augment_query(image)
+        if preprocess == "gray":
+            grayscale = ImageOps.grayscale(image).convert("RGB")
+            image.close()
+            image = grayscale
+        elif preprocess != "color":
+            image.close()
+            raise ValueError(f"unsupported query preprocess: {preprocess}")
         resized = image.resize((224, 224), Image.Resampling.BICUBIC)
         image.close()
         array = np.asarray(resized, dtype=np.float32) / 255.0

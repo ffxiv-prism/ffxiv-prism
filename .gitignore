@@ -38,6 +38,23 @@ data/samples/retrieval_eval.generated.jsonl
 data/processed/retrieval_eval_results.json
 data/processed/retrieval_eval_cross_view_results.json
 data/processed/retrieval_eval_results.latest.json
+# Train-only folds, embedding caches, queues, and evaluation reports are
+# reproducible local experiment artifacts.
+data/interim/**
+!data/interim/.gitkeep
+# Pose manifests and review deltas are merged into the final quality manifest.
+data/processed/front_fullbody_quality_pose_v*
+data/processed/front_fullbody_visual_reviews_v*
+data/processed/front_fullbody_quality_auto_v*
+data/processed/front_fullbody_quality_final_v*
+data/processed/glamour_body_confidence_router_*.json
+data/processed/glamour_clip_eval_*.json
+data/processed/glamour_dinov2_*_eval_*.json
+data/processed/glamour_examples_hq_*.jsonl
+data/processed/glamour_exemplar_*.json
+data/processed/glamour_pair_reranker_*.json
+data/processed/glamour_query_encoder_v*.json
+data/processed/piece_appearance_equivalence_*.json
 data/processed/retrieval_eval_cross_view_results.latest.json
 data/samples/retrieval_eval_images/**
 data/processed/retrieval_eval_mild_results.json

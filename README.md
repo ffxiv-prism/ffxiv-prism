@@ -5,6 +5,8 @@ and next steps are recorded in
 [`docs/handoff_2026-06-29.md`](docs/handoff_2026-06-29.md). The latest SAM2
 slot-mask ablation is recorded in
 [`docs/sam2_mask_ablation_2026-06-29.md`](docs/sam2_mask_ablation_2026-06-29.md).
+The high-quality recognition target and evaluation guardrails are recorded in
+[`docs/high_quality_recognition_plan_2026-06-29.md`](docs/high_quality_recognition_plan_2026-06-29.md).
 
 FFXIV Prism is a local Python project for building a Final Fantasy XIV glamour
 appearance dataset. The current milestone is a source-backed gearset and gear
@@ -311,6 +313,101 @@ reproducible from the local source image cache.
 
 The default index excludes `dyed` images so current dye colors do not become the
 primary visual signal. Generated indexes and evaluation outputs remain local.
+
+### High-Quality Recognition Track
+
+Query-encoder and pair-reranker training can be restricted to a reviewed
+quality manifest. Only rows with `passed=true` participate in either training
+or evaluation, while the split remains grouped by `glamour_id`:
+
+```powershell
+python scripts\train_glamour_query_encoder.py `
+  --index-dir data\indexes\facebook-dinov2-base-slot-aligned-v2 `
+  --quality-manifest data\processed\front_fullbody_quality_final_v33.jsonl `
+  --slots BODY `
+  --group-by-glamour `
+  --checkpoint data\models\glamour_query_encoder_hq.pt `
+  --output data\processed\glamour_query_encoder_eval_hq.json `
+  --device auto
+
+python scripts\train_glamour_pair_reranker.py `
+  --index-dir data\indexes\facebook-dinov2-base-slot-aligned-v2 `
+  --quality-manifest data\processed\front_fullbody_quality_final_v33.jsonl `
+  --slots BODY `
+  --group-by-glamour `
+  --checkpoint data\models\glamour_pair_reranker_hq.pt `
+  --output data\processed\glamour_pair_reranker_eval_hq.json `
+  --device auto
+```
+
+The quality manifest can also be narrowed to a single reliable slot, for
+example `--slots BODY`. `--checkpoint` is the model path; `--output` is the JSON
+evaluation report.
+
+Before claiming a split is large enough for model selection or confirmation,
+summarize prediction-independent coverage:
+
+```powershell
+python scripts\summarize_quality_split_coverage.py `
+  --quality-manifest data\processed\front_fullbody_quality_final_v33.jsonl `
+  --slots BODY
+
+python scripts\summarize_evaluation_domains.py `
+  --report data\processed\glamour_pair_reranker_eval.json `
+  --split validation `
+  --output data\processed\glamour_pair_reranker_eval.domain_coverage.json
+```
+
+Quality decisions must be frozen before inspecting predictions. A repeatedly
+inspected validation set is for development only; the usable-model target must
+be confirmed once on newly collected sealed high-quality glamour groups.
+
+Hyur-female BODY recognition is retained only as a narrow regression track.
+It reached 80% on 15 development images, but only 42.9% on the subsequent
+one-time 7-image sealed BODY test. It does not establish cross-race,
+cross-gender, or cross-source usability.
+
+The current all-domain BODY dataset is v46: 1,617 glamour groups, 6,447 images,
+and 1,105 reviewed front/full-body images, including 988 official-train BODY
+cases. The mixed/seen-equipment deployment default remains the v35 reranker
+with qv52, seven fixed epochs, and 1,000 mined hard negatives. With the crop
+configuration frozen from train-only cross-validation, it reaches 55/81
+(67.9%) single-image appearance Top-1 and 72/81 (88.9%) Top-10 on public
+validation.
+
+Unseen-equipment research now uses fully end-to-end BODY-item-disjoint
+three-fold evaluation: both the query encoder and reranker are trained from
+scratch inside each fold. The selected research baseline remains v44: on the
+same v44 folds and 906 evaluation images,
+v44 reaches 365/906 (40.3%) Top-1 and 676/906 (74.6%) Top-10 with the
+multiscale v3 index, versus 356/906 (39.3%) and 664/906 (73.3%) for the paired
+v43 data baseline. All three folds improve. v45 is retained as data but not
+promoted as a model-selection result: on its paired folds it adds only +0.4
+Top-1 points, regresses in two of three folds, and shifts Top-1 from female to
+male cases. The female-balanced v46 increment is also retained as data but not
+promoted: against v45 on the same 987 cases it changes Top-1 from 386 to 388
+(+0.2 points) and Top-10 from 732 to 728 (-0.4 points). Female Top-1 gains four
+cases while male Top-1 loses two, so the result still fails the cross-domain
+non-regression guard. The earlier 361/578 (62.5%)
+result reused a globally trained
+qv52 encoder; it remains a useful reranker diagnostic but is optimistic and is
+not an unbiased end-to-end unseen-item estimate. The v44 full-data v37
+checkpoint reaches only 41/81 (50.6%) Top-1 on v2 and 43/81 (53.1%) on v3
+public validation, so it does not replace v35 for mixed/seen deployment. The
+blind pool remains uninspected, and the 80% Top-1 product target is not yet
+met. See the
+[v42 strict-CV note](docs/progress_2026-07-03_v42_strict_cv.md) and
+[v43 male-expansion note](docs/progress_2026-07-03_v43_male_expansion.md), and
+[v44 item-page expansion note](docs/progress_2026-07-03_v44_item_page_expansion.md).
+The v45 non-promotion is recorded in
+[the v45 balance note](docs/progress_2026-07-03_v45_balance_guard.md). The
+current stage outcome and next experiments are summarized in
+[the v46 stage note](docs/stage_summary_2026-07-03_v46.md).
+
+Training and accuracy validation use only source pages with real FFXIV
+equipment labels. Arbitrary non-FFXIV images remain an inference aspiration,
+not a supervised training or validation source. See
+`docs/cross_domain_recognition_plan_2026-07-01.md`.
 
 ### Screenshot-to-Render Domain Adapter
 

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from typing import Any, Mapping, Sequence
+from collections import Counter, defaultdict
+from typing import Any, Iterable, Mapping, Sequence
 
 import numpy as np
+
+from ffxiv_prism.vision.retrieval import VALID_SLOTS
 
 
 QUALITY_POLICY_VERSION = 1
@@ -176,6 +179,147 @@ def quality_allowlist(rows: Sequence[Mapping[str, Any]]) -> set[str]:
         str(row["example_id"])
         for row in rows
         if bool(row.get("passed"))
+    }
+
+
+def filter_examples_by_quality(
+    examples: Sequence[Mapping[str, Any]],
+    quality_rows: Sequence[Mapping[str, Any]],
+) -> list[Mapping[str, Any]]:
+    allowed = quality_allowlist(quality_rows)
+    return [
+        example
+        for example in examples
+        if str(example.get("example_id")) in allowed
+    ]
+
+
+def summarize_quality_split_coverage(
+    examples: Sequence[Mapping[str, Any]],
+    quality_rows: Sequence[Mapping[str, Any]],
+    split_assignments: Mapping[str, str],
+    *,
+    target_groups: int = 50,
+    target_cases: int = 250,
+    slots: Iterable[str] = VALID_SLOTS,
+    require_piece_ids: bool = True,
+) -> dict[str, Any]:
+    """Summarize reviewed high-quality coverage by split and slot.
+
+    The summary is prediction-independent: it only uses source labels, split
+    assignments, and the frozen quality manifest. It is intended to decide
+    whether a split is large enough for model selection or sealed evaluation,
+    not to score a model.
+    """
+
+    selected_slots = tuple(str(slot) for slot in slots)
+    allowed = quality_allowlist(quality_rows)
+    quality_by_example_id = {
+        str(row["example_id"]): row
+        for row in quality_rows
+    }
+    accepted = []
+    rejected_reasons = Counter()
+    for example in examples:
+        example_id = str(example.get("example_id"))
+        quality = quality_by_example_id.get(example_id)
+        if quality is None:
+            continue
+        if example_id in allowed:
+            accepted.append(example)
+        else:
+            rejected_reasons.update(
+                str(reason)
+                for reason in quality.get("rejection_reasons", [])
+            )
+    split_rows: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
+    for example in accepted:
+        glamour_id = str(example.get("glamour_id"))
+        role = split_assignments.get(glamour_id, "unassigned")
+        split_rows[role].append(example)
+
+    split_summary = {
+        role: _summarize_quality_examples(
+            rows,
+            selected_slots,
+            require_piece_ids=require_piece_ids,
+        )
+        for role, rows in sorted(split_rows.items())
+    }
+    for role in (
+        "train",
+        "validation",
+        "development_test",
+        "blind_test",
+        "confirmation_test",
+        "unassigned",
+    ):
+        split_summary.setdefault(
+            role,
+            _summarize_quality_examples(
+                [],
+                selected_slots,
+                require_piece_ids=require_piece_ids,
+            ),
+        )
+    sealed = split_summary["development_test"]
+    return {
+        "accepted_image_count": len(accepted),
+        "case_policy": {
+            "require_piece_ids": require_piece_ids,
+        },
+        "quality_manifest_rows": len(quality_rows),
+        "rejected_reason_counts": dict(sorted(rejected_reasons.items())),
+        "slots": list(selected_slots),
+        "splits": split_summary,
+        "sealed_target": {
+            "split": "development_test",
+            "target_groups": target_groups,
+            "target_cases": target_cases,
+            "current_groups": sealed["glamour_group_count"],
+            "current_cases": sealed["slot_case_count"],
+            "group_gap": max(
+                0,
+                target_groups - int(sealed["glamour_group_count"]),
+            ),
+            "case_gap": max(
+                0,
+                target_cases - int(sealed["slot_case_count"]),
+            ),
+            "ready": (
+                int(sealed["glamour_group_count"]) >= target_groups
+                and int(sealed["slot_case_count"]) >= target_cases
+            ),
+        },
+    }
+
+
+def _summarize_quality_examples(
+    examples: Sequence[Mapping[str, Any]],
+    slots: Sequence[str],
+    *,
+    require_piece_ids: bool,
+) -> dict[str, Any]:
+    by_slot = {slot: 0 for slot in slots}
+    image_ids = set()
+    glamour_ids = set()
+    for example in examples:
+        image_ids.add(str(example.get("example_id")))
+        glamour_ids.add(str(example.get("glamour_id")))
+        labels = example.get("core_slot_labels", {})
+        if not isinstance(labels, Mapping):
+            labels = {}
+        for slot in slots:
+            label = labels.get(slot)
+            has_item = isinstance(label, Mapping) and label.get("item_name")
+            has_piece_ids = has_item and bool(label.get("piece_ids"))
+            if has_item and (has_piece_ids or not require_piece_ids):
+                by_slot[slot] += 1
+    return {
+        "image_count": len(image_ids),
+        "glamour_group_count": len(glamour_ids),
+        "slot_case_count": sum(by_slot.values()),
+        "by_slot": by_slot,
     }
 
 

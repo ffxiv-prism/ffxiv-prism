@@ -112,6 +112,72 @@ class GlamourParserTests(unittest.TestCase):
             self.assertEqual(item["matched_piece_ids"], [7])
             self.assertEqual(item["matched_piece_names"], ["Nightsteel Gauntlets of Maiming"])
             self.assertEqual(item["appearance_equivalence_rule"], "normalized_variant_name")
+
+    def test_enrichment_expands_canonical_embedding_equivalence(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "test.sqlite"
+            conn = sqlite3.connect(db_path)
+            conn.executescript(
+                """
+                CREATE TABLE gear_pieces (
+                    piece_id INTEGER,
+                    slot TEXT,
+                    name_en TEXT,
+                    occupied_slots_json TEXT,
+                    blocked_slots_json TEXT
+                );
+                CREATE TABLE images (
+                    image_row_id INTEGER,
+                    family_slug TEXT
+                );
+                CREATE TABLE gear_piece_images (
+                    piece_id INTEGER,
+                    image_row_id INTEGER
+                );
+                """
+            )
+            conn.executemany(
+                "INSERT INTO gear_pieces VALUES (?, ?, ?, ?, ?)",
+                [
+                    (10, "BODY", "Shisui Joi of Fending", "[]", "[]"),
+                    (11, "BODY", "Shisui Joi of Healing", "[]", "[]"),
+                    (12, "HEAD", "Shisui Mengu of Fending", "[]", "[]"),
+                ],
+            )
+            conn.executemany(
+                "INSERT INTO images VALUES (?, ?)",
+                [(100, "shisui"), (101, "shisui"), (102, "shisui")],
+            )
+            conn.executemany(
+                "INSERT INTO gear_piece_images VALUES (?, ?)",
+                [(10, 100), (11, 101), (12, 102)],
+            )
+            conn.commit()
+            conn.close()
+
+            record = {
+                "equipment": [
+                    {
+                        "slot": "BODY",
+                        "is_core_slot": True,
+                        "is_empty": False,
+                        "item_name": "Shisui Joi of Fending",
+                    }
+                ]
+            }
+            enrich_equipment_from_sqlite(
+                record,
+                db_path,
+                appearance_equivalence={10: [11], 11: [10]},
+            )
+            item = record["equipment"][0]
+            self.assertEqual(item["piece_match_type"], "exact_item")
+            self.assertEqual(item["matched_piece_ids"], [10, 11])
+            self.assertEqual(
+                item["appearance_equivalence_rule"],
+                "canonical_embedding_similarity",
+            )
+
     def test_appearance_name_key_normalizes_known_same_model_variants(self) -> None:
         self.assertEqual(
             appearance_name_key("Augmented Nightsteel Gauntlets of Maiming"),

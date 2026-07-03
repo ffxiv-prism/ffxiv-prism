@@ -36,6 +36,29 @@ class SlotAlignedCandidateIndexTests(unittest.TestCase):
         self.assertEqual(variants[0][0], "upper_body")
         self.assertLess(variants[0][1][3], 1.0)
 
+    def test_multiscale_body_adds_tighter_torso_candidate(self) -> None:
+        rows = [
+            {
+                "image_row_id": 3,
+                "slot": "BODY",
+                "local_path": "body.png",
+            }
+        ]
+
+        expanded = expand_slot_aligned_rows(
+            rows,
+            body_crop_policy="multiscale",
+        )
+
+        self.assertEqual(
+            [row["candidate_crop"] for row in expanded],
+            ["upper_body", "torso_core"],
+        )
+        upper = expanded[0]["candidate_crop_box_normalized"]
+        torso = expanded[1]["candidate_crop_box_normalized"]
+        self.assertGreater(torso[1], upper[1])
+        self.assertLess(torso[3], upper[3])
+
 
 if __name__ == "__main__":
     unittest.main()
