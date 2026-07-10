@@ -6,6 +6,7 @@ from scripts.build_item_disjoint_cv_split_manifests import (
     body_item_key,
     build_balanced_item_fold_map,
     build_item_disjoint_assignments,
+    slot_item_key,
 )
 
 
@@ -37,6 +38,26 @@ class ItemDisjointCvSplitManifestTests(unittest.TestCase):
             }
         }
         self.assertEqual(body_item_key(example), "pieces:3,9")
+    def test_piece_ids_define_requested_slot_identity(self) -> None:
+        example = {
+            "core_slot_labels": {
+                "HEAD": {"piece_ids": [7, 2], "item_name": "Example Hat"},
+                "BODY": {"piece_ids": [9], "item_name": "Example Coat"},
+            }
+        }
+        self.assertEqual(slot_item_key(example, "HEAD"), "pieces:2,7")
+        self.assertEqual(slot_item_key(example, "BODY"), "pieces:9")
+
+    def test_requested_slot_name_is_used_as_fallback(self) -> None:
+        example = {
+            "core_slot_labels": {
+                "FEET": {"piece_ids": [], "item_name": "  Example Boots  "}
+            }
+        }
+        self.assertEqual(slot_item_key(example, "FEET"), "name:example boots")
+        self.assertIsNone(slot_item_key(example, "HANDS"))
+
+
 
     def test_balanced_map_keeps_eligible_case_loads_close(self) -> None:
         weights = {

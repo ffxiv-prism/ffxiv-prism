@@ -275,6 +275,11 @@ def main() -> int:
         action=argparse.BooleanOptionalAction,
         default=True,
     )
+    parser.add_argument(
+        "--skip-evaluation",
+        action="store_true",
+        help="Save the training checkpoint without the final retrieval evaluation.",
+    )
     args = parser.parse_args()
     if not 0.0 <= args.alternate_probability <= 1.0:
         raise ValueError("alternate-probability must be between 0 and 1")
@@ -454,8 +459,9 @@ def main() -> int:
             if args.slot_attention
             else None
         )
+    resume_payload = None
     if args.resume_checkpoint is not None:
-        load_training_checkpoint(
+        resume_payload = load_training_checkpoint(
             args.resume_checkpoint,
             model,
             pooler,
@@ -473,6 +479,9 @@ def main() -> int:
         lr=args.learning_rate,
         weight_decay=args.weight_decay,
     )
+    if resume_payload and resume_payload.get("optimizer_state_dict"):
+        optimizer.load_state_dict(resume_payload["optimizer_state_dict"])
+
     scaler = torch.amp.GradScaler(
         device.type,
         enabled=device.type == "cuda",
@@ -482,10 +491,11 @@ def main() -> int:
     available_appearance_keys = available_appearance_keys_by_slot(metadata)
     best_state = None
     best_pooler_state = None
-    best_epoch = 0
+    start_epoch = int((resume_payload or {}).get("epochs_completed", 0))
+    best_epoch = start_epoch
     best_score = (-1.0, -1.0, -1.0)
     stale_epochs = 0
-    history = []
+    history = list((resume_payload or {}).get("history", []))
     if args.fixed_epochs and args.epochs == 0:
         best_state = {
             name: parameter.detach().cpu().clone()
@@ -494,7 +504,7 @@ def main() -> int:
         }
         if pooler is not None:
             best_pooler_state = copy.deepcopy(pooler.state_dict())
-    for epoch in range(1, args.epochs + 1):
+    for epoch in range(start_epoch + 1, start_epoch + args.epochs + 1):
         loss = train_epoch(
             model=model,
             pooler=pooler,
@@ -632,9 +642,33 @@ def main() -> int:
             "best_epoch": best_epoch,
             "fixed_epochs": args.fixed_epochs,
             "seed": args.seed,
+            "optimizer_state_dict": optimizer.state_dict(),
+            "epochs_completed": history[-1]["epoch"] if history else start_epoch,
+            "history": history,
         },
         args.checkpoint,
     )
+    if args.skip_evaluation:
+        payload = {
+            "model": {
+                "model_id": args.model_id,
+                "checkpoint": portable_path(args.checkpoint),
+                "best_epoch": best_epoch,
+            },
+            "training": {
+                "fixed_epochs": args.fixed_epochs,
+                "resume_checkpoint": portable_path(args.resume_checkpoint),
+                "slots": list(args.slots),
+                "history": history,
+            },
+            "evaluation": {},
+            "index_dir": portable_path(args.index_dir),
+            "split_manifest": portable_path(args.split_manifest),
+        }
+        write_json(args.output, payload)
+        print(f"checkpoint={args.checkpoint} output={args.output} evaluation=skipped")
+        return 0
+
 
     evaluation = {}
     for branch, branch_records in (
@@ -800,7 +834,7 @@ def load_training_checkpoint(
     model: torch.nn.Module,
     pooler: nn.Module | None,
     device: torch.device,
-) -> None:
+) -> dict[str, Any]:
     payload = torch.load(path, map_location=device, weights_only=True)
     state = model.state_dict()
     state.update(payload["trainable_state_dict"])
@@ -825,6 +859,7 @@ def load_training_checkpoint(
         if pooler_state is None:
             raise ValueError("Checkpoint has no slot-attention pooler state")
         pooler.load_state_dict(pooler_state)
+    return payload
 
 
 def load_query_head_from_checkpoint(

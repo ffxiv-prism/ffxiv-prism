@@ -5,7 +5,7 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 import numpy as np
 import torch
@@ -441,29 +441,69 @@ def search_crops(
     crop_embeddings: dict[str, np.ndarray],
     candidate_k: int,
     device: str = "cpu",
+    candidate_crop_routes: Mapping[str, Sequence[str]] | None = None,
+    candidate_gender_by_example: Mapping[str, str] | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
-    slot_indices = {
-        slot: np.asarray([index for index, row in enumerate(metadata) if row.get("slot") == slot], dtype=np.int64)
-        for slot in SLOTS
-    }
     torch_device = resolve_torch_device(device)
     use_cuda = torch_device.type == "cuda"
-    slot_tensors = {}
-    if use_cuda:
-        slot_tensors = {
-            slot: torch.tensor(np.asarray(candidate_embeddings[indices]), device=torch_device)
-            for slot, indices in slot_indices.items()
-        }
+    index_groups: dict[tuple[str, tuple[str, ...], str], np.ndarray] = {}
+    candidate_tensors: dict[
+        tuple[str, tuple[str, ...], str], torch.Tensor
+    ] = {}
     results: dict[str, list[dict[str, Any]]] = {}
     for records in crop_records.values():
         for record in records:
             path = str(record["path"])
             if path in results or path not in crop_embeddings:
                 continue
-            indices = slot_indices[record["slot"]]
+            allowed_crops = tuple(
+                (candidate_crop_routes or {}).get(str(record.get("name")), ())
+            )
+            candidate_gender = str(
+                (candidate_gender_by_example or {}).get(
+                    str(record.get("example_id")),
+                    "",
+                )
+            ).lower()
+            group_key = (
+                str(record["slot"]),
+                allowed_crops,
+                candidate_gender,
+            )
+            if group_key not in index_groups:
+                allowed = set(allowed_crops)
+                index_groups[group_key] = np.asarray(
+                    [
+                        index
+                        for index, row in enumerate(metadata)
+                        if row.get("slot") == record["slot"]
+                        and (
+                            not allowed
+                            or str(row.get("candidate_crop")) in allowed
+                        )
+                        and (
+                            not candidate_gender
+                            or str(row.get("model_gender", "")).lower()
+                            == candidate_gender
+                        )
+                    ],
+                    dtype=np.int64,
+                )
+            indices = index_groups[group_key]
+            if not len(indices):
+                raise ValueError(
+                    "Candidate routing removed every index row for "
+                    f"slot={record['slot']} crops={allowed_crops} "
+                    f"gender={candidate_gender or 'any'}"
+                )
             if use_cuda:
+                if group_key not in candidate_tensors:
+                    candidate_tensors[group_key] = torch.tensor(
+                        np.asarray(candidate_embeddings[indices]),
+                        device=torch_device,
+                    )
                 query = torch.as_tensor(crop_embeddings[path], device=torch_device)
-                scores_tensor = slot_tensors[record["slot"]] @ query
+                scores_tensor = candidate_tensors[group_key] @ query
                 order = torch.argsort(scores_tensor, descending=True).cpu().numpy()
                 scores = scores_tensor.cpu().numpy()
             else:

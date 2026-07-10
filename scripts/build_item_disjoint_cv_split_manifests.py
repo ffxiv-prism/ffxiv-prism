@@ -12,14 +12,21 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from ffxiv_prism.jsonl import read_jsonl
 
+CORE_SLOTS = ("HEAD", "BODY", "HANDS", "LEGS", "FEET")
 
-def body_item_key(example: dict) -> str | None:
-    body = (example.get("core_slot_labels") or {}).get("BODY") or {}
-    piece_ids = sorted(int(value) for value in body.get("piece_ids", []))
+
+def slot_item_key(example: dict, slot: str) -> str | None:
+    label = (example.get("core_slot_labels") or {}).get(slot) or {}
+    piece_ids = sorted(int(value) for value in label.get("piece_ids", []))
     if piece_ids:
         return "pieces:" + ",".join(str(value) for value in piece_ids)
-    item_name = str(body.get("item_name") or "").strip().casefold()
+    item_name = str(label.get("item_name") or "").strip().casefold()
     return f"name:{item_name}" if item_name else None
+
+
+def body_item_key(example: dict) -> str | None:
+    """Backward-compatible BODY identity helper."""
+    return slot_item_key(example, "BODY")
 
 
 def item_fold(item_key: str, folds: int, seed: int) -> int:
@@ -90,7 +97,7 @@ def build_item_disjoint_assignments(
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Build train-only CV manifests that keep every BODY item identity "
+            "Build train-only CV manifests that keep every target-slot item identity "
             "entirely in one fold."
         )
     )
@@ -100,9 +107,15 @@ def main() -> int:
         "--quality-manifest",
         type=Path,
         help=(
-            "Optional JSONL quality manifest. When supplied, BODY identities "
+            "Optional JSONL quality manifest. When supplied, target-slot identities "
             "are greedily balanced by passed train image count."
         ),
+    )
+    parser.add_argument(
+        "--slot",
+        choices=CORE_SLOTS,
+        default="BODY",
+        help="Equipment slot whose appearance identities must remain disjoint.",
     )
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--folds", type=int, default=3)
@@ -128,13 +141,13 @@ def main() -> int:
     item_weights: dict[str, int] = {}
     for example in read_jsonl(args.examples):
         glamour_id = str(example["glamour_id"])
-        key = body_item_key(example)
+        key = slot_item_key(example, args.slot)
         if key is None:
             continue
         previous = item_keys.setdefault(glamour_id, key)
         if previous != key:
             raise ValueError(
-                f"glamour {glamour_id} has inconsistent BODY identities: "
+                f"glamour {glamour_id} has inconsistent {args.slot} identities: "
                 f"{previous!r} vs {key!r}"
             )
         if (
@@ -177,11 +190,12 @@ def main() -> int:
             if item_fold_index == fold
         }
         payload = {
-            "version": 2 if item_fold_map is not None else 1,
+            "version": 3 if item_fold_map is not None else 2,
             "policy": (
                 "Inner CV over official train only; all glamour groups sharing "
-                "a BODY piece identity remain in one fold."
+                f"a {args.slot} piece identity remain in one fold."
             ),
+            "slot": args.slot,
             "source_split": args.base_split.as_posix(),
             "source_examples": args.examples.as_posix(),
             "source_quality_manifest": (

@@ -1,0 +1,67 @@
+{
+  "version": 63,
+  "stage_status": "stopped_after_one_final_optimization_round",
+  "goal_achieved": false,
+  "body_target": {
+    "top1": 0.45896656534954405,
+    "top10": 0.7446808510638298
+  },
+  "records": [
+    {
+      "slot": "BODY",
+      "scope": "strict 3-fold target",
+      "method": "qv52 + v53 reranker + v3 index",
+      "eligible": 987,
+      "r1": 0.45896656534954405,
+      "r10": 0.7446808510638298,
+      "source": "docs/stage_summary_2026-07-04_official_same_model_v53_zh.md"
+    },
+    {
+      "slot": "HEAD",
+      "scope": "3-fold pooled",
+      "method": "qv65 + head multiscale v4 + face candidate routing",
+      "eligible": 899,
+      "r1": 0.16129032258064516,
+      "r10": 0.3448275862068966,
+      "source": "data/processed/retrieval_funnel_v58_head_upper_query_rrf_folds01-03.json"
+    },
+    {
+      "slot": "HANDS",
+      "scope": "fold1 exploratory; configuration selected on the same fold",
+      "method": "qv71 + hands multiscale v5 + paired crop routing + gender routing + weighted RRF(k=1)",
+      "eligible": 315,
+      "r1": 0.03492063492063492,
+      "r10": 0.10158730158730159,
+      "r100": 0.32063492063492066,
+      "r1000": 0.8984126984126984,
+      "mrr": 0.0633419363257721,
+      "source": "data/processed/retrieval_query_only_v63_hands_fold01_qv71_v5_consensus.json",
+      "baseline_source": "data/processed/retrieval_query_only_v59_hands_fold01_qv71_v5_e10.json",
+      "baseline_r1": 0.022222222222222223,
+      "baseline_r10": 0.06666666666666667
+    },
+    {
+      "slot": "LEGS",
+      "scope": "3-fold pooled",
+      "method": "qv72 + legs multiscale v6",
+      "eligible": 955,
+      "r1": 0.07015706806282722,
+      "r10": 0.21047120418848167,
+      "source": "data/processed/retrieval_query_only_v62_legs_v6_folds01-03_qv72_e10_summary.json"
+    },
+    {
+      "slot": "FEET",
+      "scope": "3-fold pooled",
+      "method": "qv73 + feet multiscale v6",
+      "eligible": 967,
+      "r1": 0.09513960703205791,
+      "r10": 0.21613236814891418,
+      "source": "data/processed/retrieval_query_only_v62_feet_v6_folds01-03_qv73_e10_summary.json"
+    }
+  ],
+  "comparability_notes": [
+    "HEAD, LEGS, and FEET are three-fold pooled results.",
+    "HANDS v63 is a fold-1 exploratory result and is not an unbiased three-fold estimate.",
+    "No non-BODY slot reached the BODY strict target in this stage."
+  ]
+}

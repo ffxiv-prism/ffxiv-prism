@@ -197,6 +197,15 @@ def main() -> int:
     )
     parser.add_argument("--query-cache", type=Path, default=DEFAULT_QUERY_CACHE)
     parser.add_argument("--checkpoint", type=Path, default=DEFAULT_CHECKPOINT)
+    parser.add_argument(
+        "--resume-checkpoint",
+        type=Path,
+        help="Continue reranker and optimizer state from a segmented run.",
+    )
+    parser.add_argument(
+        "--skip-evaluation",
+        action="store_true",
+    )
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--device", default="auto")
     parser.add_argument("--seed", type=int, default=20260627)
@@ -411,19 +420,35 @@ def main() -> int:
         per_slot_heads=args.per_slot_heads,
         dropout=args.dropout,
     ).to(device)
+    resume_payload = None
+    if args.resume_checkpoint is not None:
+        resume_payload = torch.load(
+            args.resume_checkpoint,
+            map_location=device,
+            weights_only=True,
+        )
+        reranker.load_state_dict(resume_payload["state_dict"])
+
     optimizer = torch.optim.AdamW(
         reranker.parameters(),
         lr=args.learning_rate,
         weight_decay=args.weight_decay,
     )
+    if resume_payload and resume_payload.get("optimizer_state_dict"):
+        optimizer.load_state_dict(resume_payload["optimizer_state_dict"])
+
     available_piece_ids = available_pieces_by_slot(metadata)
     available_appearance_keys = available_appearance_keys_by_slot(metadata)
     best_state = None
-    best_epoch = 0
+    start_epoch = int((resume_payload or {}).get("epochs_completed", 0))
+    best_epoch = start_epoch
     best_score = (-1.0, -1.0, -1.0)
     stale_epochs = 0
-    history = []
-    for epoch in range(1, args.epochs + 1):
+    history = list((resume_payload or {}).get("history", []))
+    if args.fixed_epochs and args.epochs == 0:
+        best_state = copy.deepcopy(reranker.state_dict())
+
+    for epoch in range(start_epoch + 1, start_epoch + args.epochs + 1):
         loss = train_epoch(
             reranker,
             optimizer,
@@ -527,9 +552,33 @@ def main() -> int:
             "query_checkpoint": portable_path(args.query_checkpoint),
             "best_epoch": best_epoch,
             "seed": args.seed,
+            "optimizer_state_dict": optimizer.state_dict(),
+            "epochs_completed": history[-1]["epoch"] if history else start_epoch,
+            "history": history,
         },
         args.checkpoint,
     )
+    if args.skip_evaluation:
+        payload = {
+            "model": {
+                "checkpoint": portable_path(args.checkpoint),
+                "query_checkpoint": portable_path(args.query_checkpoint),
+                "best_epoch": best_epoch,
+            },
+            "training": {
+                "fixed_epochs": args.fixed_epochs,
+                "resume_checkpoint": portable_path(args.resume_checkpoint),
+                "slots": list(args.slots),
+                "history": history,
+            },
+            "evaluation": {},
+            "index_dir": portable_path(args.index_dir),
+            "split_manifest": portable_path(args.split_manifest),
+        }
+        write_json(args.output, payload)
+        print(f"checkpoint={args.checkpoint} output={args.output} evaluation=skipped")
+        return 0
+
 
     relevant_records = {
         **split_records["validation"],

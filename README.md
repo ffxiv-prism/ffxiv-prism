@@ -1,5 +1,9 @@
 # FFXIV Prism
 
+The latest five-slot optimization status and the final HANDS v63 experiment are
+recorded in
+[`docs/non_body_optimization_stage_summary_2026-07-10_zh.md`](docs/non_body_optimization_stage_summary_2026-07-10_zh.md).
+
 Current visual-recognition status, reproducible commands, rejected experiments,
 and next steps are recorded in
 [`docs/handoff_2026-06-29.md`](docs/handoff_2026-06-29.md). The latest SAM2
