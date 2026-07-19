@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import json
 import random
 import sys
 from collections import defaultdict
@@ -65,9 +66,15 @@ class GroupedTrainingSample:
 class SlotAttentionPooler(nn.Module):
     """Learn a small slot-specific residual from local DINO patch tokens."""
 
-    def __init__(self, dimension: int, slots: Sequence[str] = SLOTS) -> None:
+    def __init__(
+        self,
+        dimension: int,
+        slots: Sequence[str] = SLOTS,
+        num_register_tokens: int = 0,
+    ) -> None:
         super().__init__()
         self.dimension = dimension
+        self.num_register_tokens = num_register_tokens
         self.queries = nn.ParameterDict(
             {
                 slot: nn.Parameter(torch.randn(dimension) * 0.02)
@@ -91,7 +98,7 @@ class SlotAttentionPooler(nn.Module):
 
     def forward(self, tokens: torch.Tensor, slot: str) -> torch.Tensor:
         cls = tokens[:, 0]
-        patches = tokens[:, 1:]
+        patches = tokens[:, 1 + self.num_register_tokens :]
         attention = torch.softmax(
             patches @ self.queries[slot] / np.sqrt(self.dimension),
             dim=1,
@@ -295,6 +302,7 @@ def main() -> int:
     set_seed(args.seed)
     device = resolve_torch_device(args.device)
     args.device = str(device)
+    validate_index_model_id(args.index_dir, args.model_id)
     metadata = read_jsonl(args.index_dir / "metadata.jsonl")
     candidate_embeddings = np.load(
         args.index_dir / "embeddings.npy",
@@ -455,7 +463,12 @@ def main() -> int:
     else:
         trainable_names = unfreeze_last_blocks(model, args.unfreeze_blocks)
         pooler = (
-            SlotAttentionPooler(int(candidate_embeddings.shape[1])).to(device)
+            SlotAttentionPooler(
+                int(candidate_embeddings.shape[1]),
+                num_register_tokens=int(
+                    getattr(model.config, "num_register_tokens", 0)
+                ),
+            ).to(device)
             if args.slot_attention
             else None
         )
@@ -791,6 +804,28 @@ def set_seed(seed: int) -> None:
         torch.cuda.manual_seed_all(seed)
 
 
+def normalized_model_id(model_id: str) -> str:
+    path = Path(model_id)
+    if path.exists():
+        return str(path.resolve()).replace("\\", "/").casefold().rstrip("/")
+    return model_id.replace("\\", "/").casefold().rstrip("/")
+
+
+def validate_index_model_id(index_dir: Path, model_id: str) -> None:
+    for filename in ("manifest.json", "summary.json"):
+        path = index_dir / filename
+        if not path.is_file():
+            continue
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        index_model_id = payload.get("model_id")
+        if index_model_id and normalized_model_id(str(index_model_id)) != normalized_model_id(model_id):
+            raise ValueError(
+                f"Candidate index model_id {index_model_id!r} does not match "
+                f"query model_id {model_id!r}"
+            )
+        return
+
+
 def filter_crop_records_by_slots(
     records: dict[str, list[dict[str, Any]]],
     slots: Sequence[str],
@@ -814,13 +849,23 @@ def unfreeze_last_blocks(
         parameter.requires_grad = False
     if block_count < 1:
         raise ValueError("At least one encoder block must be trainable")
-    blocks = model.encoder.layer
+    if hasattr(model, "encoder") and hasattr(model.encoder, "layer"):
+        blocks = model.encoder.layer
+    elif hasattr(model, "model") and hasattr(model.model, "layer"):
+        blocks = model.model.layer
+    else:
+        raise ValueError("Cannot locate transformer encoder blocks")
     if block_count > len(blocks):
         raise ValueError("Cannot unfreeze more blocks than the encoder contains")
     for block in blocks[-block_count:]:
         for parameter in block.parameters():
             parameter.requires_grad = True
-    for parameter in model.layernorm.parameters():
+    final_norm = getattr(model, "layernorm", None)
+    if final_norm is None:
+        final_norm = getattr(model, "norm", None)
+    if final_norm is None:
+        raise ValueError("Cannot locate final encoder normalization layer")
+    for parameter in final_norm.parameters():
         parameter.requires_grad = True
     return {
         name
@@ -836,6 +881,18 @@ def load_training_checkpoint(
     device: torch.device,
 ) -> dict[str, Any]:
     payload = torch.load(path, map_location=device, weights_only=True)
+    checkpoint_model_id = payload.get("model_id")
+    active_model_id = getattr(model.config, "_name_or_path", None)
+    if (
+        checkpoint_model_id
+        and active_model_id
+        and normalized_model_id(str(checkpoint_model_id))
+        != normalized_model_id(str(active_model_id))
+    ):
+        raise ValueError(
+            f"Checkpoint model_id {checkpoint_model_id!r} does not match "
+            f"active model_id {active_model_id!r}"
+        )
     state = model.state_dict()
     state.update(payload["trainable_state_dict"])
     model.load_state_dict(state)
@@ -875,7 +932,12 @@ def load_query_head_from_checkpoint(
             adapter_rank,
         ).to(device)
     elif bool(payload.get("slot_attention", False)):
-        pooler = SlotAttentionPooler(int(model.config.hidden_size)).to(device)
+        pooler = SlotAttentionPooler(
+            int(model.config.hidden_size),
+            num_register_tokens=int(
+                getattr(model.config, "num_register_tokens", 0)
+            ),
+        ).to(device)
     else:
         pooler = None
     load_training_checkpoint(path, model, pooler, device)

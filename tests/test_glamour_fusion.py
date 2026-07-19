@@ -1,6 +1,12 @@
 from __future__ import annotations
 
+import json
+import tempfile
 import unittest
+from pathlib import Path
+
+import numpy as np
+import torch
 
 from scripts.evaluate_glamour_fusion import parse_weights
 from scripts.evaluate_glamour_embedding_model import (
@@ -8,7 +14,6 @@ from scripts.evaluate_glamour_embedding_model import (
     parse_split_roles,
     pool_dino_tokens,
 )
-import torch
 
 
 class GlamourFusionTests(unittest.TestCase):
@@ -30,6 +35,36 @@ class GlamourFusionTests(unittest.TestCase):
                 metadata=[],
                 index_dir=None,
                 batch_size=1,
+            )
+
+    def test_mismatched_metadata_cannot_overwrite_an_existing_index(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            index_dir = Path(temporary)
+            embeddings_path = index_dir / "embeddings.npy"
+            metadata_path = index_dir / "metadata.jsonl"
+            np.save(
+                embeddings_path,
+                np.asarray([[1.0, 0.0]], dtype=np.float32),
+                allow_pickle=False,
+            )
+            original_metadata = {"local_path": "original.png", "slot": "BODY"}
+            metadata_path.write_text(
+                json.dumps(original_metadata) + "\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "refusing to overwrite"):
+                load_or_build_candidate_embeddings(
+                    encoder=None,
+                    metadata=[{"local_path": "different.png", "slot": "BODY"}],
+                    index_dir=index_dir,
+                    batch_size=1,
+                )
+
+            self.assertTrue(np.array_equal(np.load(embeddings_path), [[1.0, 0.0]]))
+            self.assertEqual(
+                metadata_path.read_text(encoding="utf-8"),
+                json.dumps(original_metadata) + "\n",
             )
 
     def test_dino_mean_pooling_excludes_cls_token(self) -> None:

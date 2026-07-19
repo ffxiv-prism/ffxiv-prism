@@ -88,13 +88,7 @@ class HumanParser:
 
     @torch.inference_mode()
     def parse(self, images: Sequence[Image.Image]) -> list[np.ndarray]:
-        inputs = self.processor(images=list(images), return_tensors="pt")
-        inputs = {
-            key: value.to(self.device)
-            for key, value in inputs.items()
-            if isinstance(value, torch.Tensor)
-        }
-        outputs = self.model(**inputs)
+        outputs = self._forward(images)
         target_sizes = [(image.height, image.width) for image in images]
         segmentations = self.processor.post_process_semantic_segmentation(
             outputs,
@@ -104,6 +98,47 @@ class HumanParser:
             segmentation.cpu().numpy().astype(np.uint8, copy=False)
             for segmentation in segmentations
         ]
+
+    @torch.inference_mode()
+    def parse_native(self, images: Sequence[Image.Image]) -> list[np.ndarray]:
+        """Return labels at model-logit resolution without costly upsampling."""
+
+        inputs = self._prepare_inputs(images, size=256)
+        device_type = getattr(self.device, "type", str(self.device).split(":")[0])
+        with torch.autocast(
+            device_type=device_type,
+            dtype=torch.float16,
+            enabled=device_type == "cuda",
+        ):
+            outputs = self.model(**inputs)
+        labels = outputs.logits.argmax(dim=1).cpu().numpy()
+        return [
+            np.asarray(segmentation, dtype=np.uint8)
+            for segmentation in labels
+        ]
+
+    def _forward(self, images: Sequence[Image.Image]) -> Any:
+        return self.model(**self._prepare_inputs(images))
+
+    def _prepare_inputs(
+        self,
+        images: Sequence[Image.Image],
+        *,
+        size: int | None = None,
+    ) -> dict[str, torch.Tensor]:
+        processor_args: dict[str, Any] = {}
+        if size is not None:
+            processor_args["size"] = {"height": size, "width": size}
+        inputs = self.processor(
+            images=list(images),
+            return_tensors="pt",
+            **processor_args,
+        )
+        return {
+            key: value.to(self.device)
+            for key, value in inputs.items()
+            if isinstance(value, torch.Tensor)
+        }
 
 
 def apply_human_mask(

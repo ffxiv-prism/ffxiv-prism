@@ -326,6 +326,7 @@ def build_sam2_crops(
     output_dir: Path,
     batch_size: int,
     background: int,
+    save_masks: bool = True,
 ) -> tuple[list[dict[str, Any]], list[Path]]:
     mask_rows = []
     masked_paths = []
@@ -372,15 +373,25 @@ def build_sam2_crops(
                     record["slot"],
                 )
                 mask = masks_array[selected]
-                target_dir = output_dir / str(record["example_id"]).replace(":", "-")
+                configured_output = record.get("masked_output_path")
+                if configured_output is None:
+                    target_dir = output_dir / str(record["example_id"]).replace(":", "-")
+                    output_path = target_dir / f"{Path(record['path']).stem}-sam2.jpg"
+                else:
+                    output_path = Path(str(configured_output))
+                    target_dir = output_path.parent
                 target_dir.mkdir(parents=True, exist_ok=True)
-                output_path = target_dir / f"{Path(record['path']).stem}-sam2.jpg"
-                mask_path = target_dir / f"{Path(record['path']).stem}-mask.png"
+                mask_path = (
+                    target_dir / f"{Path(record['path']).stem}-mask.png"
+                    if save_masks
+                    else None
+                )
                 composite_mask(image, mask, background).save(
                     output_path,
                     quality=94,
                 )
-                Image.fromarray(mask.astype(np.uint8) * 255).save(mask_path)
+                if mask_path is not None:
+                    Image.fromarray(mask.astype(np.uint8) * 255).save(mask_path)
                 masked_paths.append(output_path)
                 mask_rows.append(
                     {
@@ -399,7 +410,9 @@ def build_sam2_crops(
             for image in images:
                 image.close()
         done = min(start + batch_size, len(records))
-        print(f"sam2={done}/{len(records)}", flush=True)
+        progress_interval = max(batch_size * 20, batch_size)
+        if done == len(records) or done % progress_interval == 0:
+            print(f"sam2={done}/{len(records)}", flush=True)
     return mask_rows, masked_paths
 
 

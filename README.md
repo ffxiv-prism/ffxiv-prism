@@ -1,7 +1,16 @@
 # FFXIV Prism
 
-The latest five-slot optimization status and the final HANDS v63 experiment are
-recorded in
+The latest production BODY promotion, including the frozen DINOv3-adapted
+Top-1-only gate, strict three-fold domain audit, real-image acceptance test,
+and final Demo usability judgment, is recorded in
+[`docs/body_dinov3_adapted_gate_v99_stage_summary_2026-07-20_zh.md`](docs/body_dinov3_adapted_gate_v99_stage_summary_2026-07-20_zh.md).
+The promoted BODY DINOv2 + DINOv3 ensemble, strict three-fold results, domain
+audit, and production integration are recorded in
+[`docs/body_dinov3_v96_stage_summary_2026-07-19_zh.md`](docs/body_dinov3_v96_stage_summary_2026-07-19_zh.md).
+The current HANDS production promotion, including the frozen occupied-slot
+Top-1 gate and cross-slot BODY consistency safeguard, is recorded in
+[`docs/hands_occupied_slot_gate_v93_stage_summary_2026-07-19_zh.md`](docs/hands_occupied_slot_gate_v93_stage_summary_2026-07-19_zh.md).
+The earlier five-slot baseline is recorded in
 [`docs/non_body_optimization_stage_summary_2026-07-10_zh.md`](docs/non_body_optimization_stage_summary_2026-07-10_zh.md).
 
 Current visual-recognition status, reproducible commands, rejected experiments,
@@ -15,6 +24,72 @@ The high-quality recognition target and evaluation guardrails are recorded in
 FFXIV Prism is a local Python project for building a Final Fantasy XIV glamour
 appearance dataset. The current milestone is a source-backed gearset and gear
 piece dataset with English and Simplified Chinese item names.
+
+## 中文用户手册（Demo）
+
+本项目当前的初期目标流程是：输入一张人物穿搭图片，自动裁剪 `HEAD`、
+`BODY`、`HANDS`、`LEGS`、`FEET` 五个部位，并为每个部位输出 FF14 中
+视觉最相似的 10 件装备。结果以本地 HTML 报告呈现，每个候选包含装备名、
+装备图片、相对排序分数和主要裁剪证据。
+
+当前最适合单人物、全身可见、正面或接近正面的 FF14 截图。插画、真人照片、
+多人图和严重遮挡图片也可以尝试，但 Demo 阶段尚不保证识别准确率；Top-10
+应当作为供人工挑选的相似候选，而不是确定的装备鉴定结果。
+
+### 1. 激活环境并检查本地资产
+
+在项目根目录打开 PowerShell，激活已经安装好的 CPU 或 GPU 环境，然后先运行：
+
+```powershell
+python scripts\recognize_glamour.py --check
+```
+
+输出中的 `ok` 应为 `true`。如果为 `false`，请根据 `missing` 或 `invalid`
+列表补齐本地模型、索引或检查点。模型推理默认使用 `--device auto`：有可用
+CUDA 时使用 GPU，否则回退到 CPU。
+
+### 2. 输入图片并生成五部位 Top-10 报告
+
+```powershell
+python scripts\recognize_glamour.py "D:\images\my-glamour.png" `
+  --top-k 10 `
+  --profile current-best `
+  --output-dir data\outputs\glamour-match\my-glamour
+```
+
+如果已知角色模型性别，可以增加 `--gender female` 或 `--gender male` 来减少
+不适用候选。不传 `--output-dir` 时，默认输出到
+`data/outputs/glamour-match/<输入文件名>/`。
+
+### 3. 查看结果
+
+运行成功后，直接用浏览器打开输出目录中的 `report.html`。报告按五个部位分节，
+每个部位保留 Top-10，并显示本地装备预览图片。目录还包含：
+
+- `results.json`：完整机器可读结果；
+- `overlay.jpg`：人物姿态和部位区域覆盖图；
+- `crops.jpg`：检索裁剪与质检裁剪的联系表；
+- `crops/`：逐部位裁剪图片，包含检索裁剪和零权重质检裁剪；
+- `report.html`：推荐给普通用户查看的最终报告。
+
+FEET 会额外生成 `feet_full_left`、`feet_full_right` 和
+`feet_full_context` 三张完整鞋/长靴质检裁剪。它们用于检查鞋尖、鞋底是否被框住，
+不会送入当前已验证的检索模型，也不会改变候选排名。如果原图边缘本身截断了鞋，
+`results.json` 会把该部位标为低可信并提示 `source_edge_truncation_risk`；算法无法从
+原图之外恢复缺失的鞋子。
+
+HEAD 会额外生成 `head_full_accessory`，用于覆盖宽帽檐、高帽冠和超出脸部范围的
+大型头饰。它同样是 `role=diagnostic` 的零权重质检图；原有
+`head_upper_accessory` 保持不变，因此不会改变当前已验证的 HEAD 排名。
+
+`overlay.jpg` 中 HEAD 与 FEET 的红/紫色主框显示的是完整性检查范围，并分别标记为
+`HEAD full`、`FEET full`；它们不是模型实际使用的紧凑检索框。白色人体细化框也会按
+头饰跨度和小腿长度预留空间，避免第二次姿态估计在输入阶段切掉宽檐帽、鞋尖或厚底。
+如果完整框已经贴到原图边缘且仍看不到装备外沿，应优先换用没有裁掉人物的原图。
+
+只识别部分部位时，可使用例如
+`--slots HEAD BODY LEGS`。`--candidate-k` 默认是 1000，通常无需修改；它是
+内部召回池大小，不是 HTML 中显示的候选数。
 
 ## Scope
 

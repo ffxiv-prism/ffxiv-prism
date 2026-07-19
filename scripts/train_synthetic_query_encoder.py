@@ -24,7 +24,8 @@ from scripts.evaluate_glamour_embedding_model import DINO_MEAN, DINO_STD
 from scripts.evaluate_glamour_matching import SLOTS
 from scripts.train_glamour_adapter import build_candidate_state
 from scripts.train_glamour_query_encoder import (
-    load_training_checkpoint,
+    SlotAttentionPooler,
+    load_query_head_from_checkpoint,
     set_seed,
     unfreeze_last_blocks,
 )
@@ -47,6 +48,9 @@ def main() -> int:
     parser.add_argument("--resume-checkpoint", type=Path)
     parser.add_argument("--checkpoint", type=Path, default=DEFAULT_CHECKPOINT)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument(
+        "--slots", nargs="+", choices=SLOTS, default=list(SLOTS)
+    )
     parser.add_argument("--device", default="auto")
     parser.add_argument("--seed", type=int, default=20260628)
     parser.add_argument("--unfreeze-blocks", type=int, default=1)
@@ -64,10 +68,20 @@ def main() -> int:
     set_seed(args.seed)
     device = resolve_torch_device(args.device)
     args.device = str(device)
-    metadata = read_jsonl(args.index_dir / "metadata.jsonl")
-    candidate_embeddings = np.load(
+    all_metadata = read_jsonl(args.index_dir / "metadata.jsonl")
+    selected_slots = set(args.slots)
+    selected_indices = [
+        index
+        for index, row in enumerate(all_metadata)
+        if str(row.get("slot")) in selected_slots
+    ]
+    metadata = [all_metadata[index] for index in selected_indices]
+    all_candidate_embeddings = np.load(
         args.index_dir / "embeddings.npy",
         mmap_mode="r",
+    )
+    candidate_embeddings = np.asarray(
+        all_candidate_embeddings[selected_indices], dtype=np.float32
     )
     candidate_state = build_candidate_state(
         metadata,
@@ -98,15 +112,22 @@ def main() -> int:
         local_files_only=True,
     ).to(device)
     trainable_names = unfreeze_last_blocks(model, args.unfreeze_blocks)
-    if args.resume_checkpoint is not None:
-        load_training_checkpoint(
+    pooler = (
+        load_query_head_from_checkpoint(
             args.resume_checkpoint,
             model,
-            None,
             device,
         )
+        if args.resume_checkpoint is not None
+        else None
+    )
+    trainable_parameters = [
+        parameter for parameter in model.parameters() if parameter.requires_grad
+    ]
+    if pooler is not None:
+        trainable_parameters.extend(pooler.parameters())
     optimizer = torch.optim.AdamW(
-        [parameter for parameter in model.parameters() if parameter.requires_grad],
+        trainable_parameters,
         lr=args.learning_rate,
         weight_decay=args.weight_decay,
     )
@@ -116,6 +137,7 @@ def main() -> int:
     )
 
     best_state = None
+    best_pooler_state = None
     best_epoch = 0
     best_score = (-1.0, -1.0)
     stale_epochs = 0
@@ -123,6 +145,7 @@ def main() -> int:
     for epoch in range(1, args.epochs + 1):
         loss = train_epoch(
             model=model,
+            pooler=pooler,
             optimizer=optimizer,
             scaler=scaler,
             samples=train_samples,
@@ -133,6 +156,7 @@ def main() -> int:
         )
         validation = evaluate_augmented_catalog(
             model=model,
+            pooler=pooler,
             samples=validation_samples,
             candidates=candidate_state["tensors"],
             batch_size=args.batch_size,
@@ -150,6 +174,9 @@ def main() -> int:
                 for name, parameter in model.state_dict().items()
                 if name in trainable_names
             }
+            best_pooler_state = (
+                copy.deepcopy(pooler.state_dict()) if pooler is not None else None
+            )
             stale_epochs = 0
         else:
             stale_epochs += 1
@@ -175,6 +202,8 @@ def main() -> int:
     current = model.state_dict()
     current.update(best_state)
     model.load_state_dict(current)
+    if pooler is not None and best_pooler_state is not None:
+        pooler.load_state_dict(best_pooler_state)
     args.checkpoint.parent.mkdir(parents=True, exist_ok=True)
     torch.save(
         {
@@ -183,8 +212,11 @@ def main() -> int:
             "unfreeze_blocks": args.unfreeze_blocks,
             "trainable_state_dict": best_state,
             "trainable_parameter_names": sorted(trainable_names),
-            "slot_attention": False,
-            "pooler_state_dict": None,
+            "slot_attention": isinstance(pooler, SlotAttentionPooler),
+            "adapter_rank": int(getattr(pooler, "rank", 0)),
+            "pooler_state_dict": (
+                pooler.state_dict() if pooler is not None else None
+            ),
             "best_epoch": best_epoch,
             "seed": args.seed,
             "training_source": "augmented_canonical_equipment_renders",
@@ -203,6 +235,11 @@ def main() -> int:
                     for parameter in model.parameters()
                     if parameter.requires_grad
                 ),
+                "pooler_parameter_count": (
+                    sum(parameter.numel() for parameter in pooler.parameters())
+                    if pooler is not None
+                    else 0
+                ),
             },
             "training": {
                 "seed": args.seed,
@@ -211,6 +248,7 @@ def main() -> int:
                     map(len, validation_samples.values())
                 ),
                 "race_invariant_positive_policy": "all_piece_renders",
+                "slots": list(args.slots),
                 "history": history,
             },
             "index_dir": portable_path(args.index_dir),
@@ -249,6 +287,9 @@ def build_catalog_samples(
         output[slot].append(
             {
                 "path": str(path),
+                "candidate_crop_box_normalized": row.get(
+                    "candidate_crop_box_normalized"
+                ),
                 "local_index": local_index,
                 "positives": tuple(positives),
             }
@@ -298,6 +339,7 @@ def limit_samples(
 def train_epoch(
     *,
     model: torch.nn.Module,
+    pooler: torch.nn.Module | None,
     optimizer: torch.optim.Optimizer,
     scaler: torch.amp.GradScaler,
     samples: dict[str, list[dict[str, Any]]],
@@ -307,6 +349,8 @@ def train_epoch(
     device: torch.device,
 ) -> float:
     model.train()
+    if pooler is not None:
+        pooler.train()
     losses = []
     for slot in SLOTS:
         order = torch.randperm(len(samples[slot])).tolist()
@@ -316,7 +360,7 @@ def train_epoch(
                 for index in order[start : start + batch_size]
             ]
             pixels = load_synthetic_batch(
-                [row["path"] for row in batch],
+                batch,
                 augment=True,
             ).to(device)
             optimizer.zero_grad(set_to_none=True)
@@ -326,7 +370,11 @@ def train_epoch(
                 enabled=device.type == "cuda",
             ):
                 tokens = model(pixel_values=pixels).last_hidden_state
-                queries = torch.nn.functional.normalize(tokens[:, 0], dim=-1)
+                queries = (
+                    pooler(tokens, slot)
+                    if pooler is not None
+                    else torch.nn.functional.normalize(tokens[:, 0], dim=-1)
+                )
                 logits = queries @ candidates[slot].T / temperature
                 denominator = torch.logsumexp(logits, dim=1)
                 numerator = torch.stack(
@@ -359,12 +407,15 @@ def train_epoch(
 def evaluate_augmented_catalog(
     *,
     model: torch.nn.Module,
+    pooler: torch.nn.Module | None,
     samples: dict[str, list[dict[str, Any]]],
     candidates: dict[str, torch.Tensor],
     batch_size: int,
     device: torch.device,
 ) -> dict[str, Any]:
     model.eval()
+    if pooler is not None:
+        pooler.eval()
     hits_at_1 = 0
     hits_at_10 = 0
     count = 0
@@ -376,11 +427,15 @@ def evaluate_augmented_catalog(
         for start in range(0, len(rows), batch_size):
             batch = rows[start : start + batch_size]
             pixels = load_synthetic_batch(
-                [row["path"] for row in batch],
+                batch,
                 augment=True,
             ).to(device)
             tokens = model(pixel_values=pixels).last_hidden_state
-            queries = torch.nn.functional.normalize(tokens[:, 0], dim=-1)
+            queries = (
+                pooler(tokens, slot)
+                if pooler is not None
+                else torch.nn.functional.normalize(tokens[:, 0], dim=-1)
+            )
             top = torch.topk(
                 queries @ candidates[slot].T,
                 k=min(10, len(candidates[slot])),
@@ -410,14 +465,27 @@ def evaluate_augmented_catalog(
 
 
 def load_synthetic_batch(
-    paths: Sequence[str],
+    samples: Sequence[dict[str, Any]],
     *,
     augment: bool,
 ) -> torch.Tensor:
     arrays = []
-    for path in paths:
-        with Image.open(path) as source:
+    for sample in samples:
+        with Image.open(str(sample["path"])) as source:
             image = source.convert("RGB")
+        normalized = sample.get("candidate_crop_box_normalized")
+        if normalized:
+            left, top, right, bottom = (float(value) for value in normalized)
+            box = (
+                max(0, min(image.width - 1, round(left * image.width))),
+                max(0, min(image.height - 1, round(top * image.height))),
+                max(1, min(image.width, round(right * image.width))),
+                max(1, min(image.height, round(bottom * image.height))),
+            )
+            if box[2] > box[0] and box[3] > box[1]:
+                cropped = image.crop(box)
+                image.close()
+                image = cropped
         output = augment_catalog_render(image) if augment else image
         if output is not image:
             image.close()

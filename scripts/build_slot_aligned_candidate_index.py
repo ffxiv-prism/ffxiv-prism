@@ -17,7 +17,11 @@ if str(PROJECT_ROOT) not in sys.path:
 from ffxiv_prism.jsonl import read_jsonl, write_json, write_jsonl
 from ffxiv_prism.paths import CACHE_DIR, portable_path
 from ffxiv_prism.torch_device import resolve_torch_device
-from scripts.evaluate_glamour_embedding_model import DINO_MEAN, DINO_STD
+from scripts.evaluate_glamour_embedding_model import (
+    DINO_MEAN,
+    DINO_STD,
+    pool_dino_tokens,
+)
 
 DEFAULT_INPUT = Path("data/indexes/facebook-dinov2-base-color")
 DEFAULT_OUTPUT = Path("data/indexes/facebook-dinov2-base-slot-aligned")
@@ -35,8 +39,22 @@ def main() -> int:
     parser.add_argument("--input-dir", type=Path, default=DEFAULT_INPUT)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--model-id", default="facebook/dinov2-base")
+    parser.add_argument(
+        "--pooling",
+        choices=("cls", "mean", "cls_mean"),
+        default="cls",
+        help="Pool DINO tokens before normalization.",
+    )
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--device", default="auto")
+    parser.add_argument(
+        "--reuse-metadata",
+        action="store_true",
+        help=(
+            "Re-embed the input metadata rows and their existing normalized crop "
+            "boxes without expanding another slot policy."
+        ),
+    )
     parser.add_argument(
         "--resume",
         action="store_true",
@@ -95,14 +113,27 @@ def main() -> int:
         row for row in source_rows
         if str(row.get("slot")) in selected_slots
     ]
-    rows = expand_slot_aligned_rows(
-        source_rows,
-        body_crop_policy=args.body_crop_policy,
-        head_crop_policy=args.head_crop_policy,
-        hands_crop_policy=args.hands_crop_policy,
-        legs_crop_policy=args.legs_crop_policy,
-        feet_crop_policy=args.feet_crop_policy,
-    )
+    if args.reuse_metadata:
+        missing_boxes = [
+            index
+            for index, row in enumerate(source_rows)
+            if row.get("candidate_crop_box_normalized") is None
+        ]
+        if missing_boxes:
+            raise ValueError(
+                "Cannot reuse metadata without candidate crop boxes; "
+                f"first missing row={missing_boxes[0]}"
+            )
+        rows = [dict(row) for row in source_rows]
+    else:
+        rows = expand_slot_aligned_rows(
+            source_rows,
+            body_crop_policy=args.body_crop_policy,
+            head_crop_policy=args.head_crop_policy,
+            hands_crop_policy=args.hands_crop_policy,
+            legs_crop_policy=args.legs_crop_policy,
+            feet_crop_policy=args.feet_crop_policy,
+        )
     device = resolve_torch_device(args.device)
     args.device = str(device)
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -149,8 +180,10 @@ def main() -> int:
     summary = {
         "source_index": portable_path(args.input_dir),
         "model_id": args.model_id,
-        "source_image_count": len(source_rows),
+        "pooling": args.pooling,
+        "source_image_count": len({str(row["local_path"]) for row in source_rows}),
         "aligned_candidate_count": len(rows),
+        "reused_metadata": args.reuse_metadata,
         "slot_policy": slot_policy,
         "output": portable_path(args.output_dir),
         "completed": False,
@@ -192,7 +225,10 @@ def main() -> int:
             enabled=device.type == "cuda",
         ):
             tokens = model(pixel_values=pixels).last_hidden_state
-            features = torch.nn.functional.normalize(tokens[:, 0], dim=-1)
+            features = torch.nn.functional.normalize(
+                pool_dino_tokens(tokens, args.pooling),
+                dim=-1,
+            )
         batch_matrix = features.float().cpu().numpy().astype(
             np.float32,
             copy=False,

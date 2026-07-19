@@ -83,3 +83,11 @@ data/raw/eorzea_collection/glamours/images/**
 !data/raw/eorzea_collection/glamours/images/.gitkeep
 # Generated pose/crop inspection outputs.
 data/debug/**
+data/outputs/**
+
+# Local model runtimes, scratch space, and patch-conflict backups are never
+# portable source artifacts.
+var/models/**
+var/tmp/**
+*.orig
+*.rej

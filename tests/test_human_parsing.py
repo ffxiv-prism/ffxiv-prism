@@ -5,6 +5,9 @@ import unittest
 import numpy as np
 from PIL import Image
 
+from ffxiv_prism.matching.coverage_profiles import (
+    _head_parsing_spatial_profile,
+)
 from ffxiv_prism.vision.human_parsing import (
     apply_human_mask,
     build_global_foreground_mask,
@@ -14,6 +17,17 @@ from ffxiv_prism.vision.human_parsing import (
 
 
 class HumanParsingTests(unittest.TestCase):
+    def test_head_parsing_profile_is_scale_normalized_and_unit_length(self) -> None:
+        segmentation = np.zeros((12, 8), dtype=np.uint8)
+        segmentation[2:10, 2:6] = 4
+        segmentation[3:6, 2:6] = 2
+        segmentation[6:8, 3:5] = 11
+
+        profile = _head_parsing_spatial_profile(segmentation, 8)
+
+        self.assertEqual(profile.shape, (8 * 8 * 3,))
+        self.assertAlmostEqual(float(np.linalg.norm(profile)), 1.0, places=5)
+
     def test_person_mask_removes_background(self) -> None:
         image = Image.new("RGB", (4, 4), "white")
         segmentation = np.zeros((4, 4), dtype=np.uint8)

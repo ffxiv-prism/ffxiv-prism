@@ -9,6 +9,7 @@ from ffxiv_prism.vision.retrieval import (
     RetrievalIndex,
     augment_eval_image,
     search_index,
+    select_primary_visual_pieces,
     transform_eval_image,
     validate_slots,
 )
@@ -37,6 +38,21 @@ class VisualRetrievalTests(unittest.TestCase):
         )
         results = search_index(index, np.asarray([1.0, 0.0]), "BODY", model_gender="male")
         self.assertEqual([row["piece_id"] for row in results], [11])
+
+    def test_primary_visual_piece_filter_removes_unrelated_set_items(self) -> None:
+        pieces = [
+            {"piece_id": 1, "name_en": "Historia Shoes of Casting"},
+            {"piece_id": 2, "name_en": "Historia Earrings of Casting"},
+            {"piece_id": 3, "name_en": "Historia Staff"},
+            {"piece_id": 4, "name_en": "Augmented Historia Shoes of Casting"},
+        ]
+        selected = select_primary_visual_pieces(pieces)
+        self.assertEqual([piece["piece_id"] for piece in selected], [1, 4])
+
+    def test_primary_visual_piece_filter_keeps_single_piece(self) -> None:
+        pieces = [{"piece_id": 7, "name_en": "High House Boots"}]
+        self.assertEqual(select_primary_visual_pieces(pieces), pieces)
+
     def test_search_can_exclude_query_image(self) -> None:
         index = RetrievalIndex(
             embeddings=np.asarray([[1.0, 0.0], [0.8, 0.2]], dtype=np.float32),

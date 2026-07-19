@@ -33,7 +33,10 @@ from scripts.train_glamour_query_encoder import (
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Evaluate one slot/fold query encoder on a frozen candidate index."
+        description=(
+            "Evaluate one slot/fold query encoder on a frozen candidate index; "
+            "omit --query-checkpoint for a zero-shot backbone."
+        )
     )
     parser.add_argument("--model-id", default="facebook/dinov2-base")
     parser.add_argument("--examples", type=Path, required=True)
@@ -43,7 +46,7 @@ def main() -> int:
     parser.add_argument("--index-dir", type=Path, required=True)
     parser.add_argument("--fold", type=int, required=True)
     parser.add_argument("--fold-manifest", type=Path, required=True)
-    parser.add_argument("--query-checkpoint", type=Path, required=True)
+    parser.add_argument("--query-checkpoint", type=Path)
     parser.add_argument("--query-cache", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--device", default="auto")
@@ -110,10 +113,14 @@ def main() -> int:
         cache_dir=CACHE_DIR / "huggingface" / "hub",
         local_files_only=True,
     ).to(device)
-    query_head = load_query_head_from_checkpoint(
-        args.query_checkpoint,
-        model,
-        device,
+    query_head = (
+        load_query_head_from_checkpoint(
+            args.query_checkpoint,
+            model,
+            device,
+        )
+        if args.query_checkpoint is not None
+        else None
     )
     query_embeddings = encode_records(
         model,
@@ -132,7 +139,11 @@ def main() -> int:
                 np.float32,
                 copy=False,
             ),
-            checkpoint=np.asarray(str(args.query_checkpoint)),
+            checkpoint=np.asarray(
+                str(args.query_checkpoint)
+                if args.query_checkpoint is not None
+                else ""
+            ),
         )
 
     search = search_crops(

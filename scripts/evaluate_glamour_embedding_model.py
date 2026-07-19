@@ -41,13 +41,17 @@ DINO_STD = np.asarray([0.229, 0.224, 0.225], dtype=np.float32)
 def main() -> int:
     parser = argparse.ArgumentParser(description="Evaluate a visual embedding model for player glamour matching.")
     parser.add_argument("--model-id", default="patrickjohncyh/fashion-clip")
-    parser.add_argument("--encoder-kind", choices=("clip", "dinov2", "auto"), default="auto")
+    parser.add_argument(
+        "--encoder-kind",
+        choices=("clip", "dinov2", "dinov3", "auto"),
+        default="auto",
+    )
     parser.add_argument("--preprocess", choices=("color", "gray", "edge"), default="color")
     parser.add_argument(
         "--pooling",
         choices=("cls", "mean", "cls_mean"),
         default="cls",
-        help="DINOv2 token pooling; ignored by CLIP-like encoders.",
+        help="DINO token pooling; ignored by CLIP-like encoders.",
     )
     parser.add_argument(
         "--metadata",
@@ -55,6 +59,18 @@ def main() -> int:
         default=Path("data/indexes/candidate-metadata/metadata.jsonl"),
     )
     parser.add_argument("--examples", type=Path, default=PROCESSED_DIR / "glamour_examples.jsonl")
+    parser.add_argument(
+        "--slots",
+        nargs="+",
+        choices=SLOTS,
+        default=list(SLOTS),
+        help="Restrict candidate rows, query crops, and metrics to selected slots.",
+    )
+    parser.add_argument(
+        "--quality-manifest",
+        type=Path,
+        help="Optional JSONL manifest; only example_id rows with passed=true are kept.",
+    )
     parser.add_argument("--split-manifest", type=Path)
     parser.add_argument(
         "--split-roles",
@@ -82,7 +98,12 @@ def main() -> int:
     crop_cache = args.crop_cache or PROCESSED_DIR / f"glamour_crop_embeddings_{slug}.npz"
     output = args.output or PROCESSED_DIR / f"glamour_matching_eval_results_{slug}.json"
 
-    metadata = read_jsonl(args.metadata)
+    selected_slots = set(args.slots)
+    metadata = [
+        row
+        for row in read_jsonl(args.metadata)
+        if str(row.get("slot")) in selected_slots
+    ]
     if not metadata:
         raise ValueError(f"Candidate metadata is empty: {args.metadata}")
     if args.limit_candidates is not None:
@@ -112,7 +133,25 @@ def main() -> int:
             for example in examples
             if assignments.get(str(example["glamour_id"])) in selected_roles
         ]
+    if args.quality_manifest is not None:
+        quality_by_id = {
+            str(row["example_id"]): bool(row.get("passed"))
+            for row in read_jsonl(args.quality_manifest)
+        }
+        examples = [
+            example
+            for example in examples
+            if quality_by_id.get(str(example["example_id"]), False)
+        ]
     crop_records = collect_crop_records(examples, args.regions_dir)
+    crop_records = {
+        example_id: [
+            row
+            for row in rows
+            if str(row.get("slot")) in selected_slots
+        ]
+        for example_id, rows in crop_records.items()
+    }
     crop_embeddings = load_or_build_crop_embeddings(
         encoder,
         crop_records,
@@ -178,6 +217,8 @@ def main() -> int:
         "pooling": args.pooling,
         "split_manifest": portable_path(args.split_manifest),
         "split_roles": sorted(selected_roles),
+        "slots": sorted(selected_slots),
+        "quality_manifest": portable_path(args.quality_manifest),
         "index_dir": portable_path(index_dir),
         "crop_cache": portable_path(crop_cache),
         "candidate_k": args.candidate_k,
@@ -316,8 +357,14 @@ def build_encoder(
     pooling: str = "cls",
 ) -> EmbeddingEncoder:
     if kind == "auto":
-        kind = "dinov2" if "dinov2" in model_id.lower() else "clip"
-    if kind == "dinov2":
+        normalized_model_id = str(model_id).lower()
+        if "dinov3" in normalized_model_id:
+            kind = "dinov3"
+        elif "dinov2" in normalized_model_id:
+            kind = "dinov2"
+        else:
+            kind = "clip"
+    if kind in {"dinov2", "dinov3"}:
         return DinoV2Encoder(model_id, kind, device, preprocess, pooling)
     return ClipLikeEncoder(model_id, kind, device, preprocess)
 
@@ -360,10 +407,32 @@ def load_or_build_candidate_embeddings(
     metadata_path = index_dir / "metadata.jsonl"
     manifest_path = index_dir / "manifest.json"
     expected_paths = [row["local_path"] for row in metadata]
-    if embeddings_path.is_file() and metadata_path.is_file():
+    existing_artifacts = (embeddings_path.is_file(), metadata_path.is_file())
+    if any(existing_artifacts) and not all(existing_artifacts):
+        raise ValueError(
+            "Candidate index is incomplete; refusing to overwrite existing "
+            f"artifacts in {index_dir}. Rebuild into a new directory."
+        )
+    if all(existing_artifacts):
         cached_metadata = read_jsonl(metadata_path)
-        if [row["local_path"] for row in cached_metadata] == expected_paths:
-            return np.load(embeddings_path, mmap_mode="r")
+        cached_paths = [row["local_path"] for row in cached_metadata]
+        if cached_paths != expected_paths:
+            raise ValueError(
+                "Candidate metadata does not match the existing index; refusing "
+                f"to overwrite {index_dir} ({len(cached_paths)} cached rows vs "
+                f"{len(expected_paths)} requested rows). Pass the metadata used "
+                "to build this index or choose a new index directory."
+            )
+        cached_embeddings = np.load(embeddings_path, mmap_mode="r")
+        if cached_embeddings.ndim != 2 or cached_embeddings.shape[0] != len(
+            cached_metadata
+        ):
+            raise ValueError(
+                "Candidate index row mismatch; refusing to use or overwrite "
+                f"{index_dir}: embeddings={cached_embeddings.shape}, "
+                f"metadata_rows={len(cached_metadata)}"
+            )
+        return cached_embeddings
 
     valid_rows = []
     paths = []
@@ -450,6 +519,9 @@ def search_crops(
     candidate_tensors: dict[
         tuple[str, tuple[str, ...], str], torch.Tensor
     ] = {}
+    piece_ids_by_group: dict[
+        tuple[str, tuple[str, ...], str], np.ndarray
+    ] = {}
     results: dict[str, list[dict[str, Any]]] = {}
     for records in crop_records.values():
         for record in records:
@@ -496,10 +568,27 @@ def search_crops(
                     f"slot={record['slot']} crops={allowed_crops} "
                     f"gender={candidate_gender or 'any'}"
                 )
+            candidate_array = np.asarray(candidate_embeddings[indices])
+            if group_key not in piece_ids_by_group:
+                max_pieces = max(
+                    len(metadata[int(index)]["pieces"])
+                    for index in indices
+                )
+                piece_ids = np.full(
+                    (len(indices), max_pieces),
+                    -1,
+                    dtype=np.int64,
+                )
+                for local_index, metadata_index in enumerate(indices):
+                    for piece_index, piece in enumerate(
+                        metadata[int(metadata_index)]["pieces"]
+                    ):
+                        piece_ids[local_index, piece_index] = int(piece["piece_id"])
+                piece_ids_by_group[group_key] = piece_ids
             if use_cuda:
                 if group_key not in candidate_tensors:
                     candidate_tensors[group_key] = torch.tensor(
-                        np.asarray(candidate_embeddings[indices]),
+                        candidate_array,
                         device=torch_device,
                     )
                 query = torch.as_tensor(crop_embeddings[path], device=torch_device)
@@ -507,37 +596,62 @@ def search_crops(
                 order = torch.argsort(scores_tensor, descending=True).cpu().numpy()
                 scores = scores_tensor.cpu().numpy()
             else:
-                scores = np.asarray(candidate_embeddings[indices]) @ crop_embeddings[path]
+                scores = candidate_array @ crop_embeddings[path]
                 order = np.argsort(scores)[::-1]
-            best_by_piece: dict[int, dict[str, Any]] = {}
-            for offset in order:
-                metadata_index = int(indices[offset])
-                row = metadata[metadata_index]
-                score = float(scores[offset])
-                for piece in row["pieces"]:
-                    piece_id = int(piece["piece_id"])
-                    if piece_id in best_by_piece:
-                        continue
-                    best_by_piece[piece_id] = {
-                        "rank": 0,
-                        "score": score,
-                        **piece,
-                        "image_row_id": row["image_row_id"],
-                        "local_path": row["local_path"],
-                        "source_image_url": row["source_image_url"],
-                        "model_gender": row.get("model_gender"),
-                        "race": row.get("race"),
-                        "dye_state": row.get("dye_state"),
-                    }
-                    if len(best_by_piece) >= candidate_k:
-                        break
-                if len(best_by_piece) >= candidate_k:
-                    break
-            rows = list(best_by_piece.values())
-            for rank, row in enumerate(rows, start=1):
-                row["rank"] = rank
-            results[path] = rows
+            results[path] = _candidate_rows_from_order(
+                metadata,
+                indices,
+                order,
+                scores,
+                piece_ids_by_group[group_key],
+                candidate_k,
+            )
     return results
+
+
+def _candidate_rows_from_order(
+    metadata: Sequence[Mapping[str, Any]],
+    indices: np.ndarray,
+    order: np.ndarray,
+    scores: np.ndarray,
+    piece_ids: np.ndarray,
+    candidate_k: int,
+) -> list[dict[str, Any]]:
+    # Flatten pieces in exact candidate-row/piece order, then retain the first
+    # occurrence of each piece with NumPy.  Slot indexes contain many crop,
+    # gender, race, and dye rows per piece; avoiding a Python scan through all
+    # of them is the dominant strict-evaluation speedup.
+    ordered_piece_ids = piece_ids[order].reshape(-1)
+    valid_positions = np.flatnonzero(ordered_piece_ids >= 0)
+    valid_piece_ids = ordered_piece_ids[valid_positions]
+    _, first_indices = np.unique(valid_piece_ids, return_index=True)
+    first_positions = np.sort(valid_positions[first_indices])[:candidate_k]
+    piece_width = piece_ids.shape[1]
+
+    rows: list[dict[str, Any]] = []
+    for flat_position in first_positions:
+        order_position = int(flat_position) // piece_width
+        piece_position = int(flat_position) % piece_width
+        offset = int(order[order_position])
+        metadata_index = int(indices[offset])
+        row = metadata[metadata_index]
+        piece = row["pieces"][piece_position]
+        rows.append(
+            {
+                "rank": 0,
+                "score": float(scores[offset]),
+                **piece,
+                "image_row_id": row["image_row_id"],
+                "local_path": row["local_path"],
+                "source_image_url": row["source_image_url"],
+                "model_gender": row.get("model_gender"),
+                "race": row.get("race"),
+                "dye_state": row.get("dye_state"),
+            }
+        )
+    for rank, row in enumerate(rows, start=1):
+        row["rank"] = rank
+    return rows
 
 
 def safe_slug(value: str) -> str:

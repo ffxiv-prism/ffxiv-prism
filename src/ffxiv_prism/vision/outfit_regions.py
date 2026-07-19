@@ -269,9 +269,46 @@ def estimate_person_box(
     ys = [point.y for point in visible]
     span_x = max(max(xs) - min(xs), width * 0.18)
     span_y = max(max(ys) - min(ys), height * 0.35)
+    left = min(xs) - span_x * 0.28
+    top = min(ys) - span_y * 0.18
+    right = max(xs) + span_x * 0.28
+    bottom = max(ys) + span_y * 0.10
+
+    # COCO pose landmarks stop at the ankles and contain no shoe-tip or sole
+    # points.  The refined pose crop must nevertheless retain the full shoe;
+    # otherwise a second pose pass can be run on an image that has already
+    # clipped thick soles or forward-projecting toes.  Reuse the same
+    # lower-leg scale as the downstream full-shoe diagnostic regions.
+    shoulder_width = max(distance(keypoints[5], keypoints[6]), width * 0.12)
+    torso_length = max(
+        distance(midpoint(keypoints[5], keypoints[6]), midpoint(keypoints[11], keypoints[12])),
+        height * 0.18,
+    )
+    for knee_index, ankle_index in ((13, 15), (14, 16)):
+        knee = keypoints[knee_index]
+        ankle = keypoints[ankle_index]
+        if min(knee.score, ankle.score) < threshold:
+            continue
+        shin = max(distance(knee, ankle), torso_length * 0.45)
+        left = min(left, ankle.x - shin * 0.58)
+        right = max(right, ankle.x + shin * 0.58)
+        bottom = max(bottom, ankle.y + shin * 0.55)
+
+    # Facial landmarks likewise describe the face, not broad brims or tall
+    # crowns.  Keep the full-headwear QA envelope inside the refined crop when
+    # the face/shoulder landmarks are reliable.  This does not make the large
+    # crop a retrieval input; it only prevents pose refinement and debug
+    # visualization from contradicting the saved full-headwear crop.
+    face = keypoints[:5]
+    if sum(point.score >= threshold for point in face) >= 4:
+        face_span = max(point_span(face)[0], shoulder_width * 0.42)
+        face_center = average_point(face)
+        left = min(left, face_center.x - face_span * 2.70)
+        top = min(top, face_center.y - face_span * 2.15)
+        right = max(right, face_center.x + face_span * 2.70)
+
     return clamp_box(
-        (min(xs) - span_x * 0.28, min(ys) - span_y * 0.18,
-         max(xs) + span_x * 0.28, max(ys) + span_y * 0.10),
+        (left, top, right, bottom),
         image_size,
     )
 
@@ -323,6 +360,31 @@ def build_outfit_regions(
         face_center.x + face_span * 0.95,
         face_center.y + face_span * 0.45,
     )
+    # Facial keypoints cannot reveal the outline of a broad brim or a tall
+    # crown.  Preserve the promoted model's compact upper-head crop, while a
+    # zero-weight companion captures unusually large headwear for visual QA.
+    full_headwear_box = (
+        # A 2.4-face-span margin still clipped the outer left brim of the
+        # saved wide-straw-hat regression image (user sample 13).  This crop
+        # is diagnostic-only, so prefer complete silhouette coverage over a
+        # tighter background ratio without perturbing promoted retrieval.
+        face_center.x - face_span * 2.70,
+        face_center.y - face_span * 2.15,
+        face_center.x + face_span * 2.70,
+        face_center.y + face_span * 1.25,
+    )
+    headwear_edge_risk = box_exceeds_source(
+        full_headwear_box,
+        image_size,
+        tolerance=face_span * 0.45,
+    )
+    hat_tags = (
+        "hat_or_hair_accessory_focus",
+        "may_include_hair",
+        "full_headwear_companion_available",
+    )
+    if headwear_edge_risk:
+        hat_tags += ("source_edge_truncation_risk",)
     regions.append(CropRegion(
         "HEAD",
         "head_upper_accessory",
@@ -330,7 +392,27 @@ def build_outfit_regions(
         head_conf,
         head_vis,
         "auxiliary",
-        ("hat_or_hair_accessory_focus", "may_include_hair"),
+        hat_tags,
+    ))
+    full_headwear_visibility = (
+        downgrade_visibility(head_vis, "partially_visible")
+        if headwear_edge_risk
+        else head_vis
+    )
+    full_headwear_tags = (
+        "wide_or_tall_headwear_context",
+        "expanded_for_full_headwear",
+    )
+    if headwear_edge_risk:
+        full_headwear_tags += ("source_edge_truncation_risk",)
+    regions.append(CropRegion(
+        "HEAD",
+        "head_full_accessory",
+        clamp_box(full_headwear_box, image_size),
+        head_conf,
+        full_headwear_visibility,
+        "diagnostic",
+        full_headwear_tags,
     ))
     eye_box = (
         face_center.x - face_span * 0.95,
@@ -439,10 +521,16 @@ def build_outfit_regions(
         ("may_include_boots",),
     )
 
+    full_feet_boxes: list[tuple[float, float, float, float]] = []
+    feet_context_points: list[Keypoint] = []
+    feet_context_edge_risk = False
     for side, knee_index, ankle_index in (("left", 13, 15), ("right", 14, 16)):
         knee = keypoints[knee_index]
         ankle = keypoints[ankle_index]
         shin = max(distance(knee, ankle), torso_length * 0.45)
+        # Keep the compact ankle crop that the existing FEET query adapters were
+        # trained on.  The COCO ankle keypoint is not the centre of the shoe, so
+        # the companion boot crop below deliberately carries the full-shoe view.
         foot_box = (
             ankle.x - shin * 0.34,
             ankle.y - shin * 0.28,
@@ -450,37 +538,128 @@ def build_outfit_regions(
             ankle.y + shin * 0.28,
         )
         confidence, visibility = assess_visibility([knee, ankle], image_size, threshold)
+        full_box = (
+            ankle.x - shin * 0.55,
+            ankle.y - shin * 0.92,
+            ankle.x + shin * 0.55,
+            ankle.y + shin * 0.52,
+        )
+        edge_risk = box_exceeds_source(
+            full_box,
+            image_size,
+            tolerance=shin * 0.04,
+        )
+        foot_tags = ("ankle_focus", "full_shoe_companion_available")
+        if edge_risk:
+            foot_tags += ("source_edge_truncation_risk",)
         regions.append(CropRegion(
             "FEET",
             f"feet_{side}",
             clamp_box(foot_box, image_size),
             confidence,
             visibility,
+            "primary",
+            foot_tags,
         ))
+        # Preserve the legacy long-boot query crop as well.  Existing query
+        # adapters depend on this crop distribution; the diagnostic full crop
+        # is saved for QA but deliberately receives zero retrieval weight.
         boot_box = (
             ankle.x - shin * 0.40,
             ankle.y - shin * 0.72,
             ankle.x + shin * 0.40,
             ankle.y + shin * 0.30,
         )
+        boot_visibility = (
+            visibility
+        )
+        boot_tags = (
+            "legs_feet_overlap",
+            "long_boot_focus",
+            "full_shoe_companion_available",
+        )
+        if edge_risk:
+            boot_tags += ("source_edge_truncation_risk",)
         regions.append(CropRegion(
             "FEET",
             f"feet_boot_{side}",
             clamp_box(boot_box, image_size),
             confidence,
-            visibility,
+            boot_visibility,
             "auxiliary",
-            ("legs_feet_overlap", "long_boot_focus"),
+            boot_tags,
         ))
-    add(
-        "FEET",
-        "feet_context",
-        (13, 14, 15, 16),
+        full_visibility = (
+            downgrade_visibility(visibility, "partially_visible")
+            if edge_risk
+            else visibility
+        )
+        full_tags = (
+            "full_shoe_or_boot_focus",
+            "expanded_for_full_shoe",
+        )
+        if edge_risk:
+            full_tags += ("source_edge_truncation_risk",)
+        regions.append(CropRegion(
+            "FEET",
+            f"feet_full_{side}",
+            clamp_box(full_box, image_size),
+            confidence,
+            full_visibility,
+            "diagnostic",
+            full_tags,
+        ))
+        full_feet_boxes.append(full_box)
+        feet_context_points.extend((knee, ankle))
+        feet_context_edge_risk = feet_context_edge_risk or edge_risk
+
+    # Keep the original retrieval context pixel-compatible with existing
+    # checkpoints, then add a separate full-shoe context for visual QA.
+    legacy_context_box = bounds(
+        feet_context_points,
         leg_pad,
         torso_length * 0.08,
-        "context",
-        ("may_include_lower_legs",),
     )
+    context_confidence, context_visibility = assess_visibility(
+        feet_context_points,
+        image_size,
+        threshold,
+    )
+    context_tags = ("may_include_lower_legs", "full_shoe_companion_available")
+    if feet_context_edge_risk:
+        context_tags += ("source_edge_truncation_risk",)
+    regions.append(CropRegion(
+        "FEET",
+        "feet_context",
+        clamp_box(legacy_context_box, image_size),
+        context_confidence,
+        context_visibility,
+        "context",
+        context_tags,
+    ))
+    full_context_box = (
+        min(box[0] for box in full_feet_boxes),
+        min(box[1] for box in full_feet_boxes),
+        max(box[2] for box in full_feet_boxes),
+        max(box[3] for box in full_feet_boxes),
+    )
+    full_context_visibility = context_visibility
+    full_context_tags = ("full_shoe_or_boot_context", "expanded_for_full_shoe")
+    if feet_context_edge_risk:
+        full_context_visibility = downgrade_visibility(
+            full_context_visibility,
+            "partially_visible",
+        )
+        full_context_tags += ("source_edge_truncation_risk",)
+    regions.append(CropRegion(
+        "FEET",
+        "feet_full_context",
+        clamp_box(full_context_box, image_size),
+        context_confidence,
+        full_context_visibility,
+        "diagnostic",
+        full_context_tags,
+    ))
     return regions
 
 def save_region_crops(image: Image.Image, regions: list[CropRegion], output_dir: Path, stem: str) -> list[Path]:
@@ -513,11 +692,14 @@ def render_debug_overlay(
         if point.score < 0.35:
             draw.text((point.x + 4, point.y), f"{index}:{point.score:.2f}", fill=color)
     primary_names = {
-        "head_context",
+        # Show the actual completeness envelopes.  The former compact
+        # head/feet context boxes remain retrieval inputs, but displaying them
+        # as the only slot boxes made a fully saved hat or shoe look clipped.
+        "head_full_accessory",
         "body_context",
         "hands_arm_cover_context",
         "legs_context",
-        "feet_context",
+        "feet_full_context",
         "body_upper_arm_overlap",
         "legs_boot_overlap",
     }
@@ -526,7 +708,15 @@ def render_debug_overlay(
             continue
         color = SLOT_COLORS[region.slot]
         draw.rectangle(region.box, outline=color, width=3)
-        draw.text((region.box[0] + 3, region.box[1] + 3), f"{region.slot} {region.visibility} {region.confidence:.2f}", fill=color)
+        completeness = " full" if region.name in {
+            "head_full_accessory",
+            "feet_full_context",
+        } else ""
+        draw.text(
+            (region.box[0] + 3, region.box[1] + 3),
+            f"{region.slot}{completeness} {region.visibility} {region.confidence:.2f}",
+            fill=color,
+        )
     return canvas
 
 
@@ -606,6 +796,34 @@ def clamp_box(box: tuple[float, float, float, float], image_size: tuple[int, int
     right = max(left + 1, min(width, int(round(box[2]))))
     bottom = max(top + 1, min(height, int(round(box[3]))))
     return left, top, right, bottom
+
+
+def box_exceeds_source(
+    box: tuple[float, float, float, float],
+    image_size: tuple[int, int],
+    *,
+    tolerance: float = 0.0,
+) -> bool:
+    """Return whether a desired crop extends meaningfully beyond the source image."""
+    width, height = image_size
+    return (
+        box[0] < -tolerance
+        or box[1] < -tolerance
+        or box[2] > width + tolerance
+        or box[3] > height + tolerance
+    )
+
+
+def downgrade_visibility(current: str, target: str) -> str:
+    """Only lower visibility confidence; never upgrade an uncertain pose."""
+    order = {
+        "visible": 4,
+        "partially_visible": 3,
+        "occluded": 2,
+        "pose_uncertain": 1,
+        "out_of_frame": 0,
+    }
+    return target if order.get(target, 0) < order.get(current, 0) else current
 
 
 def midpoint(a: Keypoint, b: Keypoint) -> Keypoint:

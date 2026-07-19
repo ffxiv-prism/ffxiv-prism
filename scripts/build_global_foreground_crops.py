@@ -29,6 +29,7 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 DEFAULT_REGIONS = Path("data/debug/outfit-regions/overlap-final-201")
 DEFAULT_OUTPUT = Path("data/debug/global-foreground")
+CORE_SLOTS = ("HEAD", "BODY", "HANDS", "LEGS", "FEET")
 
 
 def main() -> int:
@@ -49,6 +50,33 @@ def main() -> int:
     parser.add_argument("--device", default="auto")
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--limit", type=int)
+    parser.add_argument(
+        "--fold-manifest",
+        type=Path,
+        help="Optional grouped split manifest used to limit source glamours.",
+    )
+    parser.add_argument(
+        "--fold-split",
+        choices=("train", "validation", "blind_test"),
+        default="blind_test",
+    )
+    parser.add_argument(
+        "--quality-manifest",
+        type=Path,
+        help="Optional image-quality manifest; only rows with passed=true remain.",
+    )
+    parser.add_argument(
+        "--slots",
+        nargs="+",
+        choices=CORE_SLOTS,
+        default=CORE_SLOTS,
+        help="Only write crops for these equipment slots.",
+    )
+    parser.add_argument(
+        "--crop-only",
+        action="store_true",
+        help="Skip full-resolution masks and transparent foreground PNGs.",
+    )
     parser.add_argument("--qa-limit", type=int, default=60)
     parser.add_argument(
         "--background",
@@ -59,6 +87,18 @@ def main() -> int:
 
     background = parse_background(args.background)
     examples = read_jsonl(args.examples)
+    if args.fold_manifest is not None:
+        fold_payload = json.loads(args.fold_manifest.read_text(encoding="utf-8"))
+        examples = filter_examples_by_fold(
+            examples,
+            fold_payload,
+            split=args.fold_split,
+        )
+    if args.quality_manifest is not None:
+        examples = filter_examples_by_quality(
+            examples,
+            read_jsonl(args.quality_manifest),
+        )
     if args.limit is not None:
         examples = examples[: args.limit]
     work = collect_work(examples, args.regions_dir)
@@ -91,6 +131,8 @@ def main() -> int:
                         result,
                         args.output_dir,
                         background,
+                        selected_slots=frozenset(args.slots),
+                        write_full_foreground=not args.crop_only,
                         write_qa=example_index in qa_indices,
                     )
                 )
@@ -107,6 +149,11 @@ def main() -> int:
     write_jsonl(review_path, review_rows)
     summary = {
         "example_count": len(review_rows),
+        "fold_manifest": portable_path(args.fold_manifest),
+        "fold_split": args.fold_split if args.fold_manifest is not None else None,
+        "quality_manifest": portable_path(args.quality_manifest),
+        "slots": sorted(args.slots),
+        "crop_only": args.crop_only,
         "parser_model_id": args.model_id,
         "background_for_model_crops": list(background),
         "quality_flag_counts": dict(sorted(flag_counts.items())),
@@ -125,6 +172,53 @@ def main() -> int:
         f"review_queue={review_path}"
     )
     return 0
+
+
+def filter_examples_by_fold(
+    examples: list[dict[str, Any]],
+    fold_payload: dict[str, Any],
+    *,
+    split: str,
+) -> list[dict[str, Any]]:
+    assignments = {
+        str(glamour_id): str(value)
+        for glamour_id, value in (fold_payload.get("assignments") or {}).items()
+    }
+    if not assignments:
+        raise ValueError("Fold manifest has no grouped assignments")
+    selected = [
+        example
+        for example in examples
+        if assignments.get(str(example.get("glamour_id"))) == split
+    ]
+    if not selected:
+        raise ValueError(f"Fold split contains no matching examples: {split}")
+    return selected
+
+
+def filter_examples_by_quality(
+    examples: list[dict[str, Any]],
+    quality_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    passed_by_id = {
+        str(row["example_id"]): bool(row.get("passed"))
+        for row in quality_rows
+    }
+    missing = [
+        str(example["example_id"])
+        for example in examples
+        if str(example["example_id"]) not in passed_by_id
+    ]
+    if missing:
+        raise ValueError(f"Quality manifest is missing {len(missing)} examples")
+    selected = [
+        example
+        for example in examples
+        if passed_by_id[str(example["example_id"])]
+    ]
+    if not selected:
+        raise ValueError("Quality filter contains no passing examples")
+    return selected
 
 
 def collect_work(
@@ -158,6 +252,8 @@ def save_outputs(
     output_dir: Path,
     background: tuple[int, int, int],
     *,
+    selected_slots: frozenset[str] = frozenset(CORE_SLOTS),
+    write_full_foreground: bool = True,
     write_qa: bool,
 ) -> dict[str, Any]:
     stem = row["stem"]
@@ -165,15 +261,19 @@ def save_outputs(
     crop_dir = example_dir / "crops"
     crop_dir.mkdir(parents=True, exist_ok=True)
 
-    mask_path = example_dir / f"{stem}-foreground-mask.png"
-    transparent_path = example_dir / f"{stem}-foreground.png"
-    result.mask.save(mask_path)
-    rgba = transparent_foreground(image, result.mask)
-    rgba.save(transparent_path)
-    rgba.close()
+    mask_path = None
+    transparent_path = None
+    if write_full_foreground:
+        mask_path = example_dir / f"{stem}-foreground-mask.png"
+        transparent_path = example_dir / f"{stem}-foreground.png"
+        result.mask.save(mask_path)
+        rgba = transparent_foreground(image, result.mask)
+        rgba.save(transparent_path)
+        rgba.close()
 
     crop_paths = []
-    for region in row["manifest"].get("regions", []):
+    regions = select_regions(row["manifest"].get("regions", []), selected_slots)
+    for region in regions:
         box = tuple(int(value) for value in region["box"])
         source_crop = image.crop(box)
         mask_crop = result.mask.crop(box)
@@ -194,6 +294,7 @@ def save_outputs(
     manifest = dict(row["manifest"])
     manifest.update(
         {
+            "regions": regions,
             "source_image": portable_path(row["source_path"]),
             "foreground_pipeline": "original_image_global_mask_v1",
             "foreground_mask_path": portable_path(mask_path),
@@ -235,6 +336,19 @@ def save_outputs(
             "reviewer": None,
         },
     }
+
+
+def select_regions(
+    regions: list[dict[str, Any]],
+    selected_slots: frozenset[str],
+) -> list[dict[str, Any]]:
+    if not selected_slots:
+        raise ValueError("At least one crop slot is required")
+    return [
+        region
+        for region in regions
+        if str(region.get("slot")) in selected_slots
+    ]
 
 
 def foreground_stats(result: GlobalForegroundResult) -> dict[str, Any]:

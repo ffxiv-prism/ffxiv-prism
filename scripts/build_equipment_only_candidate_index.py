@@ -64,6 +64,19 @@ def main() -> int:
     parser.add_argument("--template-samples", type=int, default=128)
     parser.add_argument("--template-diff-threshold", type=float, default=24.0)
     parser.add_argument(
+        "--slots",
+        nargs="+",
+        choices=tuple(EQUIPMENT_LABEL_IDS),
+        default=tuple(EQUIPMENT_LABEL_IDS),
+        help="Only build candidates for these equipment slots.",
+    )
+    parser.add_argument(
+        "--hands-crop-policy",
+        choices=("default", "context", "multiscale"),
+        default="default",
+        help="Canonical HANDS crop variants to encode.",
+    )
+    parser.add_argument(
         "--masked-slots",
         nargs="+",
         choices=tuple(EQUIPMENT_LABEL_IDS),
@@ -76,7 +89,14 @@ def main() -> int:
     parser.add_argument("--limit", type=int, help="Debug only: source image limit.")
     args = parser.parse_args()
 
-    all_metadata = read_jsonl(args.input_dir / "metadata.jsonl")
+    selected_slots = frozenset(args.slots)
+    all_metadata = [
+        row
+        for row in read_jsonl(args.input_dir / "metadata.jsonl")
+        if str(row["slot"]) in selected_slots
+    ]
+    if not all_metadata:
+        raise ValueError(f"No candidate rows found for slots: {sorted(selected_slots)}")
     templates = {}
     if args.mask_mode in {"template-diff", "hybrid"}:
         templates = build_median_templates(
@@ -131,7 +151,10 @@ def main() -> int:
             strict=True,
         ):
             slot = str(row["slot"])
-            for crop_name, crop_box in crop_variants_for_slot(slot):
+            for crop_name, crop_box in crop_variants_for_slot(
+                slot,
+                hands_crop_policy=args.hands_crop_policy,
+            ):
                 if slot not in args.masked_slots:
                     equipment, stats = build_original_crop(
                         image,
@@ -228,7 +251,10 @@ def main() -> int:
             "equipment_label_ids": {
                 slot: sorted(ids)
                 for slot, ids in EQUIPMENT_LABEL_IDS.items()
+                if slot in selected_slots
             },
+            "slots": sorted(selected_slots),
+            "hands_crop_policy": args.hands_crop_policy,
             "mask_mode": args.mask_mode,
             "masked_slots": sorted(args.masked_slots),
             "template_samples": (

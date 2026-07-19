@@ -64,6 +64,42 @@ class RetrievalFunnelTest(unittest.TestCase):
             [2],
         )
 
+    def test_search_crops_preserves_piece_order_when_rows_share_pieces(self) -> None:
+        metadata = []
+        for row_id, piece_ids in enumerate(((1, 2), (2, 3), (4,))):
+            metadata.append(
+                {
+                    "slot": "FEET",
+                    "pieces": [
+                        {"piece_id": piece_id, "name_en": str(piece_id)}
+                        for piece_id in piece_ids
+                    ],
+                    "image_row_id": row_id,
+                    "local_path": f"{row_id}.png",
+                    "source_image_url": f"https://example.test/{row_id}.png",
+                }
+            )
+        results = search_crops(
+            metadata,
+            np.asarray([[1.0, 0.0], [0.8, 0.2], [0.5, 0.5]], dtype=np.float32),
+            {
+                "example": [
+                    {
+                        "example_id": "example",
+                        "slot": "FEET",
+                        "name": "feet",
+                        "path": "feet.png",
+                    }
+                ]
+            },
+            {"feet.png": np.asarray([1.0, 0.0], dtype=np.float32)},
+            4,
+        )
+        self.assertEqual(
+            [row["piece_id"] for row in results["feet.png"]],
+            [1, 2, 3, 4],
+        )
+
     def test_rank_body_cases_accepts_same_appearance_name(self) -> None:
         examples = [
             {

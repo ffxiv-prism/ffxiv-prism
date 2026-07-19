@@ -14,11 +14,24 @@ from scripts.train_glamour_query_encoder import (
     group_training_samples,
     load_foreground_allowlist,
     prune_training_samples,
+    unfreeze_last_blocks,
+    validate_index_model_id,
 )
 import torch
 
 
 class QueryEncoderTests(unittest.TestCase):
+    def test_rejects_candidate_index_from_another_model(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            index_dir = Path(directory)
+            (index_dir / "summary.json").write_text(
+                '{"model_id": "facebook/dinov2-base"}',
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "does not match"):
+                validate_index_model_id(index_dir, "local/dinov3")
+
     def test_low_rank_adapter_starts_as_normalized_cls_identity(self) -> None:
         pooler = LowRankResidualPooler(8, rank=2)
         tokens = torch.randn(3, 5, 8)
@@ -73,6 +86,41 @@ class QueryEncoderTests(unittest.TestCase):
         expected = torch.nn.functional.normalize(tokens[:, 0], dim=-1)
 
         self.assertTrue(torch.allclose(output, expected, atol=1e-6))
+
+    def test_slot_attention_excludes_dinov3_register_tokens(self) -> None:
+        pooler = SlotAttentionPooler(2, num_register_tokens=2)
+        with torch.no_grad():
+            pooler.queries["BODY"].copy_(torch.tensor([1.0, 0.0]))
+            pooler.gates["BODY"].fill_(20.0)
+            pooler.output["BODY"].weight.copy_(torch.eye(2))
+        tokens = torch.tensor(
+            [[[0.0, 1.0], [10.0, 0.0], [9.0, 0.0], [0.0, 2.0], [0.0, 2.0]]]
+        )
+
+        output = pooler(tokens, "BODY")
+
+        self.assertGreater(float(output[0, 1].detach()), 0.99)
+
+    def test_unfreezes_dinov3_style_encoder_blocks(self) -> None:
+        class Encoder(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.layer = torch.nn.ModuleList(
+                    [torch.nn.Linear(2, 2), torch.nn.Linear(2, 2)]
+                )
+
+        class Model(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.model = Encoder()
+                self.norm = torch.nn.LayerNorm(2)
+
+        model = Model()
+        names = unfreeze_last_blocks(model, 1)
+
+        self.assertTrue(any(name.startswith("model.layer.1") for name in names))
+        self.assertFalse(any(name.startswith("model.layer.0") for name in names))
+        self.assertTrue(any(name.startswith("norm.") for name in names))
 
     def test_groups_multiple_crops_from_one_example_slot(self) -> None:
         samples = {
