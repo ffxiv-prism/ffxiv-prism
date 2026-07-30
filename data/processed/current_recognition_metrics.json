@@ -13,6 +13,13 @@
     "LEGS": 965,
     "FEET": 976
   },
+  "refresh_policy": {
+    "training_gate": "do_not_train",
+    "audit": "data/outputs/training-readiness-audit-20260730/audit.json",
+    "fold_specific_checkpoints_required": true,
+    "reuse_production_fold01_checkpoint_for_fold02_or_fold03": false,
+    "reason": "Only production fold-01 checkpoints remain after workspace consolidation; a strict three-fold refresh requires separately trained fold-01/02/03 models after the data gate passes."
+  },
   "target_top10": 0.8,
   "target_achieved_all_slots": false,
   "slots": [

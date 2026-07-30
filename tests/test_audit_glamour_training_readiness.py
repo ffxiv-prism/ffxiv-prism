@@ -9,7 +9,10 @@ from scripts.audit_glamour_training_readiness import (
     hamming_distance,
     identity_for,
     label_piece_ids,
+    profile_slot,
+    Thresholds,
     wilson_half_width,
+    wilson_interval,
 )
 
 
@@ -46,6 +49,13 @@ class TrainingReadinessAuditTests(unittest.TestCase):
         self.assertGreater(small, large)
         self.assertLess(large, 0.03)
 
+    def test_wilson_interval_reports_observed_usable_uncertainty(self) -> None:
+        interval = wilson_interval(98, 100)
+
+        self.assertIsNotNone(interval)
+        self.assertGreater(interval[0], 0.92)
+        self.assertLess(interval[0], 0.94)
+
     def test_visibility_audit_counts_only_labelled_slot_rows(self) -> None:
         examples = [
             {
@@ -64,6 +74,7 @@ class TrainingReadinessAuditTests(unittest.TestCase):
                 "visibility": "clear",
                 "usability": "usable",
                 "issue": "none",
+                "review_source": "manual_independent_glamour_audit",
             },
             {
                 "example_id": "2:0",
@@ -79,6 +90,8 @@ class TrainingReadinessAuditTests(unittest.TestCase):
         self.assertEqual(result["HANDS"]["labelled_images"], 1)
         self.assertEqual(result["HANDS"]["reviewed_images"], 1)
         self.assertEqual(result["HANDS"]["visibility_counts"], {"clear": 1})
+        self.assertEqual(result["HANDS"]["independent_sample_images"], 1)
+        self.assertEqual(result["HANDS"]["independent_sample_usable"], 1)
         self.assertEqual(result["BODY"]["reviewed_images"], 0)
 
     def test_pose_visibility_audit_reports_missing_and_decisions(self) -> None:
@@ -105,6 +118,46 @@ class TrainingReadinessAuditTests(unittest.TestCase):
         self.assertEqual(result["reviewed_images"], 1)
         self.assertEqual(result["missing_images"], 1)
         self.assertEqual(result["decision_counts"], {"clear": 1})
+
+    def test_slot_profile_counts_independent_glamours_per_identity(self) -> None:
+        examples = [
+            {
+                "example_id": "1:0",
+                "glamour_id": "1",
+                "core_slot_labels": {"HANDS": {"piece_ids": [10]}},
+            },
+            {
+                "example_id": "1:1",
+                "glamour_id": "1",
+                "core_slot_labels": {"HANDS": {"piece_ids": [10]}},
+            },
+            {
+                "example_id": "2:0",
+                "glamour_id": "2",
+                "core_slot_labels": {"HANDS": {"piece_ids": [10]}},
+            },
+            {
+                "example_id": "3:0",
+                "glamour_id": "3",
+                "core_slot_labels": {"HANDS": {"piece_ids": [20]}},
+            },
+        ]
+        roots = build_identity_roots(examples, "HANDS")
+
+        profile, _ = profile_slot(
+            "HANDS",
+            examples,
+            {10, 20},
+            {10, 20},
+            [],
+            roots,
+            Thresholds(),
+        )
+
+        self.assertEqual(profile["appearance_identity_count"], 2)
+        self.assertEqual(profile["multi_glamour_identity_count"], 1)
+        self.assertEqual(profile["single_glamour_identity_count"], 1)
+        self.assertEqual(profile["multi_glamour_identity_rate"], 0.5)
 
 
 if __name__ == "__main__":

@@ -108,6 +108,7 @@ class Thresholds:
     min_validation_images_per_fold: int = 250
     min_gender_images: int = 100
     min_race_images: int = 30
+    min_multi_glamour_identity_rate: float = 0.5
     max_ci_half_width: float = 0.03
     near_duplicate_hamming: int = 4
 
@@ -151,7 +152,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--visibility-reviews",
         type=Path,
-        default=DEFAULT_VISIBILITY_REVIEWS,
+        action="append",
+        help=(
+            "JSONL semantic visibility reviews. Repeat to merge independent "
+            "review batches; defaults to the HANDS pilot."
+        ),
     )
     parser.add_argument(
         "--pose-visibility",
@@ -164,6 +169,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-validation-images-per-fold", type=int, default=250)
     parser.add_argument("--min-gender-images", type=int, default=100)
     parser.add_argument("--min-race-images", type=int, default=30)
+    parser.add_argument(
+        "--min-multi-glamour-identity-rate",
+        type=float,
+        default=0.5,
+        help=(
+            "Minimum share of appearance identities represented by at least "
+            "two independent glamours."
+        ),
+    )
     parser.add_argument("--max-ci-half-width", type=float, default=0.03)
     parser.add_argument("--near-duplicate-hamming", type=int, default=4)
     return parser.parse_args()
@@ -217,6 +231,29 @@ def wilson_half_width(
     denominator = 1.0 + z * z / n
     variance = proportion * (1.0 - proportion) / n + z * z / (4.0 * n * n)
     return z * math.sqrt(variance) / denominator
+
+
+def wilson_interval(
+    successes: int,
+    total: int,
+    z: float = 1.959963984540054,
+) -> tuple[float, float] | None:
+    if total <= 0 or successes < 0 or successes > total:
+        return None
+    proportion = successes / total
+    denominator = 1.0 + z * z / total
+    center = (
+        proportion + z * z / (2.0 * total)
+    ) / denominator
+    half_width = (
+        z
+        * math.sqrt(
+            proportion * (1.0 - proportion) / total
+            + z * z / (4.0 * total * total)
+        )
+        / denominator
+    )
+    return center - half_width, center + half_width
 
 
 def dhash(image: Image.Image, size: int = 8) -> int:
@@ -457,6 +494,22 @@ def profile_slot(
     )
     identity_counts.pop(None, None)
     identity_sizes = list(identity_counts.values())
+    glamours_by_identity: defaultdict[int, set[str]] = defaultdict(set)
+    for example in labelled:
+        identity = identity_for(example, slot, roots)
+        if identity is not None:
+            glamours_by_identity[identity].add(str(example.get("glamour_id")))
+    identity_glamour_sizes = [
+        len(glamour_ids) for glamour_ids in glamours_by_identity.values()
+    ]
+    multi_glamour_identity_count = sum(
+        count >= 2 for count in identity_glamour_sizes
+    )
+    multi_glamour_identity_rate = (
+        multi_glamour_identity_count / len(identity_glamour_sizes)
+        if identity_glamour_sizes
+        else 0.0
+    )
     gender_counts = Counter(
         str(example.get("model_gender") or "unknown") for example in covered
     )
@@ -504,6 +557,13 @@ def profile_slot(
         ),
         "identity_images_p50": percentile(identity_sizes, 0.5),
         "identity_images_p90": percentile(identity_sizes, 0.9),
+        "single_glamour_identity_count": sum(
+            count == 1 for count in identity_glamour_sizes
+        ),
+        "multi_glamour_identity_count": multi_glamour_identity_count,
+        "multi_glamour_identity_rate": multi_glamour_identity_rate,
+        "identity_glamours_p50": percentile(identity_glamour_sizes, 0.5),
+        "identity_glamours_p90": percentile(identity_glamour_sizes, 0.9),
         "sqlite_covered_images": len(sqlite_covered),
         "sqlite_coverage_rate": (
             len(sqlite_covered) / len(labelled) if labelled else 0.0
@@ -828,6 +888,26 @@ def build_findings(
                     "按失败形态定向扩充独立 glamour，而不是复制同一搭配多图。",
                 )
             )
+        if (
+            profile["multi_glamour_identity_rate"]
+            < thresholds.min_multi_glamour_identity_rate
+        ):
+            findings.append(
+                finding(
+                    "high",
+                    f"{slot.lower()}_independent_glamour_coverage",
+                    f"{slot} 独立玩家搭配覆盖不足",
+                    (
+                        f"{profile['multi_glamour_identity_count']}/"
+                        f"{profile['appearance_identity_count']} 外观族至少有 "
+                        "2 个独立 glamour，比例 "
+                        f"{profile['multi_glamour_identity_rate']:.2%} < "
+                        f"{thresholds.min_multi_glamour_identity_rate:.2%}。"
+                    ),
+                    "单一搭配的多张近似视图无法证明模型学到装备本身，容易把角色、整套服装或场景上下文当成捷径。",
+                    "优先为单 glamour 外观补充不同玩家、姿态、染色和场景的独立搭配图，并保持 glamour 分组划分。",
+                )
+            )
         if profile["under_threshold_gender_counts"] or profile[
             "under_threshold_race_counts"
         ]:
@@ -977,6 +1057,10 @@ def audit_slot_visibility(
         for row in review_rows
     }
     output = {}
+    glamour_by_id = {
+        str(example.get("example_id")): str(example.get("glamour_id"))
+        for example in passed_examples
+    }
     for slot in SLOTS:
         labelled_ids = {
             str(example.get("example_id"))
@@ -995,15 +1079,47 @@ def audit_slot_visibility(
             str(row.get("usability") or "unreviewed") for row in relevant
         )
         issue_counts = Counter(str(row.get("issue") or "none") for row in relevant)
+        independent_rows = [
+            row
+            for row in relevant
+            if "independent_glamour" in str(row.get("review_source") or "")
+        ]
+        independent_usable = sum(
+            str(row.get("usability")) == "usable"
+            for row in independent_rows
+        )
+        independent_interval = wilson_interval(
+            independent_usable,
+            len(independent_rows),
+        )
         output[slot] = {
             "labelled_images": len(labelled_ids),
             "reviewed_images": len(relevant),
+            "reviewed_glamours": len(
+                {
+                    glamour_by_id[str(row.get("example_id"))]
+                    for row in relevant
+                    if str(row.get("example_id")) in glamour_by_id
+                }
+            ),
             "review_coverage_rate": (
                 len(relevant) / len(labelled_ids) if labelled_ids else 0.0
             ),
             "visibility_counts": dict(sorted(visibility_counts.items())),
             "usability_counts": dict(sorted(usability_counts.items())),
             "issue_counts": dict(sorted(issue_counts.items())),
+            "independent_sample_images": len(independent_rows),
+            "independent_sample_usable": independent_usable,
+            "independent_sample_usable_rate": (
+                independent_usable / len(independent_rows)
+                if independent_rows
+                else None
+            ),
+            "independent_sample_usable_wilson_95": (
+                list(independent_interval)
+                if independent_interval is not None
+                else None
+            ),
             "duplicate_review_count": sum(
                 max(0, review_counts[(example_id, slot)] - 1)
                 for example_id in labelled_ids
@@ -1136,6 +1252,7 @@ def markdown_report(payload: Mapping[str, Any]) -> str:
             "- 读取实际 `current-best` 主索引/融合索引 metadata，而非只读 SQLite 目录。",
             "- 在每折检查 train/validation 外观连通分量和图片内容泄漏。",
             "- 全量姿态预筛只判断入镜、关键点和裁剪像素；语义遮挡仍由独立人工复核。",
+            "- 数量门槛同时检查总图数和每个外观族的独立 glamour 数，避免把同一搭配多视图当作独立覆盖。",
             "- 用 80% 命中率下 Wilson 95% 区间半宽衡量验证分母统计精度。",
             "",
             "## 限制与不确定性",
@@ -1168,6 +1285,9 @@ def main() -> int:
         min_validation_images_per_fold=args.min_validation_images_per_fold,
         min_gender_images=args.min_gender_images,
         min_race_images=args.min_race_images,
+        min_multi_glamour_identity_rate=(
+            args.min_multi_glamour_identity_rate
+        ),
         max_ci_half_width=args.max_ci_half_width,
         near_duplicate_hamming=args.near_duplicate_hamming,
     )
@@ -1250,10 +1370,19 @@ def main() -> int:
             registered.get(slot),
         )
 
-    visibility_path = resolve_input(args.visibility_reviews)
-    visibility_rows = (
-        read_jsonl(visibility_path) if visibility_path.is_file() else []
-    )
+    visibility_paths = [
+        resolve_input(path)
+        for path in (
+            args.visibility_reviews
+            or [DEFAULT_VISIBILITY_REVIEWS]
+        )
+    ]
+    visibility_rows = [
+        row
+        for path in visibility_paths
+        if path.is_file()
+        for row in read_jsonl(path)
+    ]
     visibility_audit = audit_slot_visibility(passed_examples, visibility_rows)
     pose_visibility_path = resolve_input(args.pose_visibility)
     pose_visibility_rows = (
@@ -1289,11 +1418,11 @@ def main() -> int:
             "quality": portable_path(resolve_input(args.quality)),
             "sqlite": portable_path(resolve_input(args.db)),
             "metrics": portable_path(resolve_input(args.metrics)),
-            "visibility_reviews": (
-                portable_path(visibility_path)
-                if visibility_path.is_file()
-                else None
-            ),
+            "visibility_reviews": [
+                portable_path(path)
+                for path in visibility_paths
+                if path.is_file()
+            ],
             "pose_visibility": (
                 portable_path(pose_visibility_path)
                 if pose_visibility_path.is_file()
