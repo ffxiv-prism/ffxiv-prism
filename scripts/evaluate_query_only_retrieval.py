@@ -69,6 +69,15 @@ def main() -> int:
         help="Fuse evidence across query crops by cosine max or weighted RRF.",
     )
     parser.add_argument("--rrf-k", type=int, default=60)
+    parser.add_argument(
+        "--include-top-results",
+        type=int,
+        default=0,
+        help=(
+            "Retain this many fused candidates per eligible case for error "
+            "analysis or multi-view aggregation (default: compact reports)."
+        ),
+    )
     parser.add_argument("--cutoffs", type=int, nargs="+", default=[1, 10, 100, 1000])
     args = parser.parse_args()
 
@@ -164,6 +173,7 @@ def main() -> int:
         slot=args.slot,
         fusion=args.fusion,
         rrf_k=args.rrf_k,
+        include_top_results=args.include_top_results,
     )
     summary = summarize_ranked_cases(cases, cutoffs)
     payload: dict[str, Any] = {
@@ -178,6 +188,7 @@ def main() -> int:
         "candidate_gender_routing": args.candidate_gender_routing,
         "fusion": args.fusion,
         "rrf_k": args.rrf_k,
+        "included_top_results": args.include_top_results,
         "cutoffs": list(cutoffs),
         "summary": summary,
         "cases": cases,

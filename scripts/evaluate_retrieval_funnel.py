@@ -386,11 +386,14 @@ def rank_body_cases(
     slot: str = "BODY",
     fusion: str = "max",
     rrf_k: int = 60,
+    include_top_results: int = 0,
 ) -> list[dict[str, Any]]:
     if fusion not in {"max", "rrf"}:
         raise ValueError(f"Unsupported fusion: {fusion}")
     if rrf_k < 1:
         raise ValueError("rrf-k must be positive")
+    if include_top_results < 0:
+        raise ValueError("include-top-results cannot be negative")
     available_ids = available_pieces_by_slot(metadata)[slot]
     available_keys = available_appearance_keys_by_slot(metadata)[slot]
     role_weights = ROLE_PROFILES["balanced"]
@@ -471,13 +474,30 @@ def rank_body_cases(
             ),
             None,
         )
-        cases.append(
-            {
-                **base,
-                "status": "eligible",
-                "rank": rank,
-            }
-        )
+        case = {
+            **base,
+            "status": "eligible",
+            "rank": rank,
+        }
+        if include_top_results:
+            case.update(
+                slot=slot,
+                expected_appearance_key=expected_key,
+                eligible_expected_piece_ids=sorted(eligible_ids),
+            )
+            case["results"] = [
+                {
+                    "piece_id": piece_id,
+                    "rank": result_rank,
+                    "score": float(scores[piece_id]),
+                    "appearance_key": keys_by_piece[piece_id],
+                }
+                for result_rank, piece_id in enumerate(
+                    ranked_ids[:include_top_results],
+                    start=1,
+                )
+            ]
+        cases.append(case)
     return cases
 
 

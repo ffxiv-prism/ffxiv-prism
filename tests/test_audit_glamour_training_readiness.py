@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 
 from scripts.audit_glamour_training_readiness import (
+    audit_pose_slot_visibility,
     audit_slot_visibility,
     build_identity_roots,
     hamming_distance,
@@ -79,6 +80,31 @@ class TrainingReadinessAuditTests(unittest.TestCase):
         self.assertEqual(result["HANDS"]["reviewed_images"], 1)
         self.assertEqual(result["HANDS"]["visibility_counts"], {"clear": 1})
         self.assertEqual(result["BODY"]["reviewed_images"], 0)
+
+    def test_pose_visibility_audit_reports_missing_and_decisions(self) -> None:
+        examples = [
+            {
+                "example_id": "1:0",
+                "core_slot_labels": {"HANDS": {"piece_ids": [10]}},
+            },
+            {
+                "example_id": "2:0",
+                "core_slot_labels": {"HANDS": {"piece_ids": [11]}},
+            },
+        ]
+        pose_rows = [
+            {
+                "example_id": "1:0",
+                "error": None,
+                "slot_visibility": {"HANDS": {"decision": "clear"}},
+            }
+        ]
+
+        result = audit_pose_slot_visibility(examples, pose_rows)["HANDS"]
+
+        self.assertEqual(result["reviewed_images"], 1)
+        self.assertEqual(result["missing_images"], 1)
+        self.assertEqual(result["decision_counts"], {"clear": 1})
 
 
 if __name__ == "__main__":

@@ -217,6 +217,69 @@ class RetrievalFunnelTest(unittest.TestCase):
 
         self.assertEqual(cases[0]["rank"], 1)
 
+    def test_rank_body_cases_can_retain_fused_results_for_diagnostics(self) -> None:
+        examples = [
+            {
+                "example_id": "example-1",
+                "glamour_id": 1,
+                "core_slot_labels": {
+                    "HANDS": {
+                        "item_name": "Expected Gloves",
+                        "piece_ids": [2],
+                        "piece_match_type": "exact_item",
+                    }
+                },
+            }
+        ]
+        records = {
+            "example-1": [
+                {
+                    "path": "crop.png",
+                    "slot": "HANDS",
+                    "visibility": "visible",
+                    "confidence": 1.0,
+                    "role": "primary",
+                    "tags": (),
+                }
+            ]
+        }
+        search = {
+            "crop.png": [
+                {"piece_id": 1, "name_en": "Wrong Gloves", "score": 0.9},
+                {"piece_id": 2, "name_en": "Expected Gloves", "score": 0.8},
+            ]
+        }
+        metadata = [
+            {
+                "slot": "HANDS",
+                "pieces": [
+                    {"piece_id": 1, "name_en": "Wrong Gloves"},
+                    {"piece_id": 2, "name_en": "Expected Gloves"},
+                ],
+            }
+        ]
+
+        cases = rank_body_cases(
+            examples,
+            records,
+            search,
+            metadata,
+            slot="HANDS",
+            include_top_results=2,
+        )
+
+        self.assertEqual(cases[0]["slot"], "HANDS")
+        self.assertEqual(cases[0]["eligible_expected_piece_ids"], [2])
+        self.assertEqual(cases[0]["expected_appearance_key"], "expected gloves")
+        self.assertEqual(
+            [result["piece_id"] for result in cases[0]["results"]],
+            [1, 2],
+        )
+        self.assertEqual(
+            [result["rank"] for result in cases[0]["results"]],
+            [1, 2],
+        )
+
     def test_summarize_funnel_reports_coverage_and_conversion(self) -> None:
         base = [
             {

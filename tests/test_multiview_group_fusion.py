@@ -70,6 +70,56 @@ class MultiviewGroupFusionTests(unittest.TestCase):
 
         self.assertEqual(fuse_group_cases(cases, slots={"BODY"}), [])
 
+    def test_deep_candidate_voting_can_promote_weak_consensus_into_top_k(self) -> None:
+        cases = [
+            {
+                "status": "eligible",
+                "glamour_id": 10,
+                "example_id": f"10:{view}",
+                "slot": "HANDS",
+                "expected_name": "Correct Gloves",
+                "expected_appearance_key": "correct gloves",
+                "eligible_expected_piece_ids": [7],
+                "results": [
+                    {
+                        "piece_id": 100 + view * 100 + rank,
+                        "rank": rank,
+                        "appearance_key": f"distractor {view} {rank}",
+                    }
+                    for rank in range(1, 15)
+                ]
+                + [
+                    {
+                        "piece_id": 7,
+                        "rank": 15,
+                        "appearance_key": "correct gloves",
+                    }
+                ],
+            }
+            for view in range(8)
+        ]
+
+        shallow = fuse_group_cases(
+            cases,
+            slots={"HANDS"},
+            top_k=10,
+            candidate_k=10,
+        )
+        deep = fuse_group_cases(
+            cases,
+            slots={"HANDS"},
+            top_k=10,
+            candidate_k=100,
+        )
+
+        self.assertFalse(shallow[0]["appearance_hit_at_k"])
+        self.assertTrue(deep[0]["appearance_hit_at_k"])
+        self.assertLessEqual(deep[0]["appearance_rank"], 10)
+
+    def test_candidate_depth_must_cover_output_depth(self) -> None:
+        with self.assertRaisesRegex(ValueError, "at least top-k"):
+            fuse_group_cases([], top_k=10, candidate_k=5)
+
 
 if __name__ == "__main__":
     unittest.main()

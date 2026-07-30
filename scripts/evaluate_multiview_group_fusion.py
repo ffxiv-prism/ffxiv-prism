@@ -21,8 +21,15 @@ def fuse_group_cases(
     *,
     slots: set[str] | None = None,
     top_k: int = 10,
+    candidate_k: int | None = None,
     rank_power: float = 1.0,
 ) -> list[dict[str, Any]]:
+    if top_k < 1:
+        raise ValueError("top-k must be positive")
+    if candidate_k is None:
+        candidate_k = top_k
+    if candidate_k < top_k:
+        raise ValueError("candidate-k must be at least top-k")
     grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for case in cases:
         if case.get("status") != "eligible":
@@ -37,7 +44,7 @@ def fuse_group_cases(
         votes: Counter[int] = Counter()
         result_by_piece: dict[int, dict[str, Any]] = {}
         for view in views:
-            for result in view.get("results", [])[:top_k]:
+            for result in view.get("results", [])[:candidate_k]:
                 piece_id = int(result["piece_id"])
                 rank = max(1, int(result["rank"]))
                 votes[piece_id] += 1.0 / (rank**rank_power)
@@ -102,6 +109,7 @@ def fuse_group_cases(
                 "appearance_hit_at_k": (
                     appearance_rank is not None and appearance_rank <= top_k
                 ),
+                "candidate_k": candidate_k,
                 "results": results,
             }
         )
@@ -134,21 +142,41 @@ def main() -> None:
         description="Fuse multiple image rankings from one glamour using reciprocal-rank votes."
     )
     parser.add_argument("--report", type=Path, required=True)
+    parser.add_argument(
+        "--cases-path",
+        help=(
+            "Dotted path to a direct case list, for example 'cases'. "
+            "When omitted, use <section>.<split>_cases."
+        ),
+    )
     parser.add_argument("--section", default="evaluation")
     parser.add_argument("--split", choices=("validation", "test"), default="validation")
     parser.add_argument("--slots", nargs="+")
     parser.add_argument("--top-k", type=int, default=10)
+    parser.add_argument(
+        "--candidate-k",
+        type=int,
+        help=(
+            "Per-view candidate depth used for voting; defaults to --top-k. "
+            "Use a deeper value to test whether weak but consistent evidence "
+            "can move into the final top-k."
+        ),
+    )
     parser.add_argument("--rank-power", type=float, default=1.0)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
     report = json.loads(args.report.read_text(encoding="utf-8"))
-    section = nested_value(report, args.section)
-    source_cases = section[f"{args.split}_cases"]
+    if args.cases_path:
+        source_cases = nested_value(report, args.cases_path)
+    else:
+        section = nested_value(report, args.section)
+        source_cases = section[f"{args.split}_cases"]
     outcomes = fuse_group_cases(
         source_cases,
         slots=set(args.slots) if args.slots else None,
         top_k=args.top_k,
+        candidate_k=args.candidate_k,
         rank_power=args.rank_power,
     )
     summary = summarize_group_cases(outcomes, args.top_k)
@@ -156,9 +184,11 @@ def main() -> None:
         "report": args.report.as_posix(),
         "section": args.section,
         "split": args.split,
+        "cases_path": args.cases_path,
         "slots": args.slots,
         "strategy": "reciprocal_rank_vote",
         "rank_power": args.rank_power,
+        "candidate_k": args.candidate_k or args.top_k,
         "summary": summary,
         "cases": outcomes,
     }

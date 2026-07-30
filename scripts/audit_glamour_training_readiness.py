@@ -34,6 +34,10 @@ DEFAULT_METRICS = Path("data/processed/current_recognition_metrics.json")
 DEFAULT_VISIBILITY_REVIEWS = Path(
     "data/outputs/hands-visibility-audit-sample-20260730/manual-reviews.jsonl"
 )
+DEFAULT_POSE_VISIBILITY = Path(
+    "data/outputs/training-readiness-audit-20260730/"
+    "pose-slot-visibility.jsonl"
+)
 DEFAULT_OUTPUT_DIR = Path("data/outputs/training-readiness-audit-20260730")
 INDEX_DIRS = {
     "HEAD": Path(
@@ -148,6 +152,11 @@ def parse_args() -> argparse.Namespace:
         "--visibility-reviews",
         type=Path,
         default=DEFAULT_VISIBILITY_REVIEWS,
+    )
+    parser.add_argument(
+        "--pose-visibility",
+        type=Path,
+        default=DEFAULT_POSE_VISIBILITY,
     )
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--min-labelled-images", type=int, default=1000)
@@ -679,6 +688,7 @@ def build_findings(
     slot_profiles: Mapping[str, Mapping[str, Any]],
     fold_audits: Mapping[str, Mapping[str, Any]],
     visibility_audit: Mapping[str, Mapping[str, Any]],
+    pose_visibility_audit: Mapping[str, Mapping[str, Any]],
     thresholds: Thresholds,
 ) -> list[dict[str, str]]:
     findings = []
@@ -760,6 +770,31 @@ def build_findings(
                 f"重复 example_id/slot 复核行 {duplicate_visibility_reviews}。",
                 "后写覆盖会令训练过滤结果不可复现。",
                 "去重并保留单一、可追溯的最终人工决策。",
+            )
+        )
+    structural_failures = {
+        slot: row
+        for slot, row in pose_visibility_audit.items()
+        if row["missing_images"]
+        or row["error_images"]
+        or row["decision_counts"].get("unusable", 0)
+    }
+    if structural_failures:
+        findings.append(
+            finding(
+                "critical",
+                "pose_slot_visibility",
+                "结构可见性预筛存在缺失、错误或不可用部位",
+                "；".join(
+                    (
+                        f"{slot} missing {row['missing_images']}，"
+                        f"errors {row['error_images']}，"
+                        f"unusable {row['decision_counts'].get('unusable', 0)}"
+                    )
+                    for slot, row in structural_failures.items()
+                ),
+                "训练会包含不在画面内、关键点不可信或有效裁剪过小的目标。",
+                "剔除结构不可用图片并重新冻结分组折；错误行必须修复后重跑。",
             )
         )
     for slot, profile in slot_profiles.items():
@@ -977,6 +1012,46 @@ def audit_slot_visibility(
     return output
 
 
+def audit_pose_slot_visibility(
+    passed_examples: Sequence[Mapping[str, Any]],
+    pose_rows: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    by_id = {
+        str(row.get("example_id")): row
+        for row in pose_rows
+    }
+    output = {}
+    for slot in SLOTS:
+        labelled_ids = {
+            str(example.get("example_id"))
+            for example in passed_examples
+            if label_piece_ids(example, slot)
+        }
+        present_rows = [
+            by_id[example_id]
+            for example_id in labelled_ids
+            if example_id in by_id
+        ]
+        decisions = Counter(
+            str(
+                ((row.get("slot_visibility") or {}).get(slot) or {}).get(
+                    "decision"
+                )
+                or "missing"
+            )
+            for row in present_rows
+            if not row.get("error")
+        )
+        output[slot] = {
+            "labelled_images": len(labelled_ids),
+            "reviewed_images": len(present_rows),
+            "missing_images": len(labelled_ids) - len(present_rows),
+            "error_images": sum(bool(row.get("error")) for row in present_rows),
+            "decision_counts": dict(sorted(decisions.items())),
+        }
+    return output
+
+
 def markdown_report(payload: Mapping[str, Any]) -> str:
     lines = [
         "# 玩家搭配训练准入审计",
@@ -1004,8 +1079,8 @@ def markdown_report(payload: Mapping[str, Any]) -> str:
             "",
             "## 五部位数据与装备库覆盖",
             "",
-            "| 部位 | 有标签图 | 外观族 | 单例族 | 可见性复核 | 主索引覆盖 | 全分支覆盖 | 注册分母复现 |",
-            "| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+            "| 部位 | 有标签图 | 外观族 | 单例族 | 姿态 clear / 人审 | 主索引覆盖 | 全分支覆盖 | 注册分母复现 |",
+            "| --- | ---: | ---: | ---: | --- | ---: | ---: | --- |",
         ]
     )
     for slot in SLOTS:
@@ -1015,7 +1090,8 @@ def markdown_report(payload: Mapping[str, Any]) -> str:
             f"| {slot} | {profile['labelled_images']} | "
             f"{profile['appearance_identity_count']} | "
             f"{profile['singleton_identity_count']} | "
-            f"{payload['visibility'][slot]['review_coverage_rate']:.2%} | "
+            f"{payload['pose_visibility'][slot]['decision_counts'].get('clear', 0)}"
+            f" / {payload['visibility'][slot]['reviewed_images']} | "
             f"{profile['primary_coverage_rate']:.2%} | "
             f"{profile['all_active_branches_coverage_rate']:.2%} | "
             f"{'是' if folds['registered_denominator_matches'] else '否'} |"
@@ -1059,6 +1135,7 @@ def markdown_report(payload: Mapping[str, Any]) -> str:
             "- 计算 SHA-256 精确重复与 dHash 近重复。",
             "- 读取实际 `current-best` 主索引/融合索引 metadata，而非只读 SQLite 目录。",
             "- 在每折检查 train/validation 外观连通分量和图片内容泄漏。",
+            "- 全量姿态预筛只判断入镜、关键点和裁剪像素；语义遮挡仍由独立人工复核。",
             "- 用 80% 命中率下 Wilson 95% 区间半宽衡量验证分母统计精度。",
             "",
             "## 限制与不确定性",
@@ -1178,12 +1255,23 @@ def main() -> int:
         read_jsonl(visibility_path) if visibility_path.is_file() else []
     )
     visibility_audit = audit_slot_visibility(passed_examples, visibility_rows)
+    pose_visibility_path = resolve_input(args.pose_visibility)
+    pose_visibility_rows = (
+        read_jsonl(pose_visibility_path)
+        if pose_visibility_path.is_file()
+        else []
+    )
+    pose_visibility_audit = audit_pose_slot_visibility(
+        passed_examples,
+        pose_visibility_rows,
+    )
     findings = build_findings(
         manifest,
         image_audit,
         slot_profiles,
         fold_audits,
         visibility_audit,
+        pose_visibility_audit,
         thresholds,
     )
     severity_counts = Counter(row["severity"] for row in findings)
@@ -1206,6 +1294,11 @@ def main() -> int:
                 if visibility_path.is_file()
                 else None
             ),
+            "pose_visibility": (
+                portable_path(pose_visibility_path)
+                if pose_visibility_path.is_file()
+                else None
+            ),
             "primary_indexes": {
                 slot: portable_path(resolve_input(path))
                 for slot, path in INDEX_DIRS.items()
@@ -1223,6 +1316,7 @@ def main() -> int:
             "examples": near_pairs[:100],
         },
         "visibility": visibility_audit,
+        "pose_visibility": pose_visibility_audit,
         "slots": slot_profiles,
         "folds": fold_audits,
         "severity_counts": dict(sorted(severity_counts.items())),
