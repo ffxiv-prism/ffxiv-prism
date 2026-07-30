@@ -2,7 +2,7 @@
 
 FFXIV Prism 是一个本地优先的《最终幻想 XIV》装备外观候选检索工具。输入一张单人角色截图，系统按 `HEAD`、`BODY`、`HANDS`、`LEGS`、`FEET` 五个部位裁剪并返回装备候选。
 
-当前版本适合作为“Top-10 候选 + 人工确认”的本地 Demo，不应描述为自动装备鉴定器。严格物品不相交三折评估中，只有 BODY 达到 Top-10 80%；其余部位仍有明显差距，HANDS 是首要瓶颈。完整现状、历史实验合并结论和下一阶段准入规则见 [当前状态](docs/current_status_2026-07-30_zh.md)。
+当前版本适合作为“Top-10 候选 + 人工确认”的本地 Demo，不应描述为自动装备鉴定器。最近一次已注册的严格物品不相交三折评估中，只有 BODY 达到 Top-10 80%；其余部位仍有明显差距，HANDS 是首要瓶颈。2026-07-30 修复候选覆盖后评估分母已变化，下表只作为历史基准，必须重跑后才能登记为当前成绩。完整现状、训练准入审计和根因证据见 [当前状态](docs/current_status_2026-07-30_zh.md)。
 
 ## 快速开始
 
@@ -49,7 +49,7 @@ python scripts\web_app.py
 
 默认地址为 `http://127.0.0.1:8765`。网页支持拖拽上传、五部位选择、Top-k 设置、结果查看和本地数据更新。服务只监听回环地址；如不希望自动打开浏览器，添加 `--no-open`。
 
-## 当前严格指标
+## 最近一次注册严格指标
 
 口径为玩家搭配图上的严格物品不相交三折 pooled Appearance Recall：
 
@@ -61,7 +61,7 @@ python scripts\web_app.py
 | LEGS | 955 | 13.93% | 31.94% | 未达标 |
 | FEET | 967 | 19.34% | 41.16% | 未达标 |
 
-机器可读快照位于 `data/processed/current_recognition_metrics.json`。目标是所有部位 Top-10 ≥ 80%，不是用 Top-1000 候选覆盖代替 Top-10 成绩。
+机器可读快照位于 `data/processed/current_recognition_metrics.json`，并已标记为 `refresh_required_after_candidate_coverage_repair`。目标是所有部位 Top-10 ≥ 80%，不是用 Top-1000 候选覆盖代替 Top-10 成绩。
 
 ## 训练数据准入
 
@@ -84,9 +84,17 @@ python scripts\web_app.py
 
 任何一项未通过都应先修数据或采集，不得用继续扫参掩盖数据问题。
 
+运行当前训练准入审计：
+
+```powershell
+python scripts\audit_glamour_training_readiness.py
+```
+
+该命令在未通过时返回非零退出码，并把本地证据写到 `data/outputs/training-readiness-audit-20260730`。当前仍因逐槽可见性复核不完整和候选修复后的评估分母尚未重跑而阻塞训练。
+
 ## 数据库与候选索引
 
-规范装备库为 `data/processed/eorzea.sqlite`。当前快照包含 2,443 个套装、11,739 个装备部件和 19,800 张已关联槽位图；活动索引引用缺图为 0。
+规范装备库为 `data/processed/eorzea.sqlite`。2026-07-30 快照包含 2,443 个套装、11,739 个装备部件和 19,810 张已关联槽位图；活动索引引用缺图为 0。玩家最终质量集的五部位标签均已达到 100% 活动候选覆盖。
 
 更新本地数据：
 

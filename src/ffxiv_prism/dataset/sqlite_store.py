@@ -7,6 +7,7 @@ from typing import Any
 
 from ffxiv_prism.jsonl import read_jsonl, write_json
 from ffxiv_prism.paths import EORZEA_METADATA_DIR, PROCESSED_DIR, ensure_project_dirs, portable_path, resolve_project_path
+from ffxiv_prism.collectors.eorzea_collection.url_utils import sanitize_slug
 
 
 DEFAULT_DB_PATH = PROCESSED_DIR / "eorzea.sqlite"
@@ -14,6 +15,12 @@ DEFAULT_GEARSETS_PATH = EORZEA_METADATA_DIR / "gearset_details_raw.jsonl"
 DEFAULT_GEAR_PIECES_PATH = EORZEA_METADATA_DIR / "gear_pieces_raw.jsonl"
 DEFAULT_IMAGES_QA_PATH = PROCESSED_DIR / "eorzea_images_qa_index.jsonl"
 DEFAULT_SUMMARY_PATH = PROCESSED_DIR / "eorzea_sqlite_summary.json"
+
+
+def canonical_gearset_slug(value: object) -> str | None:
+    if value is None or not str(value).strip():
+        return None
+    return sanitize_slug(str(value))
 
 
 def build_eorzea_sqlite(
@@ -165,7 +172,7 @@ def create_schema(conn: sqlite3.Connection) -> None:
 def insert_gearsets(conn: sqlite3.Connection, rows: list[dict[str, Any]]) -> dict[str, int]:
     gearset_ids: dict[str, int] = {}
     for row in rows:
-        slug = row.get("slug")
+        slug = canonical_gearset_slug(row.get("slug"))
         if not slug:
             continue
         cursor = conn.execute(
@@ -207,7 +214,7 @@ def insert_gear_pieces(
 ) -> dict[tuple[str, str, str | None, str], int]:
     piece_ids: dict[tuple[str, str, str | None, str], int] = {}
     for row in rows:
-        gearset_slug = row.get("gearset_slug")
+        gearset_slug = canonical_gearset_slug(row.get("gearset_slug"))
         slot = row.get("slot")
         name = row.get("name") or row.get("name_en")
         gearset_id = gearset_ids.get(gearset_slug)
@@ -264,6 +271,7 @@ def insert_images(
     for row in rows:
         source_image_url = row.get("source_image_url")
         local_path = portable_path(resolve_project_path(row.get("local_path")))
+        gearset_slug = canonical_gearset_slug(row.get("gearset_slug"))
         if not source_image_url or not local_path:
             continue
         cursor = conn.execute(
@@ -278,8 +286,8 @@ def insert_images(
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                gearset_ids.get(row.get("gearset_slug")),
-                row.get("gearset_slug"),
+                gearset_ids.get(gearset_slug),
+                gearset_slug,
                 source_image_url,
                 row.get("source_page_url"),
                 local_path,
@@ -324,7 +332,7 @@ def insert_gear_piece_images(
     occupied_by_gearset_slot: dict[tuple[str, str], list[int]] = {}
 
     for piece in gear_pieces:
-        gearset_slug = piece.get("gearset_slug")
+        gearset_slug = canonical_gearset_slug(piece.get("gearset_slug"))
         slot = piece.get("slot")
         name = piece.get("name") or piece.get("name_en")
         if not gearset_slug or not slot or not name:
@@ -338,7 +346,7 @@ def insert_gear_piece_images(
 
     link_rows: list[tuple[int, int, str]] = []
     for image in images:
-        gearset_slug = image.get("gearset_slug")
+        gearset_slug = canonical_gearset_slug(image.get("gearset_slug"))
         slot = image.get("slot")
         source_image_url = image.get("source_image_url")
         if not gearset_slug or not slot or not source_image_url:
@@ -468,4 +476,3 @@ def json_text(value: object) -> str:
 
 def summary_to_text(summary: dict[str, Any]) -> str:
     return json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True)
-

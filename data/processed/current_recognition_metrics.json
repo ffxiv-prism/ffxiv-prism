@@ -3,6 +3,16 @@
   "registered_at": "2026-07-30",
   "metric": "appearance_recall",
   "protocol": "strict item-disjoint three-fold pooled",
+  "metric_status": "refresh_required_after_candidate_coverage_repair",
+  "candidate_snapshot_date": "2026-07-25",
+  "active_candidate_snapshot_date": "2026-07-30",
+  "active_denominators": {
+    "BODY": 988,
+    "HEAD": 900,
+    "HANDS": 949,
+    "LEGS": 965,
+    "FEET": 976
+  },
   "target_top10": 0.8,
   "target_achieved_all_slots": false,
   "slots": [
@@ -43,11 +53,11 @@
     }
   ],
   "equipment_library": {
-    "snapshot_date": "2026-07-25",
+    "snapshot_date": "2026-07-30",
     "gearsets": 2443,
     "pieces": 11739,
-    "linked_slot_images": 19800,
-    "active_candidate_source_images": 19731,
+    "linked_slot_images": 19810,
+    "active_candidate_source_images": 19741,
     "active_index_missing_images": 0
   },
   "canonical_training_assets": {

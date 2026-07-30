@@ -85,6 +85,54 @@ class SqliteStoreTests(unittest.TestCase):
                 conn.close()
             self.assertEqual(link_types, ["exact_slot", "occupied_slot"])
 
+    def test_build_sqlite_normalizes_gearset_slug_before_linking(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            gearsets_path = root / "gearsets.jsonl"
+            gear_pieces_path = root / "pieces.jsonl"
+            images_path = root / "images.jsonl"
+            db_path = root / "dataset.sqlite"
+            summary_path = root / "summary.json"
+
+            write_jsonl(
+                gearsets_path,
+                [
+                    {
+                        "slug": "no-2-type-b",
+                        "title": "No.2 Type B",
+                        "present_slots": ["HANDS"],
+                        "missing_slots": [],
+                    }
+                ],
+            )
+            write_jsonl(
+                gear_pieces_path,
+                [
+                    {
+                        "gearset_slug": "no-2-type-b",
+                        "slot": "HANDS",
+                        "name": "No.2 Type B Gloves",
+                        "source_item_url": "https://example.test/item/gloves",
+                        "occupied_slots": ["HANDS"],
+                    }
+                ],
+            )
+            image = image_row("https://example.test/gloves.png", "HANDS")
+            image["gearset_slug"] = "no.2-type-b"
+            write_jsonl(images_path, [image])
+
+            summary = build_eorzea_sqlite(
+                db_path=db_path,
+                gearsets_path=gearsets_path,
+                gear_pieces_path=gear_pieces_path,
+                images_path=images_path,
+                summary_path=summary_path,
+            )
+
+            self.assertEqual(summary["gear_piece_image_links"], 1)
+            self.assertEqual(summary["slot_images_without_gearset"], 0)
+            self.assertEqual(summary["unlinked_slot_images"], 0)
+
 
 def image_row(url: str, slot: str | None) -> dict[str, object]:
     return {
@@ -117,4 +165,3 @@ def write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
 
 if __name__ == "__main__":
     unittest.main()
-

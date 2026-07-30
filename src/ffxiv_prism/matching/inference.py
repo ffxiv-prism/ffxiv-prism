@@ -98,7 +98,7 @@ def current_best_configs() -> dict[str, SlotInferenceConfig]:
         "BODY": SlotInferenceConfig(
             slot="BODY",
             index_dir=INDEXES_DIR
-            / "facebook-dinov2-base-slot-aligned-v3-body-multiscale-20260725",
+            / "facebook-dinov2-base-slot-aligned-v3-body-multiscale-20260730",
             query_checkpoint=models
             / "appearance_disjoint_cv_v52_fold01_qv64_closed_e10.pt",
             ensemble_model_ids=(
@@ -107,9 +107,9 @@ def current_best_configs() -> dict[str, SlotInferenceConfig]:
             ),
             ensemble_index_dirs=(
                 INDEXES_DIR
-                / "facebook-dinov3-vitb16-body-multiscale-v3-20260725",
+                / "facebook-dinov3-vitb16-body-multiscale-v3-20260730",
                 INDEXES_DIR
-                / "facebook-dinov3-vitb16-body-multiscale-v3-20260725",
+                / "facebook-dinov3-vitb16-body-multiscale-v3-20260730",
             ),
             ensemble_query_checkpoints=(
                 None,
@@ -143,7 +143,7 @@ def current_best_configs() -> dict[str, SlotInferenceConfig]:
         "HEAD": SlotInferenceConfig(
             slot="HEAD",
             index_dir=INDEXES_DIR
-            / "facebook-dinov2-base-head-multiscale-v4-20260725",
+            / "facebook-dinov2-base-head-multiscale-v4-20260730",
             query_checkpoint=models
             / "appearance_disjoint_cv_v54_head_fold01_qv65_e10.pt",
             candidate_crop_routes=HEAD_PROMOTED_CANDIDATE_CROP_ROUTES,
@@ -154,9 +154,9 @@ def current_best_configs() -> dict[str, SlotInferenceConfig]:
             ),
             ensemble_index_dirs=(
                 INDEXES_DIR
-                / "google-siglip2-base-patch16-224-head-multiscale-v4-20260725",
+                / "google-siglip2-base-patch16-224-head-multiscale-v4-20260730",
                 INDEXES_DIR
-                / "facebook-dinov3-vitb16-head-multiscale-v4-20260725",
+                / "facebook-dinov3-vitb16-head-multiscale-v4-20260730",
             ),
             ensemble_query_checkpoints=(
                 None,
@@ -185,7 +185,7 @@ def current_best_configs() -> dict[str, SlotInferenceConfig]:
         "HANDS": SlotInferenceConfig(
             slot="HANDS",
             index_dir=INDEXES_DIR
-            / "facebook-dinov2-base-hands-multiscale-v5-20260725",
+            / "facebook-dinov2-base-hands-multiscale-v5-20260730",
             query_checkpoint=models
             / "appearance_disjoint_cv_v59_hands_fold01_qv71_v5_e10.pt",
             fusion="rrf",
@@ -209,7 +209,7 @@ def current_best_configs() -> dict[str, SlotInferenceConfig]:
         "LEGS": SlotInferenceConfig(
             slot="LEGS",
             index_dir=INDEXES_DIR
-            / "facebook-dinov2-base-legs-multiscale-v6-20260725",
+            / "facebook-dinov2-base-legs-multiscale-v6-20260730",
             query_checkpoint=models
             / "appearance_disjoint_cv_v60_legs_fold01_qv72_e10.pt",
             fusion="rrf",
@@ -219,7 +219,7 @@ def current_best_configs() -> dict[str, SlotInferenceConfig]:
             ),
             ensemble_index_dirs=(
                 INDEXES_DIR
-                / "facebook-dinov3-vitb16-legs-multiscale-v6-20260725",
+                / "facebook-dinov3-vitb16-legs-multiscale-v6-20260730",
             ),
             ensemble_query_checkpoints=(None,),
             ensemble_rrf_k=1,
@@ -243,13 +243,13 @@ def current_best_configs() -> dict[str, SlotInferenceConfig]:
         "FEET": SlotInferenceConfig(
             slot="FEET",
             index_dir=INDEXES_DIR
-            / "facebook-dinov2-base-feet-multiscale-v7-clean-20260725",
+            / "facebook-dinov2-base-feet-multiscale-v7-clean-20260730",
             query_checkpoint=models
             / "appearance_disjoint_cv_v61_feet_fold01_qv73_e10.pt",
             ensemble_model_ids=("google/siglip2-base-patch16-224",),
             ensemble_index_dirs=(
                 INDEXES_DIR
-                / "google-siglip2-base-patch16-224-feet-multiscale-v7-clean-20260725",
+                / "google-siglip2-base-patch16-224-feet-multiscale-v7-clean-20260730",
             ),
             ensemble_query_checkpoints=(None,),
             ensemble_rrf_k=1,

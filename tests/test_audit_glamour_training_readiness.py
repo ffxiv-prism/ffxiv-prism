@@ -1,0 +1,85 @@
+from __future__ import annotations
+
+import unittest
+
+from scripts.audit_glamour_training_readiness import (
+    audit_slot_visibility,
+    build_identity_roots,
+    hamming_distance,
+    identity_for,
+    label_piece_ids,
+    wilson_half_width,
+)
+
+
+class TrainingReadinessAuditTests(unittest.TestCase):
+    def test_identity_roots_close_overlapping_piece_groups(self) -> None:
+        examples = [
+            {"core_slot_labels": {"HANDS": {"piece_ids": [1, 2]}}},
+            {"core_slot_labels": {"HANDS": {"piece_ids": [2, 3]}}},
+        ]
+        roots = build_identity_roots(examples, "HANDS")
+
+        self.assertEqual(identity_for(examples[0], "HANDS", roots), roots[1])
+        self.assertEqual(identity_for(examples[1], "HANDS", roots), roots[1])
+        self.assertEqual(roots[1], roots[3])
+
+    def test_label_piece_ids_filters_invalid_values(self) -> None:
+        example = {
+            "core_slot_labels": {
+                "HEAD": {"piece_ids": [3, "2", 3, 0, None, "bad"]}
+            }
+        }
+
+        self.assertEqual(label_piece_ids(example, "HEAD"), (2, 3))
+
+    def test_hamming_distance_counts_changed_bits(self) -> None:
+        self.assertEqual(hamming_distance(0b1010, 0b0011), 2)
+
+    def test_wilson_precision_improves_with_sample_size(self) -> None:
+        small = wilson_half_width(100)
+        large = wilson_half_width(1000)
+
+        self.assertIsNotNone(small)
+        self.assertIsNotNone(large)
+        self.assertGreater(small, large)
+        self.assertLess(large, 0.03)
+
+    def test_visibility_audit_counts_only_labelled_slot_rows(self) -> None:
+        examples = [
+            {
+                "example_id": "1:0",
+                "core_slot_labels": {"HANDS": {"piece_ids": [10]}},
+            },
+            {
+                "example_id": "2:0",
+                "core_slot_labels": {"BODY": {"piece_ids": [20]}},
+            },
+        ]
+        reviews = [
+            {
+                "example_id": "1:0",
+                "slot": "HANDS",
+                "visibility": "clear",
+                "usability": "usable",
+                "issue": "none",
+            },
+            {
+                "example_id": "2:0",
+                "slot": "HANDS",
+                "visibility": "unusable",
+                "usability": "unusable",
+                "issue": "wrong_slot",
+            },
+        ]
+
+        result = audit_slot_visibility(examples, reviews)
+
+        self.assertEqual(result["HANDS"]["labelled_images"], 1)
+        self.assertEqual(result["HANDS"]["reviewed_images"], 1)
+        self.assertEqual(result["HANDS"]["visibility_counts"], {"clear": 1})
+        self.assertEqual(result["BODY"]["reviewed_images"], 0)
+
+
+if __name__ == "__main__":
+    unittest.main()

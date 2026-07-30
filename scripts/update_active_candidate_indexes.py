@@ -18,6 +18,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from ffxiv_prism.jsonl import read_jsonl, write_json, write_jsonl  # noqa: E402
 from ffxiv_prism.paths import CACHE_DIR, portable_path, resolve_project_path  # noqa: E402
 from ffxiv_prism.torch_device import resolve_torch_device  # noqa: E402
+from ffxiv_prism.vision.retrieval import load_candidate_images  # noqa: E402
 from scripts.build_slot_aligned_candidate_index import (  # noqa: E402
     expand_slot_aligned_rows,
     load_candidate_batch,
@@ -28,9 +29,7 @@ from scripts.evaluate_glamour_embedding_model import (  # noqa: E402
 )
 
 
-DEFAULT_BASE_INDEX = Path(
-    "data/indexes/facebook-dinov2-base-color-20260725"
-)
+DEFAULT_DB = Path("data/processed/eorzea.sqlite")
 DINO_V2 = "facebook/dinov2-base"
 DINO_V3 = "var/models/dinov3-vitb16-pretrain-lvd1689m"
 SIGLIP2 = "google/siglip2-base-patch16-224"
@@ -44,7 +43,7 @@ class Target:
     model_id: str
     encoder_group: str
     slots: tuple[str, ...]
-    expected_new_rows: int
+    expected_new_rows: int | None
     full_image_encoding: bool = False
     body_crop_policy: str = "upper"
     head_crop_policy: str = "full"
@@ -54,122 +53,132 @@ class Target:
     pooling: str = "cls"
 
 
-def target_plan(suffix: str) -> list[Target]:
+def target_plan(source_suffix: str, output_suffix: str) -> list[Target]:
     root = Path("data/indexes")
 
+    def source(name: str) -> Path:
+        return root / f"{name}-{source_suffix}"
+
     def output(name: str) -> Path:
-        return root / f"{name}-{suffix}"
+        return root / f"{name}-{output_suffix}"
 
     return [
         Target(
             name="body_dinov2",
-            source=root
-            / "facebook-dinov2-base-slot-aligned-v3-body-multiscale",
+            source=source(
+                "facebook-dinov2-base-slot-aligned-v3-body-multiscale"
+            ),
             output=output(
                 "facebook-dinov2-base-slot-aligned-v3-body-multiscale"
             ),
             model_id=DINO_V2,
             encoder_group="dinov2",
             slots=("HEAD", "BODY", "HANDS", "LEGS", "FEET"),
-            expected_new_rows=16,
+            expected_new_rows=None,
             body_crop_policy="multiscale",
         ),
         Target(
             name="body_dinov3",
-            source=root / "facebook-dinov3-vitb16-body-multiscale-v3",
+            source=source("facebook-dinov3-vitb16-body-multiscale-v3"),
             output=output("facebook-dinov3-vitb16-body-multiscale-v3"),
             model_id=DINO_V3,
             encoder_group="dinov3",
             slots=("BODY",),
-            expected_new_rows=4,
+            expected_new_rows=None,
             body_crop_policy="multiscale",
         ),
         Target(
             name="head_dinov2",
-            source=root / "facebook-dinov2-base-head-multiscale-v4",
+            source=source("facebook-dinov2-base-head-multiscale-v4"),
             output=output("facebook-dinov2-base-head-multiscale-v4"),
             model_id=DINO_V2,
             encoder_group="dinov2",
             slots=("HEAD",),
-            expected_new_rows=6,
+            expected_new_rows=None,
             head_crop_policy="multiscale",
         ),
         Target(
             name="head_siglip2",
-            source=root
-            / "google-siglip2-base-patch16-224-head-multiscale-v4",
+            source=source(
+                "google-siglip2-base-patch16-224-head-multiscale-v4"
+            ),
             output=output(
                 "google-siglip2-base-patch16-224-head-multiscale-v4"
             ),
             model_id=SIGLIP2,
             encoder_group="siglip2",
             slots=("HEAD",),
-            expected_new_rows=6,
+            expected_new_rows=None,
             full_image_encoding=True,
             head_crop_policy="multiscale",
         ),
         Target(
             name="head_dinov3",
-            source=root / "facebook-dinov3-vitb16-head-multiscale-v4",
+            source=source("facebook-dinov3-vitb16-head-multiscale-v4"),
             output=output("facebook-dinov3-vitb16-head-multiscale-v4"),
             model_id=DINO_V3,
             encoder_group="dinov3",
             slots=("HEAD",),
-            expected_new_rows=6,
+            expected_new_rows=None,
             full_image_encoding=True,
             head_crop_policy="multiscale",
         ),
         Target(
             name="hands_dinov2",
-            source=root / "facebook-dinov2-base-hands-multiscale-v5",
+            source=source("facebook-dinov2-base-hands-multiscale-v5"),
             output=output("facebook-dinov2-base-hands-multiscale-v5"),
             model_id=DINO_V2,
             encoder_group="dinov2",
             slots=("HANDS",),
-            expected_new_rows=12,
+            expected_new_rows=None,
             hands_crop_policy="multiscale",
         ),
         Target(
             name="legs_dinov2",
-            source=root / "facebook-dinov2-base-legs-multiscale-v6",
+            source=source("facebook-dinov2-base-legs-multiscale-v6"),
             output=output("facebook-dinov2-base-legs-multiscale-v6"),
             model_id=DINO_V2,
             encoder_group="dinov2",
             slots=("LEGS",),
-            expected_new_rows=10,
+            expected_new_rows=None,
             legs_crop_policy="multiscale",
         ),
         Target(
             name="legs_dinov3",
-            source=root / "facebook-dinov3-vitb16-legs-multiscale-v6",
+            source=source("facebook-dinov3-vitb16-legs-multiscale-v6"),
             output=output("facebook-dinov3-vitb16-legs-multiscale-v6"),
             model_id=DINO_V3,
             encoder_group="dinov3",
             slots=("LEGS",),
-            expected_new_rows=10,
+            expected_new_rows=None,
             legs_crop_policy="multiscale",
         ),
         Target(
-            name="feet_dinov2_unclean",
-            source=root / "facebook-dinov2-base-feet-multiscale-v6",
-            output=output("facebook-dinov2-base-feet-multiscale-v6"),
+            name="feet_dinov2",
+            source=source(
+                "facebook-dinov2-base-feet-multiscale-v7-clean"
+            ),
+            output=output(
+                "facebook-dinov2-base-feet-multiscale-v7-clean"
+            ),
             model_id=DINO_V2,
             encoder_group="dinov2",
             slots=("FEET",),
-            expected_new_rows=10,
+            expected_new_rows=None,
             feet_crop_policy="multiscale",
         ),
         Target(
-            name="feet_siglip2_unclean",
-            source=root
-            / "google-siglip2-base-patch16-224-feet-multiscale-v6",
+            name="feet_siglip2",
+            source=source(
+                "google-siglip2-base-patch16-224-feet-multiscale-v7-clean"
+            ),
             output=output(
-                "google-siglip2-base-patch16-224-feet-multiscale-v6"
+                "google-siglip2-base-patch16-224-feet-multiscale-v7-clean"
             ),
             model_id=SIGLIP2,
             encoder_group="siglip2",
             slots=("FEET",),
-            expected_new_rows=10,
+            expected_new_rows=None,
             full_image_encoding=True,
             feet_crop_policy="multiscale",
         ),
@@ -183,11 +192,23 @@ def main() -> int:
             "without modifying their existing metadata or embeddings."
         )
     )
-    parser.add_argument("--base-index", type=Path, default=DEFAULT_BASE_INDEX)
-    parser.add_argument("--suffix", default="20260725")
-    parser.add_argument("--expected-gearset-slug", default="neo-queens")
+    parser.add_argument("--db", type=Path, default=DEFAULT_DB)
+    parser.add_argument(
+        "--base-index",
+        type=Path,
+        default=None,
+        help="Optional legacy base index metadata; SQLite is used by default.",
+    )
+    parser.add_argument("--source-suffix", default="20260730")
+    parser.add_argument("--suffix", required=True)
+    parser.add_argument("--expected-gearset-slug", required=True)
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--device", default="cuda")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Validate sources and additions without loading encoders or writing indexes.",
+    )
     parser.add_argument(
         "--targets",
         nargs="+",
@@ -199,8 +220,12 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    base_rows = read_jsonl(args.base_index / "metadata.jsonl")
-    targets = target_plan(args.suffix)
+    base_rows = (
+        read_jsonl(args.base_index / "metadata.jsonl")
+        if args.base_index is not None
+        else load_candidate_images(db_path=args.db)
+    )
+    targets = target_plan(args.source_suffix, args.suffix)
     if args.targets:
         known_names = {target.name for target in targets}
         unknown_names = sorted(set(args.targets) - known_names)
@@ -219,6 +244,23 @@ def main() -> int:
         )
         for target in targets
     }
+    if args.dry_run:
+        print(
+            json.dumps(
+                [
+                    {
+                        "target": target.name,
+                        "source": portable_path(target.source),
+                        "output": portable_path(target.output),
+                        "new_candidate_count": len(additions[target.name]),
+                    }
+                    for target in targets
+                ],
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 0
 
     encoders: dict[str, Any] = {}
     results = []
@@ -377,7 +419,10 @@ def build_additions(
     )
     for offset, row in enumerate(additions):
         row["image_row_id"] = len(source_rows) + offset
-    if len(additions) != target.expected_new_rows:
+    if (
+        target.expected_new_rows is not None
+        and len(additions) != target.expected_new_rows
+    ):
         raise ValueError(
             f"{target.name}: expected {target.expected_new_rows} additions, "
             f"found {len(additions)} from {len(new_base_rows)} images"
@@ -423,6 +468,14 @@ def extend_index(
     output_rows = [*source_rows, *additions]
     write_jsonl(target.output / "metadata.jsonl", output_rows)
 
+    new_gearset_slugs = sorted(
+        {
+            str(piece.get("gearset_slug"))
+            for row in additions
+            for piece in row.get("pieces") or []
+            if piece.get("gearset_slug")
+        }
+    )
     source_manifest_path = target.source / "manifest.json"
     if source_manifest_path.is_file():
         source_manifest = json.loads(
@@ -438,7 +491,7 @@ def extend_index(
                 "metadata": portable_path(target.output / "metadata.jsonl"),
                 "extended_from": portable_path(target.source),
                 "new_candidate_count": len(additions),
-                "new_gearset_slugs": ["neo-queens"],
+                "new_gearset_slugs": new_gearset_slugs,
             },
         )
 
@@ -464,7 +517,7 @@ def extend_index(
                     for row in output_rows
                 }
             ),
-            "new_gearset_slugs": ["neo-queens"],
+            "new_gearset_slugs": new_gearset_slugs,
             "embedding_shape": list(matrix.shape),
             "preserved_source_rows": True,
             "completed": True,
