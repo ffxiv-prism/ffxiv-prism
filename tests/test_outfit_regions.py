@@ -113,9 +113,9 @@ class OutfitRegionTests(unittest.TestCase):
             self.assertGreater(bottom, top)
         self.assertEqual(set(by_slot), {"HEAD", "BODY", "HANDS", "LEGS", "FEET"})
         self.assertEqual(len(by_slot["HEAD"]), 5)
-        self.assertEqual(len(by_slot["BODY"]), 3)
+        self.assertEqual(len(by_slot["BODY"]), 4)
         self.assertEqual(len(by_slot["HANDS"]), 5)
-        self.assertEqual(len(by_slot["LEGS"]), 5)
+        self.assertEqual(len(by_slot["LEGS"]), 6)
         self.assertEqual(len(by_slot["FEET"]), 8)
         self.assertTrue(all(region.visibility == "visible" for region in regions))
 
@@ -124,8 +124,18 @@ class OutfitRegionTests(unittest.TestCase):
         by_name = {region.name: region for region in regions}
         self.assertEqual(by_name["body_upper_arm_overlap"].role, "auxiliary")
         self.assertIn("body_hands_overlap", by_name["body_upper_arm_overlap"].tags)
+        self.assertEqual(by_name["body_upper_core"].role, "diagnostic")
+        self.assertIn(
+            "shoulder_and_waist_coverage",
+            by_name["body_upper_core"].tags,
+        )
         self.assertIn("long_glove_or_sleeve_overlap", by_name["hands_forearm_left"].tags)
         self.assertIn("legs_feet_overlap", by_name["legs_boot_overlap"].tags)
+        self.assertEqual(by_name["legs_waist_thighs"].role, "diagnostic")
+        self.assertIn(
+            "reduced_lower_leg_overlap",
+            by_name["legs_waist_thighs"].tags,
+        )
         self.assertIn("long_boot_focus", by_name["feet_boot_left"].tags)
         self.assertIn("ankle_focus", by_name["feet_left"].tags)
         self.assertIn(
@@ -138,6 +148,32 @@ class OutfitRegionTests(unittest.TestCase):
         self.assertIn(
             "expanded_for_full_headwear",
             by_name["head_full_accessory"].tags,
+        )
+
+    def test_style_diagnostic_crops_separate_upper_and_lower_garments(self) -> None:
+        regions = build_outfit_regions(self.keypoints, (400, 500))
+        by_name = {region.name: region for region in regions}
+
+        upper_core = by_name["body_upper_core"]
+        hips_y = (self.keypoints[11].y + self.keypoints[12].y) / 2
+        self.assertLess(upper_core.box[3], hips_y)
+        self.assertLess(
+            upper_core.box[3],
+            by_name["body_torso"].box[3],
+        )
+
+        waist_thighs = by_name["legs_waist_thighs"]
+        self.assertLessEqual(waist_thighs.box[1], min(
+            self.keypoints[11].y,
+            self.keypoints[12].y,
+        ))
+        self.assertLess(
+            waist_thighs.box[3],
+            min(self.keypoints[13].y, self.keypoints[14].y),
+        )
+        self.assertLess(
+            waist_thighs.box[3],
+            by_name["legs_thighs"].box[3],
         )
 
     def test_full_headwear_crop_covers_wide_brims_and_tall_crowns(self) -> None:

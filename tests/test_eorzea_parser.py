@@ -99,6 +99,60 @@ class EorzeaParserTests(unittest.TestCase):
         self.assertEqual(record.pieces[0].occupied_slots, ["BODY", "HANDS", "LEGS", "FEET"])
         self.assertEqual(record.pieces[0].blocked_slots, ["HANDS", "LEGS", "FEET"])
 
+    def test_parse_current_list_card_equipment_markup(self) -> None:
+        html = """
+        <html><head><title>Neo Queen's Set | Eorzea Collection</title></head><body>
+        <img src="https://gearsets.eorzeacollection.com/mogstation/scions/neo-queens/hyur-female-front.png">
+        <img src="https://gearsets.eorzeacollection.com/mogstation/scions/neo-queens/hyur-female-head.png">
+        <img src="https://gearsets.eorzeacollection.com/mogstation/scions/neo-queens/hyur-female-body.png">
+        <img src="https://gearsets.eorzeacollection.com/mogstation/scions/neo-queens/hyur-female-hands.png">
+        <img src="https://gearsets.eorzeacollection.com/mogstation/scions/neo-queens/hyur-female-legs.png">
+        <img src="https://gearsets.eorzeacollection.com/mogstation/scions/neo-queens/hyur-female-feet.png">
+        <h2>— Equipment —</h2>
+        <div>
+          <div class="list box">
+            <span class="gear-icon-box-slot-name">HEAD</span>
+            <div class="list-item">
+              <div class="list-item-title"><span>Neo Queen's Tiara</span></div>
+              <a href="/glamours/head/27852">Glamours using this piece</a>
+            </div>
+          </div>
+          <div class="list box">
+            <span class="gear-icon-box-slot-name">BODY</span>
+            <div class="list-item">
+              <div class="list-item-title"><span>Neo Queen's Dress</span></div>
+              <a href="/glamours/body/27853">Glamours using this piece</a>
+            </div>
+          </div>
+          <div class="list box"><span class="gear-icon-box-slot-name">HANDS</span></div>
+          <div class="list box"><span class="gear-icon-box-slot-name">LEGS</span></div>
+          <div class="list box"><span class="gear-icon-box-slot-name">FEET</span></div>
+        </div>
+        </body></html>
+        """
+        record = parse_gearset_detail(
+            html,
+            "https://ffxiv.eorzeacollection.com/gearset/neo-queens",
+        )
+        self.assertEqual(record.present_slots, ["HEAD", "BODY"])
+        self.assertEqual(record.missing_slots, ["HANDS", "LEGS", "FEET"])
+        self.assertEqual(
+            [(piece.slot, piece.name) for piece in record.pieces],
+            [
+                ("HEAD", "Neo Queen's Tiara"),
+                ("BODY", "Neo Queen's Dress"),
+            ],
+        )
+        self.assertEqual(
+            record.pieces[0].source_item_url,
+            "https://ffxiv.eorzeacollection.com/glamours/head/27852",
+        )
+        self.assertEqual(
+            record.pieces[1].occupied_slots,
+            ["BODY", "HANDS", "LEGS", "FEET"],
+        )
+        self.assertEqual(record.pieces[1].blocked_slots, ["HANDS", "LEGS", "FEET"])
+
     def test_title_cleanup_handles_repeated_site_name(self) -> None:
         html = """
         <html><head><title>Vana'dielian Fending Set | Eorzea Collection Eorzea Collection</title></head><body>

@@ -1,0 +1,112 @@
+from __future__ import annotations
+
+import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+from scripts import web_app
+
+
+class WebAppTests(unittest.TestCase):
+    def test_build_recognition_command_contains_selected_options(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            image = root / "source.png"
+            output = root / "result"
+            command = web_app.build_recognition_command(
+                python_executable="python",
+                image_path=image,
+                output_dir=output,
+                slots=["HEAD", "BODY"],
+                top_k=20,
+                gender="female",
+                profile="current-best",
+            )
+
+        self.assertEqual(command[0], "python")
+        self.assertEqual(command[2], str(image))
+        self.assertEqual(
+            command[command.index("--slots") + 1 : command.index("--top-k")],
+            ["HEAD", "BODY"],
+        )
+        self.assertEqual(command[command.index("--top-k") + 1], "20")
+        self.assertEqual(command[-2:], ["--gender", "female"])
+
+    def test_frontend_offers_top_20_and_replacement_drop_target(self) -> None:
+        html = (web_app.WEB_ROOT / "index.html").read_text(encoding="utf-8")
+        javascript = (web_app.WEB_ROOT / "app.js").read_text(encoding="utf-8")
+        stylesheet = (web_app.WEB_ROOT / "styles.css").read_text(encoding="utf-8")
+
+        self.assertIn('<option value="20">20 件</option>', html)
+        self.assertIn("[elements.dropZone, elements.selectedFile]", javascript)
+        self.assertIn("candidate.is_no_equipment", javascript)
+        self.assertIn("不显示外观", javascript)
+        self.assertIn(".candidate.no-equipment", stylesheet)
+
+    def test_detect_image_extension(self) -> None:
+        cases = [
+            ("image.png", b"\x89PNG\r\n\x1a\nrest", ".png"),
+            ("image.jpeg", b"\xff\xd8\xffrest", ".jpg"),
+            ("image.webp", b"RIFF\x04\x00\x00\x00WEBPrest", ".webp"),
+        ]
+        for filename, content, expected in cases:
+            with self.subTest(filename=filename):
+                self.assertEqual(
+                    web_app.detect_image_extension(filename, content),
+                    expected,
+                )
+
+    def test_detect_image_extension_rejects_mismatched_content(self) -> None:
+        with self.assertRaisesRegex(ValueError, "实际格式"):
+            web_app.detect_image_extension("image.png", b"\xff\xd8\xffrest")
+
+    def test_parse_multipart_form_extracts_fields_and_file(self) -> None:
+        boundary = "PrismBoundary"
+        body = (
+            f"--{boundary}\r\n"
+            'Content-Disposition: form-data; name="slots"\r\n\r\n'
+            "HEAD,BODY\r\n"
+            f"--{boundary}\r\n"
+            'Content-Disposition: form-data; name="image"; filename="look.png"\r\n'
+            "Content-Type: image/png\r\n\r\n"
+        ).encode("utf-8")
+        body += b"\x89PNG\r\n\x1a\nrest\r\n"
+        body += f"--{boundary}--\r\n".encode("utf-8")
+
+        fields, files = web_app.parse_multipart_form(
+            f"multipart/form-data; boundary={boundary}",
+            body,
+        )
+
+        self.assertEqual(fields, {"slots": "HEAD,BODY"})
+        self.assertEqual(files["image"][0:2], ("look.png", "image/png"))
+        self.assertTrue(files["image"][2].startswith(b"\x89PNG"))
+
+    def test_resolve_served_file_only_allows_web_outputs(self) -> None:
+        job_dir = web_app.OUTPUT_ROOT / "test-safe-path"
+        job_dir.mkdir(parents=True, exist_ok=True)
+        image = job_dir / "preview.png"
+        image.write_bytes(b"\x89PNG\r\n\x1a\n")
+        try:
+            self.assertEqual(
+                web_app.resolve_served_file(str(image)),
+                image.resolve(),
+            )
+            with self.assertRaises(PermissionError):
+                web_app.resolve_served_file(
+                    str(web_app.PROJECT_ROOT / "README.md")
+                )
+        finally:
+            image.unlink()
+            job_dir.rmdir()
+
+    def test_build_dataset_command_rejects_unknown_mode(self) -> None:
+        with self.assertRaisesRegex(ValueError, "模式无效"):
+            web_app.build_dataset_command(
+                python_executable="python",
+                mode="unknown",
+            )
+
+
+if __name__ == "__main__":
+    unittest.main()

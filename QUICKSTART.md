@@ -60,6 +60,5 @@ SigLIP2，BODY 使用 DINOv2、零样本 DINOv3 与查询适配 DINOv3 的保守
 门控。`--check` 会验证这些候选索引、查询检查点和本地权重缓存。缺失任一资产时先
 复制或重建资产，再运行识别。
 
-当前 Demo 的最终收尾、BODY v99 严格三折指标和已知限制见
-[v99 阶段总结](docs/body_dinov3_adapted_gate_v99_stage_summary_2026-07-20_zh.md)；
-五槽早期可用性结论见 [可用性阶段总结](docs/usability_stage_2026-07-10_zh.md)。
+当前五部位严格指标、历史实验合并结论、数据准入规则和已知限制见
+[当前状态](docs/current_status_2026-07-30_zh.md)。

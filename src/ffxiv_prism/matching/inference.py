@@ -79,6 +79,14 @@ class SlotInferenceConfig:
     spatial_query_crop_names: tuple[str, ...] | None = None
     spatial_rerank_k: int = 10
     spatial_blend: float = 0.35
+    style_model_id: str | None = None
+    style_query_crop_name: str | None = None
+    style_rerank_k: int = 50
+    style_blend: float = 0.35
+    style_min_confidence: float = 0.5
+    no_equipment_model_id: str | None = None
+    no_equipment_query_crop_names: tuple[str, ...] = ()
+    no_equipment_min_probability: float = 0.8
     benchmark_top1: float | None = None
     benchmark_top10: float | None = None
     benchmark_scope: str = ""
@@ -90,7 +98,7 @@ def current_best_configs() -> dict[str, SlotInferenceConfig]:
         "BODY": SlotInferenceConfig(
             slot="BODY",
             index_dir=INDEXES_DIR
-            / "facebook-dinov2-base-slot-aligned-v3-body-multiscale",
+            / "facebook-dinov2-base-slot-aligned-v3-body-multiscale-20260725",
             query_checkpoint=models
             / "appearance_disjoint_cv_v52_fold01_qv64_closed_e10.pt",
             ensemble_model_ids=(
@@ -98,8 +106,10 @@ def current_best_configs() -> dict[str, SlotInferenceConfig]:
                 "var/models/dinov3-vitb16-pretrain-lvd1689m",
             ),
             ensemble_index_dirs=(
-                INDEXES_DIR / "facebook-dinov3-vitb16-body-multiscale-v3",
-                INDEXES_DIR / "facebook-dinov3-vitb16-body-multiscale-v3",
+                INDEXES_DIR
+                / "facebook-dinov3-vitb16-body-multiscale-v3-20260725",
+                INDEXES_DIR
+                / "facebook-dinov3-vitb16-body-multiscale-v3-20260725",
             ),
             ensemble_query_checkpoints=(
                 None,
@@ -114,18 +124,26 @@ def current_best_configs() -> dict[str, SlotInferenceConfig]:
             ensemble_top1_gate_max_last_branch_rank=1,
             ensemble_top1_gate_max_base_last_branch_rank=10,
             ensemble_top1_gate_min_last_branch_rank_ratio=1.0,
+            style_model_id="google/siglip2-base-patch16-224",
+            style_query_crop_name="body_upper_core",
+            style_rerank_k=100,
+            style_blend=0.70,
+            style_min_confidence=0.45,
             benchmark_top1=0.6353,
             benchmark_top10=0.8288,
             benchmark_scope=(
                 "strict three-fold pooled BODY v99 (987 images): v96 DINOv2 + "
                 "zero-shot DINOv3 baseline, DINOv3 e10 replacement candidate "
                 "at weight 1.25, and a frozen label-agnostic Top-1-only "
-                "agreement gate; DINOv2 Top-1000 and the complete v96 tail stay frozen"
+                "agreement gate; DINOv2 Top-1000 and the complete v96 tail stay "
+                "frozen. The confidence-gated coverage-style reranker is not "
+                "included in this identity benchmark"
             ),
         ),
         "HEAD": SlotInferenceConfig(
             slot="HEAD",
-            index_dir=INDEXES_DIR / "facebook-dinov2-base-head-multiscale-v4",
+            index_dir=INDEXES_DIR
+            / "facebook-dinov2-base-head-multiscale-v4-20260725",
             query_checkpoint=models
             / "appearance_disjoint_cv_v54_head_fold01_qv65_e10.pt",
             candidate_crop_routes=HEAD_PROMOTED_CANDIDATE_CROP_ROUTES,
@@ -136,8 +154,9 @@ def current_best_configs() -> dict[str, SlotInferenceConfig]:
             ),
             ensemble_index_dirs=(
                 INDEXES_DIR
-                / "google-siglip2-base-patch16-224-head-multiscale-v4",
-                INDEXES_DIR / "facebook-dinov3-vitb16-head-multiscale-v4",
+                / "google-siglip2-base-patch16-224-head-multiscale-v4-20260725",
+                INDEXES_DIR
+                / "facebook-dinov3-vitb16-head-multiscale-v4-20260725",
             ),
             ensemble_query_checkpoints=(
                 None,
@@ -146,6 +165,12 @@ def current_best_configs() -> dict[str, SlotInferenceConfig]:
             morphology_checkpoint=(
                 models / "head_morphology_v73_fold01_qv65_upper_binary_ridge.npz"
             ),
+            no_equipment_model_id="google/siglip2-base-patch16-224",
+            no_equipment_query_crop_names=(
+                "head_upper_accessory",
+                "head_full_accessory",
+            ),
+            no_equipment_min_probability=0.80,
             ensemble_rrf_k=10,
             ensemble_pool_branches=2,
             ensemble_pool_rrf_k=1,
@@ -159,7 +184,8 @@ def current_best_configs() -> dict[str, SlotInferenceConfig]:
         ),
         "HANDS": SlotInferenceConfig(
             slot="HANDS",
-            index_dir=INDEXES_DIR / "facebook-dinov2-base-hands-multiscale-v5",
+            index_dir=INDEXES_DIR
+            / "facebook-dinov2-base-hands-multiscale-v5-20260725",
             query_checkpoint=models
             / "appearance_disjoint_cv_v59_hands_fold01_qv71_v5_e10.pt",
             fusion="rrf",
@@ -169,6 +195,9 @@ def current_best_configs() -> dict[str, SlotInferenceConfig]:
             occupied_slot_multiplier=0.25,
             occupied_slot_gate_max_base_rank=3,
             occupied_slot_body_support_top_k=3,
+            no_equipment_model_id="google/siglip2-base-patch16-224",
+            no_equipment_query_crop_names=("hands_left", "hands_right"),
+            no_equipment_min_probability=0.80,
             benchmark_top1=0.0307,
             benchmark_top10=0.0878,
             benchmark_scope=(
@@ -179,7 +208,8 @@ def current_best_configs() -> dict[str, SlotInferenceConfig]:
         ),
         "LEGS": SlotInferenceConfig(
             slot="LEGS",
-            index_dir=INDEXES_DIR / "facebook-dinov2-base-legs-multiscale-v6",
+            index_dir=INDEXES_DIR
+            / "facebook-dinov2-base-legs-multiscale-v6-20260725",
             query_checkpoint=models
             / "appearance_disjoint_cv_v60_legs_fold01_qv72_e10.pt",
             fusion="rrf",
@@ -188,31 +218,38 @@ def current_best_configs() -> dict[str, SlotInferenceConfig]:
                 "var/models/dinov3-vitb16-pretrain-lvd1689m",
             ),
             ensemble_index_dirs=(
-                INDEXES_DIR / "facebook-dinov3-vitb16-legs-multiscale-v6",
+                INDEXES_DIR
+                / "facebook-dinov3-vitb16-legs-multiscale-v6-20260725",
             ),
             ensemble_query_checkpoints=(None,),
             ensemble_rrf_k=1,
             ensemble_pool_branches=1,
             ensemble_pool_rrf_k=1,
             ensemble_final_pool_branches=1,
+            style_model_id="google/siglip2-base-patch16-224",
+            style_query_crop_name="legs_waist_thighs",
+            style_rerank_k=100,
+            style_blend=0.30,
+            style_min_confidence=0.50,
             benchmark_top1=0.1393,
             benchmark_top10=0.3194,
             benchmark_scope=(
                 "strict three-fold pooled DINOv2+DINOv3 branch RRF(k=1), "
                 "query-crop RRF(k=1), with the final DINOv2 Top-1000 "
-                "piece pool frozen (955 images)"
+                "piece pool frozen (955 images). The confidence-gated "
+                "coverage-style reranker is not included in this identity benchmark"
             ),
         ),
         "FEET": SlotInferenceConfig(
             slot="FEET",
             index_dir=INDEXES_DIR
-            / "facebook-dinov2-base-feet-multiscale-v7-clean",
+            / "facebook-dinov2-base-feet-multiscale-v7-clean-20260725",
             query_checkpoint=models
             / "appearance_disjoint_cv_v61_feet_fold01_qv73_e10.pt",
             ensemble_model_ids=("google/siglip2-base-patch16-224",),
             ensemble_index_dirs=(
                 INDEXES_DIR
-                / "google-siglip2-base-patch16-224-feet-multiscale-v7-clean",
+                / "google-siglip2-base-patch16-224-feet-multiscale-v7-clean-20260725",
             ),
             ensemble_query_checkpoints=(None,),
             ensemble_rrf_k=1,
@@ -239,6 +276,9 @@ def base_configs() -> dict[str, SlotInferenceConfig]:
             rrf_k=config.rrf_k,
             candidate_crop_routes=config.candidate_crop_routes,
             gender_routing=config.gender_routing,
+            no_equipment_model_id=config.no_equipment_model_id,
+            no_equipment_query_crop_names=config.no_equipment_query_crop_names,
+            no_equipment_min_probability=config.no_equipment_min_probability,
             benchmark_scope="base DINOv2 fallback; no promoted accuracy benchmark",
         )
         for slot, config in current_best_configs().items()
@@ -401,6 +441,24 @@ def inspect_assets(
             and config.occupied_slot_body_support_top_k < 1
         ):
             invalid.append(f"{slot}: invalid occupied-slot BODY support rank")
+        if (config.style_model_id is None) != (
+            config.style_query_crop_name is None
+        ):
+            invalid.append(f"{slot}: style model and query crop must be paired")
+        if config.style_model_id is not None:
+            if config.style_rerank_k < 2:
+                invalid.append(f"{slot}: style rerank pool must contain at least two")
+            if not 0.0 <= config.style_blend <= 1.0:
+                invalid.append(f"{slot}: invalid style blend")
+            if not 0.0 <= config.style_min_confidence <= 1.0:
+                invalid.append(f"{slot}: invalid style confidence threshold")
+        if config.no_equipment_model_id is not None:
+            if not config.no_equipment_query_crop_names:
+                invalid.append(f"{slot}: no-equipment gate has no query crops")
+            if not 0.0 <= config.no_equipment_min_probability <= 1.0:
+                invalid.append(f"{slot}: invalid no-equipment threshold")
+        elif config.no_equipment_query_crop_names:
+            invalid.append(f"{slot}: no-equipment crops require a model")
         detail: dict[str, Any] = {
             "index_dir": portable_path(config.index_dir),
             "query_checkpoint": portable_path(config.query_checkpoint),
@@ -450,6 +508,30 @@ def inspect_assets(
             "spatial_blend": (
                 config.spatial_blend if config.spatial_index is not None else None
             ),
+            "style_model_id": config.style_model_id,
+            "style_query_crop_name": config.style_query_crop_name,
+            "style_rerank_k": (
+                config.style_rerank_k
+                if config.style_model_id is not None
+                else None
+            ),
+            "style_blend": (
+                config.style_blend if config.style_model_id is not None else None
+            ),
+            "style_min_confidence": (
+                config.style_min_confidence
+                if config.style_model_id is not None
+                else None
+            ),
+            "no_equipment_model_id": config.no_equipment_model_id,
+            "no_equipment_query_crop_names": list(
+                config.no_equipment_query_crop_names
+            ),
+            "no_equipment_min_probability": (
+                config.no_equipment_min_probability
+                if config.no_equipment_model_id is not None
+                else None
+            ),
         }
         inspect_index(slot, "primary", config.index_dir, detail)
         for offset, index_dir in enumerate(config.ensemble_index_dirs, start=1):
@@ -457,6 +539,16 @@ def inspect_assets(
         for model_id in config.ensemble_model_ids:
             if not model_weight_files(model_id):
                 missing.append(f"model weights for {model_id}")
+        if (
+            config.style_model_id is not None
+            and not model_weight_files(config.style_model_id)
+        ):
+            missing.append(f"model weights for {config.style_model_id}")
+        if (
+            config.no_equipment_model_id is not None
+            and not model_weight_files(config.no_equipment_model_id)
+        ):
+            missing.append(f"model weights for {config.no_equipment_model_id}")
         for checkpoint in (config.query_checkpoint, config.reranker_checkpoint):
             if checkpoint is not None and not checkpoint.is_file():
                 missing.append(str(checkpoint))
@@ -518,6 +610,7 @@ def crop_weight(record: Mapping[str, Any]) -> float:
     weight = VISIBLE_WEIGHTS.get(str(record.get("visibility")), 0.0)
     weight *= ROLE_WEIGHTS.get(str(record.get("role", "primary")), 0.0)
     weight *= max(0.35, min(1.0, float(record.get("confidence", 0.0))))
+    weight *= max(0.0, float(record.get("style_weight_multiplier", 1.0)))
     return weight
 
 
@@ -602,6 +695,59 @@ def constrain_candidates_to_pool(
     for rank, row in enumerate(output, start=1):
         row["rank"] = rank
     return output
+
+
+def attach_appearance_equivalent_candidates(
+    candidates: Sequence[Mapping[str, Any]],
+    direct_equivalents: Mapping[int, Sequence[int]],
+    *,
+    max_equivalents_per_anchor: int = 1,
+) -> list[dict[str, Any]]:
+    """Attach lower-ranked same-model alternatives without reducing diversity."""
+
+    if max_equivalents_per_anchor < 0:
+        raise ValueError("max_equivalents_per_anchor must be non-negative")
+    source = [dict(row) for row in candidates]
+    by_piece = {int(row["piece_id"]): row for row in source}
+    position_by_piece = {
+        int(row["piece_id"]): position
+        for position, row in enumerate(source)
+    }
+    for anchor_position, anchor in enumerate(source):
+        anchor_id = int(anchor["piece_id"])
+        if max_equivalents_per_anchor == 0:
+            continue
+        alternatives = []
+        for equivalent_id in direct_equivalents.get(anchor_id, ()):
+            parsed_id = int(equivalent_id)
+            equivalent = by_piece.get(parsed_id)
+            if (
+                equivalent is None
+                or position_by_piece[parsed_id] <= anchor_position
+            ):
+                continue
+            alternatives.append(
+                {
+                    "piece_id": parsed_id,
+                    "name_en": equivalent.get("name_en"),
+                    "name_zh": equivalent.get("name_zh"),
+                    "original_rank": int(equivalent.get("rank", 0)),
+                    "score": float(equivalent.get("score", 0.0)),
+                    "source_image_url": equivalent.get("source_image_url"),
+                    "local_preview": equivalent.get("local_preview"),
+                    "relation": "same_model",
+                }
+            )
+            if len(alternatives) >= max_equivalents_per_anchor:
+                break
+        if alternatives:
+            anchor["appearance_alternatives"] = alternatives
+            anchor["appearance_equivalence"] = {
+                "piece_id": anchor_id,
+                "name_en": anchor.get("name_en"),
+                "relation": "same_model",
+            }
+    return source
 
 
 def select_slot_candidate_index_rows(
@@ -1011,6 +1157,279 @@ def restore_body_supported_occupied_hands_top1(
     return output
 
 
+def no_visible_equipment_decision(
+    probabilities_by_crop: Sequence[Sequence[float]],
+    *,
+    minimum_probability: float,
+) -> dict[str, Any]:
+    """Conservatively decide whether every inspected crop looks unequipped.
+
+    Each row is ``(no visible equipment, visible equipment)``. Requiring the
+    least-confident crop to clear the threshold prevents one bare or occluded
+    hand from hiding equipment visible on the other side.
+    """
+
+    if not 0.0 <= minimum_probability <= 1.0:
+        raise ValueError("minimum_probability must be between zero and one")
+    parsed: list[tuple[float, float]] = []
+    for raw_probabilities in probabilities_by_crop:
+        probabilities = tuple(float(value) for value in raw_probabilities)
+        if len(probabilities) != 2:
+            raise ValueError("no-equipment probabilities must contain two classes")
+        if any(
+            not np.isfinite(value) or value < 0.0 or value > 1.0
+            for value in probabilities
+        ):
+            raise ValueError(
+                "no-equipment probabilities must be finite and between zero and one"
+            )
+        total = sum(probabilities)
+        if not np.isclose(total, 1.0, rtol=1e-6, atol=1e-5):
+            raise ValueError("no-equipment probabilities must sum to one")
+        parsed.append((probabilities[0] / total, probabilities[1] / total))
+
+    absence_probabilities = [row[0] for row in parsed]
+    minimum_absence_probability = (
+        min(absence_probabilities) if absence_probabilities else None
+    )
+    return {
+        "active": bool(parsed),
+        "no_visible_equipment": (
+            minimum_absence_probability is not None
+            and minimum_absence_probability >= minimum_probability
+        ),
+        "minimum_probability": minimum_probability,
+        "minimum_no_equipment_probability": minimum_absence_probability,
+        "probabilities": [
+            {
+                "no_visible_equipment": no_equipment,
+                "visible_equipment": visible_equipment,
+            }
+            for no_equipment, visible_equipment in parsed
+        ],
+    }
+
+
+def slot_region_presence_decision(
+    records: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Decide whether crop generation found any usable view of a slot.
+
+    This is deliberately separate from the no-equipment classifier. A bare,
+    visible hand is present and can support an invisible-equipment candidate;
+    a hand inferred outside a half-body source image is not present and should
+    not produce any candidate at all.
+    """
+
+    evidence = [
+        {
+            "name": str(row.get("name") or ""),
+            "visibility": str(row.get("visibility") or ""),
+            "confidence": float(row.get("confidence", 0.0)),
+            "role": str(row.get("role") or "primary"),
+        }
+        for row in records
+        if str(row.get("role") or "primary") != "diagnostic"
+    ]
+    usable_names = [
+        str(row.get("name") or "")
+        for row in records
+        if crop_weight(row) > 0.0
+    ]
+    contains_slot = bool(usable_names)
+    if contains_slot:
+        reason = "usable_slot_crop_available"
+    elif evidence:
+        reason = "slot_crops_out_of_frame_or_pose_uncertain"
+    else:
+        reason = "no_slot_crops"
+    return {
+        "active": True,
+        "contains_slot": contains_slot,
+        "reason": reason,
+        "usable_crops": usable_names,
+        "evidence": evidence,
+    }
+
+
+def prepend_no_equipment_candidate(
+    candidates: Sequence[Mapping[str, Any]],
+    catalog_item: Mapping[str, Any] | None,
+    diagnostic: Mapping[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """Represent a confident absence decision with an Emperor-series item."""
+
+    output = [dict(row) for row in candidates]
+    if not diagnostic or not diagnostic.get("no_visible_equipment"):
+        return output
+    if catalog_item is None:
+        return output
+
+    game_item_id = int(catalog_item["game_item_id"])
+    if game_item_id <= 0:
+        raise ValueError("no-equipment game item id must be positive")
+    no_equipment_score = float(
+        diagnostic.get("minimum_no_equipment_probability") or 0.0
+    )
+    no_equipment = {
+        "piece_id": -game_item_id,
+        "game_item_id": game_item_id,
+        "synthetic_piece_id": True,
+        "candidate_type": "no_equipment",
+        "is_no_equipment": True,
+        "slot": str(catalog_item.get("slot") or ""),
+        "name_en": str(catalog_item.get("name_en") or ""),
+        "name_zh": str(catalog_item.get("name_zh") or ""),
+        "score": no_equipment_score,
+        "no_equipment_score": no_equipment_score,
+        "score_source": "no_equipment_prompt_classifier",
+        "source_item_url": catalog_item.get("source_item_url")
+        or catalog_item.get("source"),
+        "local_preview": None,
+        "source_image_url": None,
+        "occupied_slots": [str(catalog_item.get("slot") or "")],
+        "recommendation_reliable": True,
+        "reference_match": False,
+    }
+    ranked = [no_equipment, *output]
+    for rank, row in enumerate(ranked, start=1):
+        row["rank"] = rank
+    return ranked
+
+
+def apply_multislot_consistency_gate(
+    slot_results: Sequence[Mapping[str, Any]],
+    occupied_slots_by_piece: Mapping[int, Sequence[str]],
+    *,
+    support_top_k: int,
+) -> list[dict[str, Any]]:
+    """Demote multi-slot candidates unsupported by their other visible slots."""
+
+    if support_top_k < 1:
+        raise ValueError("support_top_k must be positive")
+    output = [
+        {
+            **dict(result),
+            "candidates": [dict(row) for row in result.get("candidates", [])],
+        }
+        for result in slot_results
+    ]
+    by_slot = {str(result.get("slot")): result for result in output}
+    original_candidates = {
+        slot: [dict(row) for row in result.get("candidates", [])]
+        for slot, result in by_slot.items()
+    }
+
+    def normalized_name(row: Mapping[str, Any]) -> str:
+        return " ".join(str(row.get("name_en") or "").casefold().split())
+
+    for slot, result in by_slot.items():
+        unsupported_count = 0
+        for original_index, candidate in enumerate(result["candidates"]):
+            piece_id = int(candidate["piece_id"])
+            occupied_slots = tuple(
+                occupied_slot
+                for occupied_slot in (
+                    str(value).upper()
+                    for value in occupied_slots_by_piece.get(piece_id, ())
+                )
+                if occupied_slot in SLOTS
+            )
+            if len(set(occupied_slots)) <= 1:
+                continue
+
+            candidate_name = normalized_name(candidate)
+            required_slots = [
+                occupied_slot
+                for occupied_slot in dict.fromkeys(occupied_slots)
+                if occupied_slot != slot and occupied_slot in by_slot
+            ]
+            support: dict[str, dict[str, Any]] = {}
+            unsupported_slots: list[str] = []
+            for occupied_slot in required_slots:
+                matched = next(
+                    (
+                        row
+                        for row in original_candidates[occupied_slot]
+                        if int(row.get("piece_id", -1)) == piece_id
+                        or (
+                            candidate_name
+                            and normalized_name(row) == candidate_name
+                        )
+                    ),
+                    None,
+                )
+                matched_rank = (
+                    int(matched.get("rank", 0)) if matched is not None else None
+                )
+                supported = (
+                    matched_rank is not None
+                    and 1 <= matched_rank <= support_top_k
+                )
+                support[occupied_slot] = {
+                    "rank": matched_rank,
+                    "supported": supported,
+                }
+                if not supported:
+                    unsupported_slots.append(occupied_slot)
+
+            if not required_slots:
+                state = "unchecked"
+                reliable = True
+            elif unsupported_slots:
+                state = "unsupported"
+                reliable = False
+                unsupported_count += 1
+            else:
+                state = "supported"
+                reliable = True
+            candidate["recommendation_reliable"] = reliable
+            candidate["cross_slot_consistency"] = {
+                "state": state,
+                "occupied_slots": list(dict.fromkeys(occupied_slots)),
+                "checked_slots": required_slots,
+                "support_top_k": support_top_k,
+                "support": support,
+                "unsupported_slots": unsupported_slots,
+            }
+            candidate["_cross_slot_original_index"] = original_index
+
+        result["candidates"].sort(
+            key=lambda row: (
+                not bool(row.get("recommendation_reliable", True)),
+                int(row.get("_cross_slot_original_index", row.get("rank", 0))),
+            )
+        )
+        reordered = any(
+            int(row.get("rank", index)) != index
+            for index, row in enumerate(result["candidates"], start=1)
+        )
+        for rank, row in enumerate(result["candidates"], start=1):
+            row["rank"] = rank
+            row.pop("_cross_slot_original_index", None)
+        result["cross_slot_consistency"] = {
+            "support_top_k": support_top_k,
+            "unsupported_candidate_count": unsupported_count,
+            "ranking_changed": reordered,
+        }
+        if reordered:
+            result["top_score_margin"] = None
+        reference = result.get("reference")
+        if isinstance(reference, dict):
+            reference_rank = next(
+                (
+                    int(row["rank"])
+                    for row in result["candidates"]
+                    if row.get("reference_match")
+                ),
+                None,
+            )
+            reference["rank"] = reference_rank
+            reference["top1_hit"] = reference_rank == 1
+            reference["displayed_top_k_hit"] = reference_rank is not None
+    return output
+
+
 def slot_result(
     config: SlotInferenceConfig,
     records: Sequence[dict[str, Any]],
@@ -1022,6 +1441,7 @@ def slot_result(
     if candidates and (
         candidates[0].get("occupied_slot_gate")
         or candidates[0].get("ensemble_top1_gate")
+        or candidates[0].get("is_no_equipment")
     ):
         score_margin = None
     quality_reasons = []
@@ -1112,6 +1532,30 @@ def slot_result(
             "spatial_blend": (
                 config.spatial_blend if config.spatial_index is not None else None
             ),
+            "style_model_id": config.style_model_id,
+            "style_query_crop_name": config.style_query_crop_name,
+            "style_rerank_k": (
+                config.style_rerank_k
+                if config.style_model_id is not None
+                else None
+            ),
+            "style_blend": (
+                config.style_blend if config.style_model_id is not None else None
+            ),
+            "style_min_confidence": (
+                config.style_min_confidence
+                if config.style_model_id is not None
+                else None
+            ),
+            "no_equipment_model_id": config.no_equipment_model_id,
+            "no_equipment_query_crop_names": list(
+                config.no_equipment_query_crop_names
+            ),
+            "no_equipment_min_probability": (
+                config.no_equipment_min_probability
+                if config.no_equipment_model_id is not None
+                else None
+            ),
             "fusion": config.fusion,
             "rrf_k": config.rrf_k if config.fusion == "rrf" else None,
         },
@@ -1129,6 +1573,9 @@ def slot_result(
                 "confidence": row.get("confidence"),
                 "role": row.get("role"),
                 "weight": crop_weight(row),
+                "style_weight_multiplier": float(
+                    row.get("style_weight_multiplier", 1.0)
+                ),
             }
             for row in usable
         ],
@@ -1236,19 +1683,51 @@ def _slot_html(result: Mapping[str, Any]) -> str:
 
 def _candidate_html(candidate: Mapping[str, Any]) -> str:
     preview = _file_uri(resolve_project_path(candidate.get("local_preview")))
-    source = str(candidate.get("source_image_url") or "")
+    source = str(
+        candidate.get("source_image_url")
+        or candidate.get("source_item_url")
+        or ""
+    )
     name_en = html.escape(str(candidate.get("name_en") or "未知装备"))
     name_zh = html.escape(str(candidate.get("name_zh") or ""))
     name = f"{name_zh}<br><span class=\"muted\">{name_en}</span>" if name_zh else name_en
     source_link = (
         f'<a href="{html.escape(source, quote=True)}">来源图片</a>' if source else "无来源链接"
     )
+    alternatives = ", ".join(
+        html.escape(str(row.get("name_zh") or row.get("name_en") or ""))
+        for row in candidate.get("appearance_alternatives", [])
+    )
+    alternatives_note = (
+        f'<p class="muted">Same-model alternatives: {alternatives}</p>'
+        if alternatives
+        else ""
+    )
     reference_class = " reference" if candidate.get("reference_match") else ""
     reference_badge = " · Known ground truth" if candidate.get("reference_match") else ""
+    no_equipment = bool(candidate.get("is_no_equipment"))
+    no_equipment_badge = (
+        '<p class="notice"><strong>未检测到可见装备</strong>：'
+        "以皇帝系列的隐形外观表示。</p>"
+        if no_equipment
+        else ""
+    )
+    identifier = (
+        f"game_item_id={int(candidate.get('game_item_id', 0))}"
+        if no_equipment
+        else f"piece_id={int(candidate.get('piece_id', 0))}"
+    )
+    score_label = (
+        f"no-equipment score={float(candidate.get('no_equipment_score', 0.0)):.5f}"
+        if no_equipment
+        else f"score={float(candidate.get('score', 0.0)):.5f}"
+    )
     return f"""<article class="card{reference_class}">
   {f'<img src="{html.escape(preview, quote=True)}" alt="{name_en}">' if preview else ''}
   <h3><span class="rank">#{int(candidate.get('rank', 0))}</span> {name}{reference_badge}</h3>
-  <p>piece_id={int(candidate.get('piece_id', 0))} · score={float(candidate.get('score', 0.0)):.5f}</p>
+  {no_equipment_badge}
+  <p>{identifier} · {score_label}</p>
+  {alternatives_note}
   <p>{source_link}</p>
 </article>"""
 

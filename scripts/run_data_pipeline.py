@@ -11,9 +11,14 @@ PYTHON = sys.executable
 
 
 STAGES: dict[str, list[list[str]]] = {
-    "discover": [["scripts/discover_eorzea_gearsets.py"]],
+    "discover": [["scripts/discover_eorzea_gearsets_by_model.py"]],
     "collect-details": [["scripts/collect_eorzea_gearset_details.py", "--resume", "--workers", "12"]],
-    "build-image-manifest": [["scripts/build_eorzea_image_url_manifest_from_detail_cache.py"]],
+    "build-image-manifest": [
+        [
+            "scripts/build_eorzea_image_url_manifest_from_list_cache.py",
+            "--resume",
+        ]
+    ],
     "cafemaker-zh": [
         ["scripts/download_cafemaker_item_names.py"],
         ["scripts/download_cafemaker_equip_slot_categories.py"],
@@ -50,6 +55,14 @@ def main() -> int:
     parser.add_argument("--all", action="store_true", help="Run discovery plus the default refresh pipeline.")
     parser.add_argument("--dry-run", action="store_true", help="Print commands without executing them.")
     parser.add_argument(
+        "--refresh-source",
+        action="store_true",
+        help=(
+            "Bypass cached Eorzea list pages during discovery. Without this "
+            "flag, discovery remains reproducible from the existing cache."
+        ),
+    )
+    parser.add_argument(
         "--huiji-proxy",
         default=None,
         help="Optional proxy passed only to the Huiji Selenium stage.",
@@ -72,6 +85,9 @@ def main() -> int:
 
 def commands_for_stage(stage_name: str, args: argparse.Namespace) -> list[list[str]]:
     commands = [[PYTHON, *command] for command in STAGES[stage_name]]
+    if stage_name == "discover" and args.refresh_source:
+        for command in commands:
+            command.append("--refresh")
     if stage_name == "huiji-missing-zh":
         for command in commands:
             if args.huiji_proxy:
@@ -93,8 +109,6 @@ def quote_arg(value: str) -> str:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-
 
 
 

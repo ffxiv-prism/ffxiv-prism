@@ -10,6 +10,7 @@ from PIL import Image
 from ffxiv_prism.matching.inference import (
     SlotInferenceConfig,
     apply_ensemble_top1_gate,
+    apply_multislot_consistency_gate,
     apply_occupied_slot_top1_gate,
     constrain_candidates_to_pool,
     crop_records,
@@ -19,9 +20,13 @@ from ffxiv_prism.matching.inference import (
     fuse_crops_then_branch_results,
     fuse_crop_results,
     inspect_assets,
+    no_visible_equipment_decision,
+    attach_appearance_equivalent_candidates,
+    prepend_no_equipment_candidate,
     rerank_occupied_slot_search_results,
     restore_body_supported_occupied_hands_top1,
     select_slot_candidate_index_rows,
+    slot_region_presence_decision,
     slot_result,
     validate_input_image,
     write_html_report,
@@ -39,6 +44,11 @@ class GlamourInferenceTests(unittest.TestCase):
         record = self.record("full-shoe.jpg")
         record["role"] = "diagnostic"
         self.assertEqual(crop_weight(record), 0.0)
+
+    def test_style_policy_can_reduce_a_cross_slot_crop_weight(self) -> None:
+        record = self.record("legs-context.jpg")
+        record["style_weight_multiplier"] = 0.25
+        self.assertAlmostEqual(crop_weight(record), 0.25)
 
     def test_source_edge_risk_is_reported_as_low_ranking_quality(self) -> None:
         record = self.record("shoe.jpg")
@@ -168,6 +178,13 @@ class GlamourInferenceTests(unittest.TestCase):
         self.assertEqual(config.ensemble_top1_gate_max_base_rank, 10)
         self.assertEqual(config.ensemble_top1_gate_max_last_branch_rank, 1)
         self.assertEqual(config.ensemble_top1_gate_max_base_last_branch_rank, 10)
+        self.assertEqual(
+            config.style_model_id,
+            "google/siglip2-base-patch16-224",
+        )
+        self.assertEqual(config.style_query_crop_name, "body_upper_core")
+        self.assertEqual(config.style_rerank_k, 100)
+        self.assertAlmostEqual(config.style_blend, 0.70)
         self.assertAlmostEqual(config.benchmark_top1 or 0.0, 0.6353)
 
     def test_ensemble_top1_gate_promotes_supported_candidate_only(self) -> None:
@@ -326,6 +343,153 @@ class GlamourInferenceTests(unittest.TestCase):
         )[1]
         self.assertEqual(result["candidates"][0]["piece_id"], 2)
 
+    def test_multislot_candidate_is_demoted_when_another_slot_lacks_support(
+        self,
+    ) -> None:
+        body = {
+            "slot": "BODY",
+            "candidates": [
+                {
+                    **self.candidate(10, 0.95, 1),
+                    "name_en": "One-piece Attire",
+                    "link_type": "exact_slot",
+                },
+                self.candidate(20, 0.90, 2),
+            ],
+        }
+        hands = {
+            "slot": "HANDS",
+            "candidates": [
+                self.candidate(30, 0.90, 1),
+                {
+                    **self.candidate(10, 0.50, 8),
+                    "name_en": "One-piece Attire",
+                    "link_type": "occupied_slot",
+                },
+            ],
+        }
+
+        results = apply_multislot_consistency_gate(
+            [body, hands],
+            {10: ("BODY", "HANDS")},
+            support_top_k=5,
+        )
+
+        self.assertEqual(
+            [row["piece_id"] for row in results[0]["candidates"]],
+            [20, 10],
+        )
+        demoted = results[0]["candidates"][1]
+        self.assertFalse(demoted["recommendation_reliable"])
+        self.assertEqual(
+            demoted["cross_slot_consistency"]["unsupported_slots"],
+            ["HANDS"],
+        )
+        self.assertTrue(
+            results[0]["cross_slot_consistency"]["ranking_changed"]
+        )
+
+    def test_multislot_candidate_stays_reliable_with_cross_slot_support(
+        self,
+    ) -> None:
+        body_candidate = {
+            **self.candidate(10, 0.95, 1),
+            "name_en": "One-piece Attire",
+        }
+        hands_candidate = {
+            **self.candidate(10, 0.90, 2),
+            "name_en": "One-piece Attire",
+        }
+
+        results = apply_multislot_consistency_gate(
+            [
+                {"slot": "BODY", "candidates": [body_candidate]},
+                {
+                    "slot": "HANDS",
+                    "candidates": [self.candidate(30, 1.0, 1), hands_candidate],
+                },
+            ],
+            {10: ("BODY", "HANDS")},
+            support_top_k=5,
+        )
+
+        self.assertTrue(results[0]["candidates"][0]["recommendation_reliable"])
+        self.assertEqual(
+            results[0]["candidates"][0]["cross_slot_consistency"]["state"],
+            "supported",
+        )
+
+    def test_no_visible_equipment_requires_every_crop_to_be_confident(self) -> None:
+        absent = no_visible_equipment_decision(
+            ((0.94, 0.06), (0.88, 0.12)),
+            minimum_probability=0.80,
+        )
+        mixed = no_visible_equipment_decision(
+            ((0.94, 0.06), (0.35, 0.65)),
+            minimum_probability=0.80,
+        )
+
+        self.assertTrue(absent["no_visible_equipment"])
+        self.assertFalse(mixed["no_visible_equipment"])
+
+    def test_no_equipment_is_prepended_without_discarding_visual_candidates(
+        self,
+    ) -> None:
+        diagnostic = no_visible_equipment_decision(
+            ((0.94, 0.06), (0.88, 0.12)),
+            minimum_probability=0.80,
+        )
+        result = prepend_no_equipment_candidate(
+            [self.candidate(1, 0.8, 1), self.candidate(2, 0.7, 2)],
+            {
+                "slot": "HEAD",
+                "game_item_id": 10032,
+                "name_en": "The Emperor's New Hat",
+                "name_zh": "皇帝的新帽子",
+                "source": "https://example.invalid/items",
+            },
+            diagnostic,
+        )
+
+        self.assertEqual([row["rank"] for row in result], [1, 2, 3])
+        self.assertEqual([row["piece_id"] for row in result], [-10032, 1, 2])
+        self.assertTrue(result[0]["is_no_equipment"])
+        self.assertEqual(result[0]["game_item_id"], 10032)
+        self.assertAlmostEqual(result[0]["no_equipment_score"], 0.88)
+
+    def test_slot_presence_distinguishes_bare_from_out_of_frame(self) -> None:
+        visible_bare = self.record("hand.jpg")
+        out_of_frame = self.record("leg.jpg")
+        out_of_frame["visibility"] = "out_of_frame"
+        out_of_frame["confidence"] = 0.1
+
+        self.assertTrue(
+            slot_region_presence_decision([visible_bare])["contains_slot"]
+        )
+        missing = slot_region_presence_decision([out_of_frame])
+        self.assertFalse(missing["contains_slot"])
+        self.assertEqual(
+            missing["reason"],
+            "slot_crops_out_of_frame_or_pose_uncertain",
+        )
+
+    def test_emperor_no_equipment_catalog_contains_all_core_slots(self) -> None:
+        from ffxiv_prism.cli.match import _load_emperor_no_equipment_catalog
+
+        catalog = _load_emperor_no_equipment_catalog()
+
+        self.assertEqual(
+            {slot: row["game_item_id"] for slot, row in catalog.items()},
+            {
+                "HEAD": 10032,
+                "BODY": 10033,
+                "HANDS": 10034,
+                "LEGS": 10035,
+                "FEET": 10036,
+            },
+        )
+        self.assertEqual(catalog["HANDS"]["name_zh"], "皇帝的新手套")
+
     def test_promoted_rank_ensemble_slots_have_secondary_indexes(self) -> None:
         configs = current_best_configs()
         self.assertEqual(
@@ -374,6 +538,13 @@ class GlamourInferenceTests(unittest.TestCase):
         self.assertIsNone(config.spatial_index)
         self.assertEqual(config.ensemble_rrf_k, 1)
         self.assertEqual(config.ensemble_pool_branches, 1)
+        self.assertEqual(
+            config.style_model_id,
+            "google/siglip2-base-patch16-224",
+        )
+        self.assertEqual(config.style_query_crop_name, "legs_waist_thighs")
+        self.assertEqual(config.style_rerank_k, 100)
+        self.assertAlmostEqual(config.style_blend, 0.30)
 
     def test_final_candidate_pool_restores_missing_primary_rows(self) -> None:
         pool = [self.candidate(1, 1.0, 1), self.candidate(2, 0.9, 2)]
@@ -382,6 +553,30 @@ class GlamourInferenceTests(unittest.TestCase):
         result = constrain_candidates_to_pool(pool, reranked)
 
         self.assertEqual([row["piece_id"] for row in result], [2, 1])
+
+    def test_exact_model_alternative_is_promoted_next_to_visual_anchor(
+        self,
+    ) -> None:
+        candidates = [
+            self.candidate(1, 1.0, 1),
+            self.candidate(2, 0.9, 2),
+            self.candidate(3, 0.2, 40),
+        ]
+
+        result = attach_appearance_equivalent_candidates(
+            candidates,
+            {1: (3,), 3: (1,)},
+        )
+
+        self.assertEqual([row["piece_id"] for row in result], [1, 2, 3])
+        self.assertEqual(
+            result[0]["appearance_alternatives"][0]["piece_id"],
+            3,
+        )
+        self.assertEqual(
+            result[0]["appearance_alternatives"][0]["relation"],
+            "same_model",
+        )
 
     def test_spatial_profile_can_correct_adjacent_retrieval_order(self) -> None:
         candidates = [
@@ -474,6 +669,42 @@ class GlamourInferenceTests(unittest.TestCase):
             self.assertIn("&lt;script&gt;", content)
             self.assertIn("Expected &lt;Body&gt;", content)
             self.assertIn("Known ground truth", content)
+
+    def test_html_report_labels_no_equipment_candidate(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "report.html"
+            write_html_report(
+                path,
+                {
+                    "input": {},
+                    "artifacts": {},
+                    "warnings": [],
+                    "slots": [
+                        {
+                            "slot": "HEAD",
+                            "benchmark": {},
+                            "candidates": [
+                                {
+                                    "rank": 1,
+                                    "piece_id": -10032,
+                                    "game_item_id": 10032,
+                                    "name_en": "The Emperor's New Hat",
+                                    "name_zh": "皇帝的新帽子",
+                                    "score": 0.88,
+                                    "no_equipment_score": 0.88,
+                                    "is_no_equipment": True,
+                                }
+                            ],
+                        }
+                    ],
+                },
+            )
+
+            content = path.read_text(encoding="utf-8")
+            self.assertIn("皇帝的新帽子", content)
+            self.assertIn("未检测到可见装备", content)
+            self.assertIn("game_item_id=10032", content)
+            self.assertNotIn("piece_id=-10032", content)
 
     @staticmethod
     def record(path: str, confidence: float = 1.0) -> dict[str, object]:

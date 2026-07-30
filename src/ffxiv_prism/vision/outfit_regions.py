@@ -440,6 +440,31 @@ def build_outfit_regions(
     )
 
     add("BODY", "body_torso", (5, 6, 11, 12), shoulder_width * 0.28, torso_length * 0.16)
+    upper_core_points = [keypoints[index] for index in (5, 6, 11, 12)]
+    upper_core_conf, upper_core_vis = assess_visibility(
+        upper_core_points,
+        image_size,
+        threshold,
+    )
+    upper_core_box = (
+        min(point.x for point in upper_core_points) - shoulder_width * 0.28,
+        min(keypoints[5].y, keypoints[6].y) - torso_length * 0.12,
+        max(point.x for point in upper_core_points) + shoulder_width * 0.28,
+        midpoint(keypoints[11], keypoints[12]).y - torso_length * 0.08,
+    )
+    regions.append(CropRegion(
+        "BODY",
+        "body_upper_core",
+        clamp_box(upper_core_box, image_size),
+        upper_core_conf,
+        upper_core_vis,
+        "diagnostic",
+        (
+            "upper_garment_style_focus",
+            "shoulder_and_waist_coverage",
+            "reduced_legs_overlap",
+        ),
+    ))
     add(
         "BODY",
         "body_upper_arm_overlap",
@@ -502,6 +527,40 @@ def build_outfit_regions(
         "auxiliary",
         ("reduced_boot_overlap",),
     )
+    thigh_midpoints = (
+        midpoint(keypoints[11], keypoints[13]),
+        midpoint(keypoints[12], keypoints[14]),
+    )
+    waist_thigh_points = [
+        keypoints[11],
+        keypoints[12],
+        *thigh_midpoints,
+    ]
+    waist_thigh_conf, waist_thigh_vis = assess_visibility(
+        [keypoints[index] for index in (11, 12, 13, 14)],
+        image_size,
+        threshold,
+    )
+    style_leg_pad = max(leg_pad, shoulder_width * 0.32)
+    waist_thigh_box = (
+        min(point.x for point in waist_thigh_points) - style_leg_pad,
+        min(keypoints[11].y, keypoints[12].y) - torso_length * 0.14,
+        max(point.x for point in waist_thigh_points) + style_leg_pad,
+        max(point.y for point in thigh_midpoints) + torso_length * 0.10,
+    )
+    regions.append(CropRegion(
+        "LEGS",
+        "legs_waist_thighs",
+        clamp_box(waist_thigh_box, image_size),
+        waist_thigh_conf,
+        waist_thigh_vis,
+        "diagnostic",
+        (
+            "lower_garment_style_focus",
+            "waistband_and_hem",
+            "reduced_lower_leg_overlap",
+        ),
+    ))
     add(
         "LEGS",
         "legs_boot_overlap",

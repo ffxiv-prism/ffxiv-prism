@@ -30,7 +30,7 @@ data/raw/eorzea_collection/images/**
 
 # Generated repair manifest; summary JSON keeps the durable QA result.
 data/processed/eorzea_missing_images_manifest.jsonl
-# Generated visual retrieval indexes and evaluation outputs.
+# Generated visual retrieval indexes and local model weights.
 data/indexes/**
 !data/indexes/.gitkeep
 data/models/**
@@ -39,7 +39,8 @@ data/processed/retrieval_eval_results.json
 data/processed/retrieval_eval_cross_view_results.json
 data/processed/retrieval_eval_results.latest.json
 # Train-only folds, embedding caches, queues, and evaluation reports are
-# reproducible local experiment artifacts.
+# reproducible local experiment artifacts. Frozen player-derived splits stay
+# local because their glamour-level assignments are not code-repository data.
 data/interim/**
 !data/interim/.gitkeep
 # Pose manifests and review deltas are merged into the final quality manifest.
@@ -76,6 +77,29 @@ data/processed/glamour_examples_blind_*.jsonl
 data/processed/front_fullbody_quality_v*.jsonl
 data/processed/front_fullbody_quality_v*.summary.json
 data/processed/front_fullbody_quality_clip_ensemble_pilot*
+# Player-derived quality manifests and labels remain local. They may contain
+# glamour-level source metadata and must not be uploaded with the code.
+data/processed/glamour_examples_huiji_*
+
+# Broad experiment-output policy. Durable conclusions belong in the current
+# status document and compact metrics snapshot.
+data/processed/*.npz
+data/processed/appearance_disjoint_cv_*.json
+data/processed/retrieval_*.json
+data/processed/search_cache_*.npz
+data/processed/patch_score_cache_*.npz
+data/processed/*_progress.txt
+data/processed/synthetic_hands_*.json
+data/processed/*morphology_v*.json
+data/processed/*current_best_v*_summary.json
+data/processed/recognition_optimization_report_v*_sources.json
+data/processed/v*_stdout.txt
+data/processed/v*_stderr.txt
+
+# Large upstream exports and Huiji-expanded raw copies are acquisition caches.
+data/raw/game_data/xiv_datamining_*
+data/raw/game_data/cafemaker_item_models_*
+data/raw/eorzea_collection/glamours/metadata/glamour_examples_raw_huiji_*
 # Player-uploaded glamour pages and screenshots are local source caches.
 data/raw/eorzea_collection/glamours/html/**
 !data/raw/eorzea_collection/glamours/html/.gitkeep
@@ -84,6 +108,7 @@ data/raw/eorzea_collection/glamours/images/**
 # Generated pose/crop inspection outputs.
 data/debug/**
 data/outputs/**
+!data/outputs/.gitkeep
 
 # Local model runtimes, scratch space, and patch-conflict backups are never
 # portable source artifacts.

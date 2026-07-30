@@ -31,6 +31,13 @@ def main() -> int:
     )
     parser.add_argument("--limit", type=int, default=None, help="Maximum number of manifest rows to download.")
     parser.add_argument("--gearset-slug", default=None, help="Only download rows for this gearset slug.")
+    parser.add_argument(
+        "--image-variants",
+        nargs="+",
+        choices=("normal", "dyed"),
+        default=("normal",),
+        help="Image variants to download. Defaults to normal only.",
+    )
     parser.add_argument("--image-workers", type=int, default=1, help="Parallel image download workers.")
     parser.add_argument("--delay", type=float, default=2.0, help="Delay between network requests in seconds.")
     parser.add_argument("--timeout", type=float, default=10.0, help="Network timeout per request in seconds.")
@@ -50,7 +57,9 @@ def main() -> int:
     rows = [
         row
         for row in read_jsonl(args.manifest)
-        if row.get("accessible", True) and row.get("image_variant", "normal") == "normal"
+        if row.get("accessible", True)
+        and (row.get("image_variant") or row.get("dye_state") or "normal")
+        in set(args.image_variants)
     ]
     if args.gearset_slug:
         rows = [row for row in rows if row.get("gearset_slug") == args.gearset_slug]
@@ -63,7 +72,9 @@ def main() -> int:
         if not row.get("source_image_url") or not row.get("source_page_url") or not row.get("image_kind"):
             continue
         payload = {field: row.get(field) for field in fields}
-        payload["dye_state"] = row.get("image_variant") or "normal"
+        payload["dye_state"] = (
+            row.get("image_variant") or row.get("dye_state") or "normal"
+        )
         candidates.append(ImageCandidate(**payload))
 
     collector = EorzeaCollectionCollector(

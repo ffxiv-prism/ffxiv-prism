@@ -1,0 +1,400 @@
+const $ = (selector, root = document) => root.querySelector(selector);
+const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
+
+const elements = {
+  form: $("#recognition-form"),
+  input: $("#image-input"),
+  dropZone: $("#drop-zone"),
+  selectedFile: $("#selected-file"),
+  preview: $("#image-preview"),
+  fileName: $("#file-name"),
+  fileMeta: $("#file-meta"),
+  changeImage: $("#change-image"),
+  recognizeButton: $("#recognize-button"),
+  jobPanel: $("#job-panel"),
+  jobTitle: $("#job-title"),
+  jobState: $("#job-state"),
+  jobStage: $("#job-stage"),
+  jobLog: $("#job-log"),
+  progressBar: $("#progress-bar"),
+  results: $("#results-section"),
+  visualGrid: $("#visual-grid"),
+  notice: $("#result-notice"),
+  slotTabs: $("#slot-tabs"),
+  slotResults: $("#slot-results"),
+  resultSummary: $("#result-summary"),
+  rawReport: $("#raw-report-link"),
+  updateDialog: $("#update-dialog"),
+  updateForm: $("#update-form"),
+  updateMode: $("#update-mode"),
+  modeNote: $("#mode-note"),
+  startUpdate: $("#start-update"),
+  toast: $("#toast"),
+};
+
+const slotLabels = {
+  HEAD: "头部",
+  BODY: "身体",
+  HANDS: "手部",
+  LEGS: "腿部",
+  FEET: "脚部",
+};
+
+const updateNotes = {
+  standard: "读取已有发现列表，更新详情、中文名称、图片索引与 SQLite 数据库。",
+  "local-index": "不访问远程来源，只根据已有本地数据重建索引、图片校验和 SQLite 数据库。",
+  full: "包含重新发现全部装备来源，耗时最长，且中文名称补全阶段可能打开浏览器验证窗口。",
+};
+
+let selectedImage = null;
+let previewUrl = null;
+let pollTimer = null;
+let activeResult = null;
+let activeSlot = null;
+
+function formatNumber(value) {
+  if (value === null || value === undefined) return "—";
+  return new Intl.NumberFormat("zh-CN").format(value);
+}
+
+function formatBytes(bytes) {
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function fileUrl(path) {
+  return `/api/file?path=${encodeURIComponent(path)}`;
+}
+
+async function api(url, options = {}) {
+  const response = await fetch(url, options);
+  let payload;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = {};
+  }
+  if (!response.ok) throw new Error(payload.error || `请求失败（${response.status}）`);
+  return payload;
+}
+
+function showToast(message) {
+  elements.toast.textContent = message;
+  elements.toast.hidden = false;
+  window.clearTimeout(showToast.timer);
+  showToast.timer = window.setTimeout(() => {
+    elements.toast.hidden = true;
+  }, 4200);
+}
+
+async function loadStatus() {
+  try {
+    const payload = await api("/api/status");
+    renderDatasetStatus(payload.dataset);
+    const active = payload.jobs.find((job) => ["queued", "running"].includes(job.status));
+    if (active) {
+      renderJob(active);
+      startPolling(active.id);
+    }
+  } catch (error) {
+    $("#dataset-ready").textContent = "读取失败";
+    $("#dataset-ready").classList.add("unready");
+    $("#dataset-updated").textContent = error.message;
+  }
+}
+
+function renderDatasetStatus(dataset) {
+  const ready = $("#dataset-ready");
+  ready.textContent = dataset.ready ? "可用" : "未就绪";
+  ready.classList.toggle("unready", !dataset.ready);
+  $("#metric-pieces").textContent = formatNumber(dataset.gear_pieces);
+  $("#metric-images").textContent = formatNumber(dataset.ready_images);
+  $("#metric-missing").textContent = formatNumber(dataset.missing_images);
+  if (dataset.last_updated) {
+    const date = new Date(dataset.last_updated);
+    $("#dataset-updated").textContent = `摘要更新于 ${date.toLocaleString("zh-CN", { hour12: false })}`;
+  } else {
+    $("#dataset-updated").textContent = "尚未生成数据集摘要";
+  }
+}
+
+function selectImage(file) {
+  if (!file) return;
+  if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
+    showToast("请选择 PNG、JPG/JPEG 或 WebP 图片。");
+    return;
+  }
+  if (file.size > 25 * 1024 * 1024) {
+    showToast("图片不能超过 25 MB。");
+    return;
+  }
+  selectedImage = file;
+  if (previewUrl) URL.revokeObjectURL(previewUrl);
+  previewUrl = URL.createObjectURL(file);
+  elements.preview.src = previewUrl;
+  elements.fileName.textContent = file.name;
+  elements.fileMeta.textContent = `${formatBytes(file.size)} · 保存在本地任务目录`;
+  elements.dropZone.hidden = true;
+  elements.selectedFile.hidden = false;
+  elements.recognizeButton.disabled = false;
+}
+
+for (const dropTarget of [elements.dropZone, elements.selectedFile]) {
+  for (const eventName of ["dragenter", "dragover"]) {
+    dropTarget.addEventListener(eventName, (event) => {
+      event.preventDefault();
+      dropTarget.classList.add("dragover");
+    });
+  }
+
+  for (const eventName of ["dragleave", "drop"]) {
+    dropTarget.addEventListener(eventName, (event) => {
+      event.preventDefault();
+      dropTarget.classList.remove("dragover");
+    });
+  }
+
+  dropTarget.addEventListener("drop", (event) => {
+    selectImage(event.dataTransfer.files[0]);
+  });
+}
+
+elements.dropZone.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" || event.key === " ") {
+    event.preventDefault();
+    elements.input.click();
+  }
+});
+
+elements.input.addEventListener("change", () => selectImage(elements.input.files[0]));
+elements.changeImage.addEventListener("click", () => elements.input.click());
+
+elements.form.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!selectedImage) return;
+  const slots = $$('input[name="slot"]:checked').map((input) => input.value);
+  if (!slots.length) {
+    showToast("请至少选择一个识别部位。");
+    return;
+  }
+  const form = new FormData();
+  form.append("image", selectedImage, selectedImage.name);
+  form.append("gender", $("#gender").value);
+  form.append("top_k", $("#top-k").value);
+  form.append("slots", slots.join(","));
+  form.append("profile", "current-best");
+  elements.recognizeButton.disabled = true;
+  elements.results.hidden = true;
+  try {
+    const payload = await api("/api/recognize", { method: "POST", body: form });
+    renderJob(payload.job);
+    startPolling(payload.job.id);
+    elements.jobPanel.scrollIntoView({ behavior: "smooth", block: "center" });
+  } catch (error) {
+    showToast(error.message);
+    elements.recognizeButton.disabled = false;
+  }
+});
+
+function renderJob(job) {
+  elements.jobPanel.hidden = false;
+  elements.jobTitle.textContent = job.title;
+  elements.jobStage.textContent = job.error || job.stage || "等待中";
+  elements.jobLog.textContent = (job.logs || []).join("\n");
+  elements.jobLog.scrollTop = elements.jobLog.scrollHeight;
+  elements.jobState.className = `job-state ${job.status}`;
+  const stateLabels = {
+    queued: "等待中",
+    running: "运行中",
+    succeeded: "已完成",
+    failed: "失败",
+  };
+  elements.jobState.textContent = stateLabels[job.status] || job.status;
+  elements.progressBar.className = job.status === "running" ? "indeterminate" : "";
+  elements.progressBar.style.width = job.status === "succeeded" ? "100%" : job.status === "failed" ? "100%" : "";
+}
+
+function startPolling(jobId) {
+  window.clearTimeout(pollTimer);
+  const poll = async () => {
+    try {
+      const job = await api(`/api/jobs/${jobId}`);
+      renderJob(job);
+      if (["queued", "running"].includes(job.status)) {
+        pollTimer = window.setTimeout(poll, 1400);
+        return;
+      }
+      elements.recognizeButton.disabled = !selectedImage;
+      await loadStatus();
+      if (job.status === "succeeded" && job.kind === "recognition") {
+        const result = await api(job.result_url);
+        renderResults(result, job.report_url);
+      } else if (job.status === "succeeded" && job.kind === "dataset") {
+        showToast("本地数据集更新完成。");
+      } else if (job.status === "failed") {
+        showToast(job.error || "任务运行失败，请展开日志查看。");
+      }
+    } catch (error) {
+      showToast(error.message);
+      elements.recognizeButton.disabled = !selectedImage;
+    }
+  };
+  poll();
+}
+
+function renderResults(result, reportUrl) {
+  activeResult = result;
+  activeSlot = result.slots?.[0]?.slot || null;
+  elements.results.hidden = false;
+  elements.rawReport.href = reportUrl;
+  elements.resultSummary.textContent = `${result.slots.length} 个部位 · 每个部位最多 ${result.top_k} 件候选 · 姿态质量 ${Math.round(result.pose_quality * 100)}%`;
+  elements.visualGrid.innerHTML = "";
+
+  const visuals = [
+    ["输入截图", result.input.path],
+    ["人物与区域质检", result.artifacts.overlay],
+    ["装备部位裁剪", result.artifacts.contact_sheet],
+  ];
+  for (const [label, path] of visuals) {
+    const figure = document.createElement("figure");
+    figure.className = "visual-card";
+    figure.innerHTML = `<div><img loading="lazy" alt="${escapeHtml(label)}"></div><figcaption>${escapeHtml(label)}</figcaption>`;
+    $("img", figure).src = fileUrl(path);
+    elements.visualGrid.append(figure);
+  }
+
+  const warnings = result.warnings || [];
+  elements.notice.innerHTML = warnings.length
+    ? `<ul>${warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join("")}</ul>`
+    : "候选分数是相对排序信号，并非准确率或概率。";
+
+  elements.slotTabs.innerHTML = "";
+  for (const slot of result.slots) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.role = "tab";
+    button.textContent = `${slotLabels[slot.slot] || slot.slot} · ${slot.candidates?.length || 0}`;
+    button.setAttribute("aria-selected", String(slot.slot === activeSlot));
+    button.addEventListener("click", () => {
+      activeSlot = slot.slot;
+      $$("button", elements.slotTabs).forEach((tab, index) => {
+        tab.setAttribute("aria-selected", String(result.slots[index].slot === activeSlot));
+      });
+      renderSlot(slot);
+    });
+    elements.slotTabs.append(button);
+  }
+  if (result.slots[0]) renderSlot(result.slots[0]);
+  elements.results.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function renderSlot(slot) {
+  const benchmark = slot.benchmark;
+  const benchmarkText = benchmark
+    ? `参考基准：Top-1 ${formatPercent(benchmark.top1)} / Top-10 ${formatPercent(benchmark.top10)}；${benchmark.scope}。该指标不是本图置信度。`
+    : "当前部位没有可用的参考基准。";
+  const quality = slot.ranking_quality?.level || "normal";
+  const qualityText = quality === "low" ? "建议人工复核" : "排序正常";
+  const candidates = slot.candidates || [];
+
+  elements.slotResults.innerHTML = `
+    <div class="slot-report-header">
+      <div>
+        <h3>${escapeHtml(slotLabels[slot.slot] || slot.slot)}</h3>
+        <p>${escapeHtml(benchmarkText)}</p>
+      </div>
+      <span class="quality-badge ${escapeHtml(quality)}">${escapeHtml(qualityText)}</span>
+    </div>
+    <div class="candidate-grid"></div>
+  `;
+  const grid = $(".candidate-grid", elements.slotResults);
+  if (!candidates.length) {
+    grid.className = "empty-state";
+    grid.textContent = "这个部位没有返回候选。";
+    return;
+  }
+  for (const candidate of candidates) {
+    const article = document.createElement("article");
+    const isNoEquipment = Boolean(candidate.is_no_equipment);
+    article.className = `candidate${isNoEquipment ? " no-equipment" : ""}`;
+    const displayName = candidate.name_zh || candidate.name_en || "未知装备";
+    const englishName = candidate.name_zh ? candidate.name_en : "";
+    const sourceUrl = candidate.source_image_url || candidate.source_item_url || "";
+    const alternatives = (candidate.appearance_alternatives || [])
+      .map((item) => item.name_zh || item.name_en)
+      .filter(Boolean)
+      .join("、");
+    article.innerHTML = `
+      <span class="candidate-rank">#${escapeHtml(candidate.rank)}</span>
+      ${isNoEquipment
+        ? '<div class="candidate-image invisible-appearance"><strong>∅</strong><span>不显示外观</span></div>'
+        : `<div class="candidate-image"><img loading="lazy" alt="${escapeHtml(displayName)}"></div>`}
+      <div class="candidate-copy">
+        <h4>${escapeHtml(displayName)}${englishName ? `<span>${escapeHtml(englishName)}</span>` : ""}</h4>
+        ${isNoEquipment ? '<div class="no-equipment-note">未检测到可见装备</div>' : ""}
+        ${alternatives ? `<div class="candidate-alternatives">同模型可选：${escapeHtml(alternatives)}</div>` : ""}
+        <div class="candidate-meta">
+          <span>${isNoEquipment ? "无装备信号" : "分数"} ${Number(candidate.score).toFixed(4)}</span>
+          ${sourceUrl ? `<a href="${escapeHtml(sourceUrl)}" target="_blank" rel="noopener">来源 ↗</a>` : ""}
+        </div>
+      </div>
+    `;
+    if (!isNoEquipment) {
+      const image = $("img", article);
+      image.src = fileUrl(candidate.local_preview);
+      image.addEventListener("error", () => {
+        image.alt = `${displayName}（本地预览缺失）`;
+        image.closest(".candidate-image").classList.add("missing");
+      });
+    }
+    grid.append(article);
+  }
+}
+
+function formatPercent(value) {
+  return Number.isFinite(Number(value)) ? `${(Number(value) * 100).toFixed(1)}%` : "—";
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+for (const button of $$("[data-open-update]")) {
+  button.addEventListener("click", () => elements.updateDialog.showModal());
+}
+
+elements.updateMode.addEventListener("change", () => {
+  elements.modeNote.textContent = updateNotes[elements.updateMode.value];
+});
+
+elements.updateForm.addEventListener("submit", async (event) => {
+  if (event.submitter?.value === "cancel") return;
+  event.preventDefault();
+  elements.startUpdate.disabled = true;
+  try {
+    const payload = await api("/api/dataset/update", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: elements.updateMode.value }),
+    });
+    elements.updateDialog.close();
+    renderJob(payload.job);
+    startPolling(payload.job.id);
+    elements.jobPanel.scrollIntoView({ behavior: "smooth", block: "center" });
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    elements.startUpdate.disabled = false;
+  }
+});
+
+window.addEventListener("beforeunload", () => {
+  if (previewUrl) URL.revokeObjectURL(previewUrl);
+});
+
+loadStatus();

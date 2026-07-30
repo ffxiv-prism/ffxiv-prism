@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "registered_at": "2026-07-30",
+  "metric": "appearance_recall",
+  "protocol": "strict item-disjoint three-fold pooled",
+  "target_top10": 0.8,
+  "target_achieved_all_slots": false,
+  "slots": [
+    {
+      "slot": "BODY",
+      "eligible": 987,
+      "top1": 0.6353,
+      "top10": 0.8288,
+      "method": "DINOv2 adapted query plus zero-shot/adapted DINOv3 with frozen Top-1 agreement gate"
+    },
+    {
+      "slot": "HEAD",
+      "eligible": 899,
+      "top1": 0.2736,
+      "top10": 0.475,
+      "method": "DINOv2, SigLIP2 and adapted DINOv3 rank ensemble with upper-to-face routing"
+    },
+    {
+      "slot": "HANDS",
+      "eligible": 945,
+      "top1": 0.0307,
+      "top10": 0.0878,
+      "method": "DINOv2 adapted query, multi-crop/gender routing and occupied-slot Top-1 gate"
+    },
+    {
+      "slot": "LEGS",
+      "eligible": 955,
+      "top1": 0.1393,
+      "top10": 0.3194,
+      "method": "DINOv2 plus DINOv3 rank ensemble inside a frozen DINOv2 Top-1000 pool"
+    },
+    {
+      "slot": "FEET",
+      "eligible": 967,
+      "top1": 0.1934,
+      "top10": 0.4116,
+      "method": "clean primary-family candidate index with DINOv2 and SigLIP2 rank ensemble"
+    }
+  ],
+  "equipment_library": {
+    "snapshot_date": "2026-07-25",
+    "gearsets": 2443,
+    "pieces": 11739,
+    "linked_slot_images": 19800,
+    "active_candidate_source_images": 19731,
+    "active_index_missing_images": 0
+  },
+  "canonical_training_assets": {
+    "examples": "data/processed/glamour_examples_huiji_models_closed.jsonl",
+    "quality": "data/processed/front_fullbody_quality_final_v46.jsonl",
+    "body_folds": "data/interim/appearance-disjoint-cv-v52-huiji-closed",
+    "slot_folds": "data/interim/appearance-disjoint-cv-v54-{slot}-huiji-closed"
+  }
+}

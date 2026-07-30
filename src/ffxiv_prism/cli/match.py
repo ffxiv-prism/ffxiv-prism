@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import gc
 import json
+import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,7 @@ from PIL import Image
 from ffxiv_prism.jsonl import read_jsonl
 from ffxiv_prism.matching.inference import (
     apply_ensemble_top1_gate,
+    apply_multislot_consistency_gate,
     apply_occupied_slot_top1_gate,
     SLOTS,
     base_configs,
@@ -25,9 +27,12 @@ from ffxiv_prism.matching.inference import (
     fuse_crops_then_branch_results,
     fuse_crop_results,
     inspect_assets,
+    no_visible_equipment_decision,
+    attach_appearance_equivalent_candidates,
+    prepend_no_equipment_candidate,
     rerank_occupied_slot_search_results,
-    restore_body_supported_occupied_hands_top1,
     select_slot_candidate_index_rows,
+    slot_region_presence_decision,
     slot_result,
     validate_input_image,
     write_html_report,
@@ -37,7 +42,22 @@ from ffxiv_prism.matching.head_morphology import (
     head_morphology_class,
     predict_ridge_probabilities,
 )
-from ffxiv_prism.paths import CACHE_DIR, PROJECT_ROOT, portable_path
+from ffxiv_prism.matching.garment_morphology import (
+    STYLE_CANDIDATE_CROP_BOXES_NORMALIZED,
+    STYLE_PROMPTS_BY_SLOT,
+    TARGET_STYLE_CLASSES,
+    StylePrediction,
+    apply_style_crop_multipliers,
+    rerank_candidates_with_style,
+    style_policy,
+)
+from ffxiv_prism.paths import (
+    CACHE_DIR,
+    PROCESSED_DIR,
+    PROJECT_ROOT,
+    portable_path,
+    resolve_project_path,
+)
 from ffxiv_prism.torch_device import resolve_torch_device
 from ffxiv_prism.vision.outfit_regions import (
     DEFAULT_POSE_MODEL,
@@ -49,6 +69,31 @@ from ffxiv_prism.vision.outfit_regions import (
     render_debug_overlay,
     save_region_crops,
 )
+
+
+NO_EQUIPMENT_PROMPTS_BY_SLOT = {
+    "HEAD": (
+        "a character with no headgear, only natural hair is visible",
+        "a character wearing visible headgear or a head accessory",
+    ),
+    "HANDS": (
+        "natural bare hands with uncovered fingers and no hand equipment",
+        (
+            "hands wearing visible gloves, fingerless gloves, gauntlets, "
+            "armguards, or wristbands"
+        ),
+    ),
+}
+MULTISLOT_SUPPORT_TOP_K = 5
+EMPEROR_NO_EQUIPMENT_GAME_ITEM_IDS_BY_SLOT = {
+    "HEAD": 10032,
+    "BODY": 10033,
+    "HANDS": 10034,
+    "LEGS": 10035,
+    "FEET": 10036,
+}
+_APPEARANCE_EQUIVALENCE: dict[int, tuple[int, ...]] | None = None
+_EMPEROR_NO_EQUIPMENT_CATALOG: dict[str, dict[str, Any]] | None = None
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -176,15 +221,18 @@ def main(argv: list[str] | None = None) -> int:
             )
             results.append(result)
 
-    hands_config = configs.get("HANDS")
-    if (
-        hands_config is not None
-        and hands_config.occupied_slot_body_support_top_k is not None
-    ):
-        results = restore_body_supported_occupied_hands_top1(
-            results,
-            body_support_top_k=hands_config.occupied_slot_body_support_top_k,
-        )
+    occupied_slots_by_piece = _load_piece_occupied_slots(
+        {
+            int(candidate["piece_id"])
+            for result in results
+            for candidate in result.get("candidates", [])
+        }
+    )
+    results = apply_multislot_consistency_gate(
+        results,
+        occupied_slots_by_piece,
+        support_top_k=MULTISLOT_SUPPORT_TOP_K,
+    )
 
     manifest_path = output_dir / "regions.json"
     manifest = {
@@ -245,6 +293,85 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
+def _load_piece_occupied_slots(
+    piece_ids: set[int],
+) -> dict[int, tuple[str, ...]]:
+    if not piece_ids:
+        return {}
+    placeholders = ",".join("?" for _ in piece_ids)
+    connection = sqlite3.connect(PROCESSED_DIR / "eorzea.sqlite")
+    try:
+        rows = connection.execute(
+            (
+                "SELECT piece_id, occupied_slots_json FROM gear_pieces "
+                f"WHERE piece_id IN ({placeholders})"
+            ),
+            sorted(piece_ids),
+        ).fetchall()
+    finally:
+        connection.close()
+    return {
+        int(piece_id): tuple(str(value).upper() for value in json.loads(raw_slots))
+        for piece_id, raw_slots in rows
+    }
+
+
+def _load_emperor_no_equipment_catalog() -> dict[str, dict[str, Any]]:
+    global _EMPEROR_NO_EQUIPMENT_CATALOG
+    if _EMPEROR_NO_EQUIPMENT_CATALOG is not None:
+        return _EMPEROR_NO_EQUIPMENT_CATALOG
+
+    path = (
+        PROJECT_ROOT
+        / "data"
+        / "raw"
+        / "game_data"
+        / "cafemaker_item_names_raw.jsonl"
+    )
+    wanted_ids = set(EMPEROR_NO_EQUIPMENT_GAME_ITEM_IDS_BY_SLOT.values())
+    rows_by_id = {
+        int(row["game_item_id"]): row
+        for row in read_jsonl(path)
+        if int(row.get("game_item_id", -1)) in wanted_ids
+    } if path.is_file() else {}
+    catalog: dict[str, dict[str, Any]] = {}
+    for slot, game_item_id in EMPEROR_NO_EQUIPMENT_GAME_ITEM_IDS_BY_SLOT.items():
+        row = rows_by_id.get(game_item_id)
+        if row is None:
+            continue
+        name_en = str(row.get("name_en") or "")
+        if not name_en.startswith("The Emperor's New "):
+            continue
+        catalog[slot] = {
+            **dict(row),
+            "slot": slot,
+            "source_item_url": row.get("source"),
+        }
+    _EMPEROR_NO_EQUIPMENT_CATALOG = catalog
+    return catalog
+
+
+def _load_appearance_equivalence() -> dict[int, tuple[int, ...]]:
+    global _APPEARANCE_EQUIVALENCE
+    if _APPEARANCE_EQUIVALENCE is None:
+        path = (
+            PROCESSED_DIR
+            / "piece_appearance_equivalence_huiji_exact_models.json"
+        )
+        if not path.is_file():
+            _APPEARANCE_EQUIVALENCE = {}
+        else:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            _APPEARANCE_EQUIVALENCE = {
+                int(piece_id): tuple(int(value) for value in equivalents)
+                for piece_id, equivalents in payload.get(
+                    "same_model_equivalents",
+                    {},
+                ).items()
+            }
+    return _APPEARANCE_EQUIVALENCE
+
+
 def _run_slot(
     config: Any,
     records: dict[str, list[dict[str, Any]]],
@@ -271,6 +398,158 @@ def _run_slot(
     )
 
     slot_records = filter_records_for_slot(records, config.slot)
+    slot_presence_diagnostic = slot_region_presence_decision(
+        slot_records["query"]
+    )
+    if not slot_presence_diagnostic["contains_slot"]:
+        result = slot_result(config, slot_records["query"], [])
+        result["status"] = "slot_not_in_frame"
+        result["slot_presence_diagnostic"] = slot_presence_diagnostic
+        return result
+
+    no_equipment_diagnostic = None
+    if config.no_equipment_model_id is not None:
+        allowed_no_equipment_crops = set(
+            config.no_equipment_query_crop_names
+        )
+        no_equipment_records = [
+            row
+            for row in slot_records["query"]
+            if str(row.get("name")) in allowed_no_equipment_crops
+            and str(row.get("visibility"))
+            not in {"pose_uncertain", "out_of_frame"}
+        ]
+        no_equipment_paths = [
+            resolve_project_path(row.get("path"))
+            for row in no_equipment_records
+        ]
+        if no_equipment_records and all(
+            path is not None and path.is_file()
+            for path in no_equipment_paths
+        ):
+            prompts = NO_EQUIPMENT_PROMPTS_BY_SLOT.get(config.slot)
+            if prompts is None:
+                raise ValueError(
+                    f"No no-equipment prompts are configured for {config.slot}"
+                )
+            probabilities = _classify_style_paths(
+                str(config.no_equipment_model_id),
+                prompts,
+                [path for path in no_equipment_paths if path is not None],
+                device=device,
+                batch_size=batch_size,
+            )
+            no_equipment_diagnostic = no_visible_equipment_decision(
+                probabilities,
+                minimum_probability=config.no_equipment_min_probability,
+            )
+            no_equipment_diagnostic["query_crops"] = [
+                str(row.get("name")) for row in no_equipment_records
+            ]
+        else:
+            no_equipment_diagnostic = {
+                "active": False,
+                "no_visible_equipment": False,
+                "reason": "query_crops_unavailable",
+                "query_crops": [
+                    str(row.get("name")) for row in no_equipment_records
+                ],
+            }
+    active_candidate_crop_routes = config.candidate_crop_routes
+    style_prediction = None
+    style_policy_result = None
+    style_diagnostic = None
+    if (
+        config.style_model_id is not None
+        and config.style_query_crop_name is not None
+    ):
+        style_record = next(
+            (
+                row
+                for row in slot_records["query"]
+                if str(row.get("name")) == config.style_query_crop_name
+                and str(row.get("visibility"))
+                not in {"pose_uncertain", "out_of_frame"}
+            ),
+            None,
+        )
+        if style_record is None:
+            style_diagnostic = {
+                "query_crop": config.style_query_crop_name,
+                "active": False,
+                "reason": "query_crop_unavailable",
+                "ranking_changed": False,
+            }
+        else:
+            style_path = resolve_project_path(style_record.get("path"))
+            if style_path is None or not style_path.is_file():
+                raise FileNotFoundError(
+                    f"Style query crop does not exist: {style_record.get('path')}"
+                )
+            style_probabilities = _classify_style_paths(
+                config.style_model_id,
+                STYLE_PROMPTS_BY_SLOT[config.slot],
+                [style_path],
+                device=device,
+                batch_size=1,
+            )[0]
+            style_prediction = StylePrediction.from_probabilities(
+                config.slot,
+                style_probabilities,
+            )
+            style_policy_result = style_policy(
+                style_prediction,
+                minimum_confidence=config.style_min_confidence,
+            )
+            if style_policy_result.active:
+                slot_records = {
+                    example_id: apply_style_crop_multipliers(
+                        rows,
+                        style_policy_result,
+                    )
+                    for example_id, rows in slot_records.items()
+                }
+                active_candidate_crop_routes = {
+                    **dict(config.candidate_crop_routes or {}),
+                    **dict(style_policy_result.candidate_crop_routes),
+                }
+            style_diagnostic = {
+                "query_crop": config.style_query_crop_name,
+                "classes": list(style_prediction.classes),
+                "probabilities": dict(
+                    zip(
+                        style_prediction.classes,
+                        style_prediction.probabilities,
+                        strict=True,
+                    )
+                ),
+                "predicted_class": style_prediction.predicted_class,
+                "confidence": style_prediction.confidence,
+                "target_probability": sum(
+                    probability
+                    for class_name, probability in zip(
+                        style_prediction.classes,
+                        style_prediction.probabilities,
+                        strict=True,
+                    )
+                    if class_name in TARGET_STYLE_CLASSES[config.slot]
+                ),
+                "minimum_confidence": config.style_min_confidence,
+                "active": style_policy_result.active,
+                "reason": style_policy_result.reason,
+                "crop_multipliers": dict(
+                    style_policy_result.crop_multipliers
+                ),
+                "candidate_crop_routes": {
+                    name: list(routes)
+                    for name, routes in (
+                        style_policy_result.candidate_crop_routes.items()
+                    )
+                },
+                "rerank_k": config.style_rerank_k,
+                "blend": config.style_blend,
+                "ranking_changed": False,
+            }
     if config.query_crop_names is not None:
         allowed_names = set(config.query_crop_names)
         slot_records = {
@@ -294,7 +573,9 @@ def _run_slot(
         if row["visibility"] not in {"pose_uncertain", "out_of_frame"}
     ]
     if not usable:
-        return slot_result(config, slot_records["query"], [])
+        result = slot_result(config, slot_records["query"], [])
+        result["slot_presence_diagnostic"] = slot_presence_diagnostic
+        return result
 
     metadata = read_jsonl(config.index_dir / "metadata.jsonl")
     candidate_embeddings = np.load(
@@ -383,7 +664,7 @@ def _run_slot(
             embeddings,
             candidate_k,
             device=str(device),
-            candidate_crop_routes=config.candidate_crop_routes,
+            candidate_crop_routes=active_candidate_crop_routes,
             candidate_gender_by_example=candidate_gender,
         )
 
@@ -468,7 +749,7 @@ def _run_slot(
                     ensemble_queries,
                     candidate_k,
                     device=str(device),
-                    candidate_crop_routes=config.candidate_crop_routes,
+                    candidate_crop_routes=active_candidate_crop_routes,
                     candidate_gender_by_example=candidate_gender,
                 )
             )
@@ -563,6 +844,8 @@ def _run_slot(
         if spatial_index is not None and spatial_query_profile is not None
         else top_k
     )
+    if style_policy_result is not None and style_policy_result.active:
+        retrieval_top_k = max(retrieval_top_k, config.style_rerank_k)
     if reference_label is not None:
         retrieval_top_k = max(retrieval_top_k, candidate_k)
     if final_pool_search is not None:
@@ -616,6 +899,72 @@ def _run_slot(
             rerank_k=config.spatial_rerank_k,
             blend=config.spatial_blend,
         )
+    if (
+        style_prediction is not None
+        and style_policy_result is not None
+        and style_policy_result.active
+        and candidates
+    ):
+        style_pool = candidates[: min(config.style_rerank_k, len(candidates))]
+        candidate_style_paths = [
+            resolve_project_path(row.get("local_preview"))
+            for row in style_pool
+        ]
+        if all(
+            path is not None and path.is_file()
+            for path in candidate_style_paths
+        ):
+            candidate_crop_box = (
+                STYLE_CANDIDATE_CROP_BOXES_NORMALIZED["LEGS"]["legs_thighs"]
+                if config.slot == "LEGS"
+                else None
+            )
+            candidate_style_probabilities = _classify_style_paths(
+                str(config.style_model_id),
+                STYLE_PROMPTS_BY_SLOT[config.slot],
+                [
+                    path
+                    for path in candidate_style_paths
+                    if path is not None
+                ],
+                device=device,
+                batch_size=batch_size,
+                crop_box_normalized=candidate_crop_box,
+            )
+            probabilities_by_piece = {
+                int(row["piece_id"]): probabilities
+                for row, probabilities in zip(
+                    style_pool,
+                    candidate_style_probabilities,
+                    strict=True,
+                )
+            }
+            previous_top1 = int(candidates[0]["piece_id"])
+            candidates = rerank_candidates_with_style(
+                candidates,
+                style_prediction,
+                probabilities_by_piece,
+                rerank_k=config.style_rerank_k,
+                blend=config.style_blend,
+                minimum_confidence=config.style_min_confidence,
+            )
+            current_top1 = int(candidates[0]["piece_id"])
+            if style_diagnostic is not None:
+                style_diagnostic["candidate_profile_count"] = len(
+                    probabilities_by_piece
+                )
+                style_diagnostic["ranking_changed"] = (
+                    current_top1 != previous_top1
+                )
+                style_diagnostic["previous_top1_piece_id"] = previous_top1
+                style_diagnostic["current_top1_piece_id"] = current_top1
+        elif style_diagnostic is not None:
+            style_diagnostic["rerank_reason"] = "candidate_preview_unavailable"
+    candidates = attach_appearance_equivalent_candidates(
+        candidates,
+        _load_appearance_equivalence(),
+        max_equivalents_per_anchor=1,
+    )
     morphology_diagnostic = None
     if config.morphology_checkpoint is not None and candidates:
         with np.load(config.morphology_checkpoint, allow_pickle=False) as payload:
@@ -666,6 +1015,28 @@ def _run_slot(
                 "top1_matches_prediction": top_class == predicted_class,
                 "ranking_changed": False,
             }
+    if no_equipment_diagnostic is not None:
+        emperor_item = _load_emperor_no_equipment_catalog().get(config.slot)
+        candidates = prepend_no_equipment_candidate(
+            candidates,
+            emperor_item,
+            no_equipment_diagnostic,
+        )
+        no_equipment_diagnostic["candidate_added"] = bool(
+            candidates and candidates[0].get("is_no_equipment")
+        )
+        no_equipment_diagnostic["catalog_game_item_id"] = (
+            int(emperor_item["game_item_id"])
+            if emperor_item is not None
+            else None
+        )
+        if (
+            no_equipment_diagnostic["no_visible_equipment"]
+            and emperor_item is None
+        ):
+            no_equipment_diagnostic["reason"] = (
+                "emperor_no_equipment_catalog_item_unavailable"
+            )
     reference_piece_ids = {
         int(value) for value in (reference_label or {}).get("piece_ids", [])
     }
@@ -683,6 +1054,11 @@ def _run_slot(
         row["reference_match"] = int(row.get("piece_id", -1)) in reference_piece_ids
         displayed_candidates.append(row)
     result = slot_result(config, slot_records["query"], displayed_candidates)
+    result["slot_presence_diagnostic"] = slot_presence_diagnostic
+    if no_equipment_diagnostic is not None:
+        result["no_equipment_diagnostic"] = no_equipment_diagnostic
+    if style_diagnostic is not None:
+        result["style_diagnostic"] = style_diagnostic
     if morphology_diagnostic is not None:
         result["morphology_diagnostic"] = morphology_diagnostic
         if (
@@ -748,6 +1124,79 @@ def _run_base_profile(
             )
         )
     return output
+
+
+def _classify_style_paths(
+    model_id: str,
+    prompts: tuple[str, ...],
+    paths: list[Path],
+    *,
+    device: torch.device,
+    batch_size: int,
+    crop_box_normalized: tuple[float, float, float, float] | None = None,
+) -> np.ndarray:
+    """Classify garment topology with a local SigLIP-style image/text model."""
+
+    if not paths:
+        return np.empty((0, len(prompts)), dtype=np.float32)
+    from transformers import AutoModel, AutoProcessor
+
+    processor = AutoProcessor.from_pretrained(
+        model_id,
+        cache_dir=CACHE_DIR / "huggingface" / "hub",
+        local_files_only=True,
+    )
+    model = AutoModel.from_pretrained(
+        model_id,
+        cache_dir=CACHE_DIR / "huggingface" / "hub",
+        local_files_only=True,
+    ).to(device).eval()
+    probabilities: list[np.ndarray] = []
+    try:
+        for start in range(0, len(paths), batch_size):
+            images = []
+            for path in paths[start : start + batch_size]:
+                with Image.open(path) as source:
+                    image = source.convert("RGB")
+                if crop_box_normalized is not None:
+                    left, top, right, bottom = crop_box_normalized
+                    cropped = image.crop(
+                        (
+                            int(round(left * image.width)),
+                            int(round(top * image.height)),
+                            int(round(right * image.width)),
+                            int(round(bottom * image.height)),
+                        )
+                    )
+                    image.close()
+                    image = cropped
+                images.append(image)
+            inputs = processor(
+                text=list(prompts),
+                images=images,
+                padding="max_length",
+                return_tensors="pt",
+            )
+            inputs = {
+                key: value.to(device)
+                for key, value in inputs.items()
+                if isinstance(value, torch.Tensor)
+            }
+            with torch.inference_mode(), torch.autocast(
+                device_type=device.type,
+                dtype=torch.float16,
+                enabled=device.type == "cuda",
+            ):
+                logits = model(**inputs).logits_per_image
+            probabilities.extend(
+                torch.softmax(logits, dim=-1).float().cpu().numpy()
+            )
+            for image in images:
+                image.close()
+    finally:
+        del model, processor
+        _release_memory()
+    return np.asarray(probabilities, dtype=np.float32)
 
 
 def _find_known_reference(image_path: Path) -> dict[str, Any] | None:

@@ -56,15 +56,27 @@ class PoliteHttpClient:
         self._robots: dict[str, urllib.robotparser.RobotFileParser | None] = {}
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
-    def fetch_text(self, url: str, target_path: Path | None = None) -> tuple[str, FetchResult]:
+    def fetch_text(
+        self,
+        url: str,
+        target_path: Path | None = None,
+        *,
+        force_refresh: bool = False,
+    ) -> tuple[str, FetchResult]:
         target = target_path or self._cache_path(url, ".html")
-        result = self.fetch_bytes(url, target)
+        result = self.fetch_bytes(url, target, force_refresh=force_refresh)
         return result.local_path.read_text(encoding="utf-8", errors="replace"), result
 
-    def fetch_bytes(self, url: str, target_path: Path | None = None) -> FetchResult:
+    def fetch_bytes(
+        self,
+        url: str,
+        target_path: Path | None = None,
+        *,
+        force_refresh: bool = False,
+    ) -> FetchResult:
         target = target_path or self._cache_path(url, extension_from_url(url))
         target.parent.mkdir(parents=True, exist_ok=True)
-        if target.exists() and target.stat().st_size > 0:
+        if not force_refresh and target.exists() and target.stat().st_size > 0:
             return FetchResult(url=url, local_path=target, from_cache=True, status=None, content_type=None)
 
         self._check_allowed(url)

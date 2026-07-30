@@ -29,6 +29,11 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=45.0, help="Network timeout per request in seconds.")
     parser.add_argument("--empty-stop", type=int, default=2, help="Stop after this many consecutive empty pages.")
     parser.add_argument(
+        "--refresh",
+        action="store_true",
+        help="Fetch fresh list pages even when an HTML cache entry exists.",
+    )
+    parser.add_argument(
         "--models",
         default="male,female",
         help="Comma-separated model filters to scan. Defaults to male,female.",
@@ -55,7 +60,12 @@ def main() -> int:
         model_empty_pages = 0
         for page in range(1, args.max_pages + 1):
             url = f"https://ffxiv.eorzeacollection.com/gearsets?page={page}&model={model}"
-            html, from_cache = collector._fetch_html(url, "gearset-list-by-model", f"{model}-{page}")
+            html, from_cache = collector._fetch_html(
+                url,
+                "gearset-list-by-model",
+                f"{model}-{page}",
+                force_refresh=args.refresh,
+            )
             page_count += 1
             links = extract_gearset_links(html, url)
             if not links:

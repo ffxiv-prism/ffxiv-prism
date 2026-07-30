@@ -30,6 +30,11 @@ def main() -> int:
     parser.add_argument("--delay", type=float, default=2.0, help="Delay between network requests in seconds.")
     parser.add_argument("--timeout", type=float, default=10.0, help="Network timeout per request in seconds.")
     parser.add_argument(
+        "--refresh",
+        action="store_true",
+        help="Fetch fresh list pages even when an HTML cache entry exists.",
+    )
+    parser.add_argument(
         "--ignore-robots",
         action="store_true",
         default=True,
@@ -47,7 +52,11 @@ def main() -> int:
         timeout_seconds=args.timeout,
         respect_robots=args.respect_robots,
     )
-    gearset_urls, summary = collector.discover_gearsets(args.start_url, max_pages=args.max_pages)
+    gearset_urls, summary = collector.discover_gearsets(
+        args.start_url,
+        max_pages=args.max_pages,
+        force_refresh=args.refresh,
+    )
     append_jsonl(
         INTERIM_DIR / "gearset_detail_queue.jsonl",
         [{"source_page_url": url} for url in gearset_urls],

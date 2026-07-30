@@ -8,6 +8,8 @@ from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from urllib.parse import urlparse
 
+from bs4 import BeautifulSoup
+
 from ffxiv_prism.collectors.eorzea_collection.models import (
     GearPieceRecord,
     GearsetRecord,
@@ -360,12 +362,12 @@ def build_static_gearset_images(
 def extract_equipment_pieces(html_text: str, page_url: str) -> list[GearPieceRecord]:
     equipment_html = extract_equipment_html(html_text)
     if not equipment_html:
-        return []
+        return extract_modern_equipment_pieces(html_text, page_url)
 
     marker_pattern = re.compile(r"\bc-gear-slot-(head|body|hands|legs|feet)\b", re.I)
     markers = [(match.group(1).upper(), match.start()) for match in marker_pattern.finditer(equipment_html)]
     if not markers:
-        return []
+        return extract_modern_equipment_pieces(html_text, page_url)
 
     pieces: list[GearPieceRecord] = []
     for index, (slot, start) in enumerate(markers):
@@ -385,6 +387,47 @@ def extract_equipment_pieces(html_text: str, page_url: str) -> list[GearPieceRec
                 occupied_slots=[slot],
             )
         )
+    return dedupe_pieces(pieces)
+
+
+def extract_modern_equipment_pieces(
+    html_text: str,
+    page_url: str,
+) -> list[GearPieceRecord]:
+    """Parse the v7 list-card equipment markup used by current gearset pages."""
+
+    soup = BeautifulSoup(html_text, "html.parser")
+    pieces: list[GearPieceRecord] = []
+    for box in soup.select("div.list.box"):
+        slot_node = box.select_one(".gear-icon-box-slot-name")
+        if slot_node is None:
+            continue
+        slot = normalize_label(slot_node.get_text(" ", strip=True))
+        if slot not in GEAR_SLOTS:
+            continue
+        for item in box.select(".list-item"):
+            name_node = item.select_one(".list-item-title")
+            if name_node is None:
+                continue
+            name = clean_text(name_node.get_text(" ", strip=True))
+            if not name:
+                continue
+            source_node = item.select_one(
+                f'a[href*="/glamours/{slot.casefold()}/"]'
+            )
+            if source_node is None:
+                source_node = item.select_one('a[href*="/glamours/"]')
+            source_url = None
+            if source_node is not None and source_node.get("href"):
+                source_url = absolute_url(str(source_node["href"]), page_url)
+            pieces.append(
+                GearPieceRecord(
+                    slot=slot,
+                    name=name,
+                    source_item_url=source_url,
+                    occupied_slots=[slot],
+                )
+            )
     return dedupe_pieces(pieces)
 
 
