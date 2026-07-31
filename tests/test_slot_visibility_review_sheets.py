@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import unittest
 
-from scripts.build_slot_visibility_review_sheets import deterministic_example
+from scripts.build_slot_visibility_review_sheets import (
+    deterministic_example,
+    select_preferred_examples,
+)
 
 
 class SlotVisibilityReviewSheetTests(unittest.TestCase):
@@ -25,6 +28,30 @@ class SlotVisibilityReviewSheetTests(unittest.TestCase):
     def test_deterministic_example_rejects_empty_input(self) -> None:
         with self.assertRaisesRegex(ValueError, "empty glamour"):
             deterministic_example([], 1, "10")
+
+    def test_select_preferred_examples_preserves_queue_order(self) -> None:
+        by_glamour = {
+            "10": [
+                {"example_id": "10:0"},
+                {"example_id": "10:1"},
+            ],
+            "20": [{"example_id": "20:0"}],
+        }
+
+        selected = select_preferred_examples(
+            by_glamour,
+            [
+                {"example_id": "20:0"},
+                {"example_id": "10:1"},
+                {"example_id": "10:0"},
+            ],
+        )
+
+        self.assertEqual(list(selected), ["20", "10"])
+        self.assertEqual(
+            [row["example_id"] for row in selected["10"]],
+            ["10:1", "10:0"],
+        )
 
 
 if __name__ == "__main__":

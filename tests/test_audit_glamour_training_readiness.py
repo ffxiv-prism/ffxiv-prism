@@ -8,8 +8,10 @@ from scripts.audit_glamour_training_readiness import (
     build_identity_roots,
     hamming_distance,
     identity_for,
+    independent_visibility_sample_failures,
     label_piece_ids,
     profile_slot,
+    resolve_visibility_evidence,
     Thresholds,
     wilson_half_width,
     wilson_interval,
@@ -55,6 +57,67 @@ class TrainingReadinessAuditTests(unittest.TestCase):
         self.assertIsNotNone(interval)
         self.assertGreater(interval[0], 0.92)
         self.assertLess(interval[0], 0.94)
+
+    def test_independent_visibility_gate_rejects_low_feet_quality(self) -> None:
+        failures = independent_visibility_sample_failures(
+            {
+                "FEET": {
+                    "independent_sample_images": 100,
+                    "independent_sample_usable": 91,
+                    "independent_sample_usable_rate": 0.91,
+                    "independent_sample_usable_wilson_95": [0.838, 0.952],
+                },
+                "BODY": {
+                    "independent_sample_images": 100,
+                    "independent_sample_usable": 100,
+                    "independent_sample_usable_rate": 1.0,
+                    "independent_sample_usable_wilson_95": [0.963, 1.0],
+                },
+            },
+            Thresholds(),
+        )
+
+        self.assertIn("FEET", failures)
+        self.assertNotIn("BODY", failures)
+
+    def test_ready_curation_supersedes_failed_pre_remediation_sample(self) -> None:
+        audit = {
+            "FEET": {
+                "independent_sample_images": 100,
+                "independent_sample_usable": 91,
+                "independent_sample_usable_rate": 0.91,
+                "independent_sample_usable_wilson_95": [0.838, 0.952],
+            }
+        }
+
+        ready, curated, failures = resolve_visibility_evidence(
+            audit,
+            {"FEET": {"status": "ready", "checks": {"complete": True}}},
+            Thresholds(),
+        )
+
+        self.assertIn("FEET", failures)
+        self.assertEqual(ready, {"FEET"})
+        self.assertEqual(curated, {"FEET"})
+
+    def test_empty_curation_checks_fail_closed(self) -> None:
+        audit = {
+            "FEET": {
+                "independent_sample_images": 0,
+                "independent_sample_usable": 0,
+                "independent_sample_usable_rate": None,
+                "independent_sample_usable_wilson_95": None,
+            }
+        }
+
+        ready, curated, _ = resolve_visibility_evidence(
+            audit,
+            {"FEET": {"status": "ready", "checks": {}}},
+            Thresholds(),
+        )
+
+        self.assertNotIn("FEET", ready)
+        self.assertNotIn("FEET", curated)
 
     def test_visibility_audit_counts_only_labelled_slot_rows(self) -> None:
         examples = [

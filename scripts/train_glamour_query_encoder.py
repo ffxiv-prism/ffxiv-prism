@@ -274,8 +274,11 @@ def main() -> int:
     parser.add_argument(
         "--vision-reviews",
         type=Path,
-        default=PROCESSED_DIR / "foreground_vision_reviews_v1.jsonl",
-        help="Optional human/vision-model image and slot usability reviews.",
+        default=PROCESSED_DIR / "training_visibility_reviews_20260801.jsonl",
+        help=(
+            "Optional merged human image/slot usability reviews. Known "
+            "unusable slots and globally invalid images are excluded."
+        ),
     )
     parser.add_argument(
         "--augment",
@@ -390,11 +393,14 @@ def main() -> int:
         }
         for split in split_examples
     }
-    vision_reviews = (
-        load_vision_reviews(args.vision_reviews)
-        if args.vision_reviews.is_file()
-        else {}
-    )
+    if not args.vision_reviews.is_file():
+        raise FileNotFoundError(
+            "Required player-derived training visibility reviews are missing: "
+            f"{args.vision_reviews}. Rebuild them with "
+            "scripts/build_training_visibility_reviews.py; training must not "
+            "silently continue without known unusable-slot exclusions."
+        )
+    vision_reviews = load_vision_reviews(args.vision_reviews)
     split_records["train"] = apply_training_reviews(
         split_records["train"],
         vision_reviews,

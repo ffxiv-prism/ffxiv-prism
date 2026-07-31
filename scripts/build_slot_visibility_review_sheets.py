@@ -10,8 +10,11 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageOps
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+SRC_DIR = PROJECT_ROOT / "src"
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
 
 from ffxiv_prism.jsonl import read_jsonl, write_json, write_jsonl
 from ffxiv_prism.paths import PROCESSED_DIR, portable_path
@@ -33,6 +36,14 @@ def main() -> int:
     )
     parser.add_argument("--glamour-ids", nargs="+")
     parser.add_argument("--sample-size", type=int)
+    parser.add_argument(
+        "--preferred-examples",
+        type=Path,
+        help=(
+            "JSONL queue whose example_id rows should be rendered exactly; "
+            "mutually exclusive with --glamour-ids/--sample-size."
+        ),
+    )
     parser.add_argument("--seed", type=int, default=20260730)
     parser.add_argument(
         "--exclude-reviews",
@@ -55,8 +66,21 @@ def main() -> int:
     parser.add_argument("--cell-height", type=int, default=260)
     args = parser.parse_args()
 
-    if not args.glamour_ids and not args.sample_size:
-        parser.error("provide --glamour-ids or --sample-size")
+    if args.preferred_examples is not None and (
+        args.glamour_ids or args.sample_size
+    ):
+        parser.error(
+            "--preferred-examples is mutually exclusive with "
+            "--glamour-ids/--sample-size"
+        )
+    if (
+        args.preferred_examples is None
+        and not args.glamour_ids
+        and not args.sample_size
+    ):
+        parser.error(
+            "provide --glamour-ids, --sample-size, or --preferred-examples"
+        )
     passed_ids = (
         {
             str(row["example_id"])
@@ -110,7 +134,14 @@ def main() -> int:
             ]
             if not by_glamour[glamour_id]:
                 del by_glamour[glamour_id]
-    if args.glamour_ids:
+    preferred_by_glamour: dict[str, list[dict]] = {}
+    if args.preferred_examples is not None:
+        preferred_by_glamour = select_preferred_examples(
+            by_glamour,
+            read_jsonl(args.preferred_examples),
+        )
+        wanted = list(preferred_by_glamour)
+    elif args.glamour_ids:
         wanted = [str(value) for value in args.glamour_ids]
     else:
         available = sorted(by_glamour)
@@ -126,7 +157,9 @@ def main() -> int:
     ordered_ids = [value for value in wanted if value in by_glamour]
     selected_by_glamour = {
         glamour_id: (
-            [
+            preferred_by_glamour[glamour_id]
+            if glamour_id in preferred_by_glamour
+            else [
                 deterministic_example(
                     by_glamour[glamour_id],
                     args.seed,
@@ -224,6 +257,11 @@ def main() -> int:
                 else None
             ),
             "review_example_count": len(review_rows),
+            "preferred_examples": (
+                portable_path(args.preferred_examples)
+                if args.preferred_examples is not None
+                else None
+            ),
             "one_per_glamour": args.one_per_glamour,
             "excluded_reviewed_examples": len(excluded_example_ids),
             "excluded_reviewed_glamours": (
@@ -259,6 +297,27 @@ def deterministic_example(
     ).digest()
     index = int.from_bytes(digest[:8], "big") % len(ordered)
     return ordered[index]
+
+
+def select_preferred_examples(
+    by_glamour: dict[str, list[dict]],
+    preferred_rows: list[dict],
+) -> dict[str, list[dict]]:
+    examples_by_id = {
+        str(example["example_id"]): (glamour_id, example)
+        for glamour_id, examples in by_glamour.items()
+        for example in examples
+    }
+    selected: dict[str, list[dict]] = {}
+    seen_ids: set[str] = set()
+    for row in preferred_rows:
+        example_id = str(row.get("example_id"))
+        if example_id in seen_ids or example_id not in examples_by_id:
+            continue
+        seen_ids.add(example_id)
+        glamour_id, example = examples_by_id[example_id]
+        selected.setdefault(glamour_id, []).append(example)
+    return selected
 
 
 if __name__ == "__main__":

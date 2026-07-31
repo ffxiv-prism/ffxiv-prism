@@ -1,4 +1,4 @@
-# FFXIV Prism 当前状态与后续准入（2026-07-30）
+# FFXIV Prism 当前状态与后续准入（更新至 2026-08-01）
 
 ## 一句话结论
 
@@ -111,7 +111,7 @@ BODY 的主要问题已从候选覆盖转为相似外观细排。继续增加深
 
 最终 v46 质量清单只接受 1,105/6,447 张（17.14%）。自动姿态门槛曾接受 2,099 张，但最终清单叠加人工视觉复核后更严格。这个数量不能仅凭“约一千张”就认定充足，尤其不能认为每个部位、外观形态、种族、性别、遮挡和可见性都已覆盖。
 
-## 2026-07-30 训练准入审计
+## 2026-08-01 训练准入审计
 
 技术结论：**不通过，训练继续阻塞。**
 
@@ -124,7 +124,7 @@ BODY 的主要问题已从候选覆盖转为相似外观细排。继续增加深
 - HEAD 的 Roegadyn 只有 29 张，且 fold-01/fold-02 训练图分别为 595/597，低于预登记 600 下限；
 - 全量姿态预筛已覆盖 1,105/1,105 张且无推理错误：HEAD 1000 clear / 5 partial，BODY 1101 / 0，HANDS 1044 / 12，LEGS 1034 / 37，FEET 1021 / 59，没有结构性 unusable；
 - 姿态预筛只证明部位入镜、关键点可信和裁剪像素足够，不能看见袖子、武器、特效和道具造成的语义遮挡；
-- 逐槽语义可见性目前只完成人工 HANDS 154/1,056（覆盖 140 个 glamour），其他部位仍为 0%，不能据此放行训练。
+- 逐槽语义复核已覆盖 HEAD 100/1,005、BODY 100/1,101、HANDS 154/1,056、LEGS 100/1,071、FEET 349/1,080。HEAD/BODY/HANDS/LEGS 由独立随机样本验证；FEET 另有完整高风险队列复核和规则阴性区独立留出审计。可见性门禁本身已统计通过，但数量、多样性和旧分母漂移仍阻塞训练。
 
 候选覆盖修复后，严格 pooled 分母变为 BODY 988、HEAD 900、HANDS 949、LEGS 965、FEET 976；旧注册值分别为 987/899/945/955/967。旧成绩必须保持“待刷新”状态，不能只改分母而沿用原命中数。
 
@@ -141,6 +141,26 @@ BODY 的主要问题已从候选覆盖转为相似外观细排。继续增加深
 | FEET | 184 / 364 | 50.5% |
 
 HEAD、BODY、HANDS 低于预登记的 50% 下限；即便 LEGS/FEET 刚过线，约一半外观仍只有单一玩家搭配。多张同 glamour 图片不能代替不同角色、染色、姿态和场景，这也是当前截图域泛化不稳的重要数据根因。
+
+### 五部位独立语义可见性抽样
+
+除 HANDS 首批定向复核外，每个部位都以固定种子抽取 100 个独立 glamour，每个 glamour 只取 1 张最终质量图。训练质量预登记要求点估计 usable ≥95%，且 Wilson 95% 下界 ≥90%；样本少于 100 也不放行。
+
+| 部位 | clear | partial | unusable | usable | Wilson 95% |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| HEAD | 69 | 30 | 1 | 99% | 94.6%–99.8% |
+| BODY | 80 | 20 | 0 | 100% | 96.3%–100% |
+| HANDS | 58 | 40 | 2 | 98% | 93.0%–99.4% |
+| LEGS | 70 | 30 | 0 | 100% | 96.3%–100% |
+| FEET | 74 | 17 | 9 | 91% | 83.8%–95.2% |
+
+BODY、LEGS、HEAD、HANDS 的独立样本达到该抽样门槛，但这只证明总体错误率不像当前识别指标那样严重，不能替代逐行训练过滤。FEET 明确不通过：9 个 unusable 中 8 个被及地裙/长袍完全遮住，1 个在源图中出框。当前结构姿态预筛把这 100 张 FEET 全部判为 clear 或 partial，因此“脚踝关键点存在”不能证明鞋本身可见。
+
+为验证能否自动剔除这类 FEET 噪声，使用本地服饰语义解析器提取鞋像素、裙/连衣裙延伸位置和画面边缘特征，并按标签分层固定为 development 51 / holdout 49。开发集选出的规则在留出集只找回 3/4 个 unusable，同时误杀 2 个 usable（precision 60%、recall 75%、accuracy 93.9%）。高总体准确率主要来自 45 个真阴性，不能掩盖少数类漏检；该规则已否决为自动训练过滤器，只可用于排列人工复核优先级。
+
+随后把规则应用到全部 1,080 张有 FEET 标签的最终质量图，只形成 162 张人工优先队列，不做自动删除。队列已 162/162 全量复核：54 张不可用、108 张可用，队列命中率 33.3%；不可用根因为及地裙/长袍完全遮挡 43 张、脚部出框 10 张、非游戏参考图 1 张。规则阴性区再排除既有审计样本，固定抽取 100 个不同 glamour，结果为 clear 86、partial 14、unusable 0，usable 100%，Wilson 95% 下界 96.3%。全部已知 55 张 FEET 不可用图已经写入训练剔除清单，剩余可训练 FEET 图为 1,025 张；修复策略审计的 10 项完整性检查全部通过。该结论只放行 FEET 数据清洗，不代表识别准确率已经达标。
+
+同一轮还追查了非游戏图为何通过全身质量门槛。Eorzea Collection 的单个搭配页可以混入角色参考画，而姿态模型仍会给这种完整人形高分。用本地 CLIP 只做来源风险排序，已知参考画 `286954:1` 排在 1/1,105；人工看完风险最高的 100 张后，仅该 1 张无效，其余 99 张均为游戏截图。参考画已升级为整图全槽拒绝，CLIP 分数不参与自动训练真值。
 
 ### HANDS 根因抽查
 
@@ -182,12 +202,12 @@ HEAD、BODY、HANDS 低于预登记的 50% 下限；即便 LEGS/FEET 刚过线�
 
 ## 后续优先级
 
-1. 继续扩充逐槽独立 glamour 语义复核，先补 HEAD，再补 BODY/LEGS/FEET；门禁未过前不训练；
-2. 为单 glamour 外观定向补充不同玩家、姿态、染色和场景，优先 HEAD/BODY/HANDS；
+1. FEET 高风险队列、规则阴性留出审计和训练剔除清单已经完成；保持这些决策冻结，不把语义规则升级为自动删除器；
+2. 当前首要数据缺口转为独立 glamour 多样性和 HEAD 数量：优先补 HEAD/BODY/HANDS 的单 glamour 外观，并补足 HEAD Roegadyn 与 fold-01/02 训练量；
 3. HANDS 验证真实玩家 exemplar 分支和姿态归一化局部对应，先证明能修复玩家图到规范渲染的域断点；
-4. 数据门禁通过后分别重建 fold-01/02/03 模型和缓存，刷新严格三折基线；
-5. 每个方案先在开发折选参，再冻结到另两折；不得反向用验证折调阈值；
-6. HEAD、FEET、LEGS 按 Top-10 缺口依次推进；BODY 只做不破坏 82.88% Top-10 的保守改进。
+4. LEGS/FEET 模型显式建模 BODY 或长裙遮挡，训练时只消费逐槽 usable 行；
+5. 数据门禁通过后分别重建 fold-01/02/03 模型和缓存，刷新严格三折基线；
+6. 每个方案先在开发折选参，再冻结到另两折；不得反向用验证折调阈值；BODY 只做不破坏 82.88% Top-10 的保守改进。
 
 ## 仓库资产策略
 
@@ -201,6 +221,7 @@ HEAD、BODY、HANDS 低于预登记的 50% 下限；即便 LEGS/FEET 刚过线�
 
 - 模型权重、向量索引、原图、远端 HTML；
 - 闭包玩家标签、最终质量清单和逐 glamour 严格折；
+- 含玩家图片标识的逐图/逐槽人工复核与训练剔除清单；
 - embedding/search cache、逐实验明细、调试裁剪；
 - Web 上传与推理输出；
 - 可从规范清单重建的旧版数据派生文件。
@@ -222,7 +243,15 @@ python scripts\recognize_glamour.py --check
 python scripts\build_pose_slot_visibility_manifest.py --device cuda --resume
 python scripts\audit_glamour_training_readiness.py `
   --visibility-reviews data\outputs\hands-visibility-audit-sample-20260730\manual-reviews.jsonl `
-  --visibility-reviews data\outputs\hands-visibility-independent-audit-20260731\manual-reviews.jsonl
+  --visibility-reviews data\outputs\hands-visibility-independent-audit-20260731\manual-reviews.jsonl `
+  --visibility-reviews data\outputs\head-visibility-independent-audit-20260731\manual-reviews.jsonl `
+  --visibility-reviews data\outputs\body-visibility-independent-audit-20260731\manual-reviews.jsonl `
+  --visibility-reviews data\outputs\legs-visibility-independent-audit-20260731\manual-reviews.jsonl `
+  --visibility-reviews data\outputs\feet-visibility-independent-audit-20260731\manual-reviews.jsonl `
+  --visibility-reviews data\outputs\feet-visibility-triage-review-20260801\manual-reviews.jsonl `
+  --visibility-reviews data\outputs\feet-visibility-negative-audit-review-20260801\manual-reviews.jsonl `
+  --visibility-curation-report data\outputs\feet-visibility-curation-20260801\report.json `
+  --output-dir data\outputs\training-readiness-audit-20260801
 ```
 
-第二条当前预期返回非零状态并写出 `do_not_train`；只有逐槽语义复核、HEAD 数量门槛和新候选快照上的严格基线全部修复后，才允许返回通过。
+第二条当前预期返回非零状态并写出 `do_not_train`。可见性门禁已从 critical/high 降为通过独立统计验证的 medium 记录；仍需解决 HEAD 数量、HEAD/BODY/HANDS 独立 glamour 覆盖和新候选快照上的严格分母/基线，才允许返回通过。

@@ -109,6 +109,9 @@ class Thresholds:
     min_gender_images: int = 100
     min_race_images: int = 30
     min_multi_glamour_identity_rate: float = 0.5
+    min_independent_visibility_sample: int = 100
+    min_independent_sample_usable_rate: float = 0.95
+    min_independent_sample_wilson_low: float = 0.90
     max_ci_half_width: float = 0.03
     near_duplicate_hamming: int = 4
 
@@ -163,6 +166,17 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=DEFAULT_POSE_VISIBILITY,
     )
+    parser.add_argument(
+        "--visibility-curation-report",
+        type=Path,
+        action="append",
+        default=[],
+        help=(
+            "Validated slot-specific curation report. Repeat for multiple "
+            "slots; a ready report can supersede a failed pre-remediation "
+            "independent sample."
+        ),
+    )
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--min-labelled-images", type=int, default=1000)
     parser.add_argument("--min-train-images-per-fold", type=int, default=600)
@@ -177,6 +191,21 @@ def parse_args() -> argparse.Namespace:
             "Minimum share of appearance identities represented by at least "
             "two independent glamours."
         ),
+    )
+    parser.add_argument(
+        "--min-independent-visibility-sample",
+        type=int,
+        default=100,
+    )
+    parser.add_argument(
+        "--min-independent-sample-usable-rate",
+        type=float,
+        default=0.95,
+    )
+    parser.add_argument(
+        "--min-independent-sample-wilson-low",
+        type=float,
+        default=0.90,
     )
     parser.add_argument("--max-ci-half-width", type=float, default=0.03)
     parser.add_argument("--near-duplicate-hamming", type=int, default=4)
@@ -749,6 +778,7 @@ def build_findings(
     fold_audits: Mapping[str, Mapping[str, Any]],
     visibility_audit: Mapping[str, Mapping[str, Any]],
     pose_visibility_audit: Mapping[str, Mapping[str, Any]],
+    visibility_curation: Mapping[str, Mapping[str, Any]],
     thresholds: Thresholds,
 ) -> list[dict[str, str]]:
     findings = []
@@ -793,12 +823,26 @@ def build_findings(
                 "剔除或重新下载问题图片，再冻结新的质量清单。",
             )
         )
+    (
+        evidence_ready_slots,
+        curation_ready_slots,
+        visibility_sample_failures,
+    ) = resolve_visibility_evidence(
+        visibility_audit,
+        visibility_curation,
+        thresholds,
+    )
     incomplete_visibility = {
         slot: row
         for slot, row in visibility_audit.items()
         if row["reviewed_images"] < row["labelled_images"]
     }
-    if incomplete_visibility:
+    unresolved_incomplete_visibility = {
+        slot: row
+        for slot, row in incomplete_visibility.items()
+        if slot not in evidence_ready_slots
+    }
+    if unresolved_incomplete_visibility:
         evidence = "；".join(
             (
                 f"{slot} {row['reviewed_images']}/{row['labelled_images']}"
@@ -806,7 +850,7 @@ def build_findings(
                 f"partial {row['visibility_counts'].get('partial', 0)}，"
                 f"unusable {row['visibility_counts'].get('unusable', 0)}）"
             )
-            for slot, row in incomplete_visibility.items()
+            for slot, row in unresolved_incomplete_visibility.items()
         )
         findings.append(
             finding(
@@ -816,6 +860,39 @@ def build_findings(
                 evidence,
                 "HANDS、HEAD 等小部位可能被袖子、头发、武器或画面边缘遮挡，形成不可学习的标签噪声。",
                 "继续独立人工复核并写入 clear/partial/unusable 与遮挡原因；HANDS 优先，训练只消费 usable 行。",
+            )
+        )
+    elif incomplete_visibility:
+        findings.append(
+            finding(
+                "medium",
+                "slot_visibility_statistically_validated",
+                "未做全量人工普查，但逐槽可见性已有独立统计验证",
+                "；".join(
+                    f"{slot}={('curation' if slot in curation_ready_slots else 'independent_sample')}"
+                    for slot in sorted(incomplete_visibility)
+                ),
+                "残余标签噪声由独立样本或完整审计的修复策略约束，已知不可用行会被训练清单剔除。",
+                "后续训练必须冻结并消费本次人工决策与剔除清单。",
+            )
+        )
+    for slot, failure in visibility_sample_failures.items():
+        if slot in curation_ready_slots:
+            continue
+        findings.append(
+            finding(
+                "high",
+                f"{slot.lower()}_independent_visibility_quality",
+                f"{slot} 独立语义可见性样本未达到训练质量门槛",
+                failure["evidence"],
+                (
+                    "玩家图中的真值可能实际不可辨，导致模型被迫把同套装、"
+                    "角色或场景上下文学成装备身份。"
+                ),
+                (
+                    "按遮挡原因剔除不可用行、补充独立 glamour，并在另一批"
+                    "固定随机样本上重新验证；自动规则只可用于人工队列排序。"
+                ),
             )
         )
     duplicate_visibility_reviews = sum(
@@ -1128,6 +1205,89 @@ def audit_slot_visibility(
     return output
 
 
+def independent_visibility_sample_failures(
+    visibility_audit: Mapping[str, Mapping[str, Any]],
+    thresholds: Thresholds,
+) -> dict[str, dict[str, Any]]:
+    failures = {}
+    for slot, audit in visibility_audit.items():
+        sample_size = int(audit.get("independent_sample_images") or 0)
+        usable = int(audit.get("independent_sample_usable") or 0)
+        usable_rate = audit.get("independent_sample_usable_rate")
+        interval = audit.get("independent_sample_usable_wilson_95")
+        wilson_low = interval[0] if interval else None
+        reasons = []
+        if sample_size < thresholds.min_independent_visibility_sample:
+            reasons.append(
+                f"独立样本 {sample_size} < "
+                f"{thresholds.min_independent_visibility_sample}"
+            )
+        if (
+            usable_rate is None
+            or usable_rate < thresholds.min_independent_sample_usable_rate
+        ):
+            usable_text = (
+                f"{usable_rate:.2%}"
+                if usable_rate is not None
+                else "missing"
+            )
+            reasons.append(
+                "usable 比例 "
+                f"{usable_text} < "
+                f"{thresholds.min_independent_sample_usable_rate:.2%}"
+            )
+        if (
+            wilson_low is None
+            or wilson_low < thresholds.min_independent_sample_wilson_low
+        ):
+            wilson_text = (
+                f"{wilson_low:.2%}"
+                if wilson_low is not None
+                else "missing"
+            )
+            reasons.append(
+                "Wilson 95% 下界 "
+                f"{wilson_text} < "
+                f"{thresholds.min_independent_sample_wilson_low:.2%}"
+            )
+        if reasons:
+            failures[slot] = {
+                "sample_size": sample_size,
+                "usable": usable,
+                "usable_rate": usable_rate,
+                "wilson_low": wilson_low,
+                "reasons": reasons,
+                "evidence": (
+                    f"独立样本 {usable}/{sample_size} usable；"
+                    + "；".join(reasons)
+                    + "。"
+                ),
+            }
+    return failures
+
+
+def resolve_visibility_evidence(
+    visibility_audit: Mapping[str, Mapping[str, Any]],
+    visibility_curation: Mapping[str, Mapping[str, Any]],
+    thresholds: Thresholds,
+) -> tuple[set[str], set[str], dict[str, dict[str, Any]]]:
+    sample_failures = independent_visibility_sample_failures(
+        visibility_audit,
+        thresholds,
+    )
+    curation_ready_slots = {
+        slot
+        for slot, report in visibility_curation.items()
+        if report.get("status") == "ready"
+        and bool(report.get("checks"))
+        and all((report.get("checks") or {}).values())
+    }
+    ready_slots = (
+        set(visibility_audit) - set(sample_failures)
+    ) | curation_ready_slots
+    return ready_slots, curation_ready_slots, sample_failures
+
+
 def audit_pose_slot_visibility(
     passed_examples: Sequence[Mapping[str, Any]],
     pose_rows: Sequence[Mapping[str, Any]],
@@ -1288,6 +1448,15 @@ def main() -> int:
         min_multi_glamour_identity_rate=(
             args.min_multi_glamour_identity_rate
         ),
+        min_independent_visibility_sample=(
+            args.min_independent_visibility_sample
+        ),
+        min_independent_sample_usable_rate=(
+            args.min_independent_sample_usable_rate
+        ),
+        min_independent_sample_wilson_low=(
+            args.min_independent_sample_wilson_low
+        ),
         max_ci_half_width=args.max_ci_half_width,
         near_duplicate_hamming=args.near_duplicate_hamming,
     )
@@ -1394,6 +1563,20 @@ def main() -> int:
         passed_examples,
         pose_visibility_rows,
     )
+    visibility_curation_paths = [
+        resolve_input(path) for path in args.visibility_curation_report
+    ]
+    visibility_curation = {}
+    for path in visibility_curation_paths:
+        if not path.is_file():
+            continue
+        report = json.loads(path.read_text(encoding="utf-8"))
+        slot = str(report.get("slot") or "").upper()
+        if slot not in SLOTS:
+            raise ValueError(f"Invalid visibility curation slot in {path}: {slot}")
+        if slot in visibility_curation:
+            raise ValueError(f"Duplicate visibility curation report for {slot}")
+        visibility_curation[slot] = report
     findings = build_findings(
         manifest,
         image_audit,
@@ -1401,6 +1584,7 @@ def main() -> int:
         fold_audits,
         visibility_audit,
         pose_visibility_audit,
+        visibility_curation,
         thresholds,
     )
     severity_counts = Counter(row["severity"] for row in findings)
@@ -1428,6 +1612,11 @@ def main() -> int:
                 if pose_visibility_path.is_file()
                 else None
             ),
+            "visibility_curation_reports": [
+                portable_path(path)
+                for path in visibility_curation_paths
+                if path.is_file()
+            ],
             "primary_indexes": {
                 slot: portable_path(resolve_input(path))
                 for slot, path in INDEX_DIRS.items()
@@ -1446,6 +1635,7 @@ def main() -> int:
         },
         "visibility": visibility_audit,
         "pose_visibility": pose_visibility_audit,
+        "visibility_curation": visibility_curation,
         "slots": slot_profiles,
         "folds": fold_audits,
         "severity_counts": dict(sorted(severity_counts.items())),

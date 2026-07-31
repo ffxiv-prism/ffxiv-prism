@@ -80,6 +80,9 @@ data/processed/front_fullbody_quality_clip_ensemble_pilot*
 # Player-derived quality manifests and labels remain local. They may contain
 # glamour-level source metadata and must not be uploaded with the code.
 data/processed/glamour_examples_huiji_*
+# Player-derived per-image/per-slot review decisions remain local and are
+# generated from ignored manual review artifacts before training.
+data/processed/training_visibility_reviews_*.jsonl
 
 # Broad experiment-output policy. Durable conclusions belong in the current
 # status document and compact metrics snapshot.
