@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import copy
 import hashlib
+import json
 import random
 import sys
 from collections import defaultdict
@@ -20,11 +21,13 @@ if str(PROJECT_ROOT) not in sys.path:
 from ffxiv_prism.jsonl import read_jsonl, write_json
 from ffxiv_prism.paths import CACHE_DIR, PROCESSED_DIR, portable_path
 from ffxiv_prism.torch_device import resolve_torch_device
+from ffxiv_prism.vision.evaluation_split import load_split_assignments
 from scripts.evaluate_glamour_embedding_model import DINO_MEAN, DINO_STD
 from scripts.evaluate_glamour_matching import SLOTS
 from scripts.train_glamour_adapter import build_candidate_state
 from scripts.train_glamour_query_encoder import (
     SlotAttentionPooler,
+    load_slot_eligibility,
     load_query_head_from_checkpoint,
     set_seed,
     unfreeze_last_blocks,
@@ -38,13 +41,21 @@ DEFAULT_OUTPUT = PROCESSED_DIR / "synthetic_query_encoder_eval.json"
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Train the query encoder on screenshot-like augmentations of every "
-            "canonical equipment render. All race/gender renders of one piece "
-            "are positives, discouraging mannequin identity features."
+            "Train the query encoder on screenshot-like augmentations of "
+            "strict fold-train canonical equipment renders. All race/gender "
+            "renders of one allowed piece are positives, discouraging "
+            "mannequin identity features without leaking validation pieces."
         )
     )
     parser.add_argument("--model-id", default="facebook/dinov2-base")
     parser.add_argument("--index-dir", type=Path, default=DEFAULT_INDEX)
+    parser.add_argument("--examples", type=Path, required=True)
+    parser.add_argument(
+        "--slot-eligibility-manifest",
+        type=Path,
+        required=True,
+    )
+    parser.add_argument("--fold-manifest", type=Path, required=True)
     parser.add_argument("--resume-checkpoint", type=Path)
     parser.add_argument("--checkpoint", type=Path, default=DEFAULT_CHECKPOINT)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
@@ -63,6 +74,14 @@ def main() -> int:
     parser.add_argument("--validation-percent", type=int, default=5)
     parser.add_argument("--max-train-images", type=int)
     parser.add_argument("--max-validation-images", type=int, default=1200)
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help=(
+            "Validate the strict fold piece scope and report synthetic sample "
+            "counts without loading or updating the model."
+        ),
+    )
     args = parser.parse_args()
 
     set_seed(args.seed)
@@ -88,7 +107,43 @@ def main() -> int:
         candidate_embeddings,
         device,
     )
-    samples = build_catalog_samples(metadata, candidate_state["piece_to_local"])
+    examples = read_jsonl(args.examples)
+    eligible_slots = load_slot_eligibility(args.slot_eligibility_manifest)
+    assignments = load_split_assignments(args.fold_manifest)
+    allowed_piece_ids = collect_piece_ids_for_role(
+        examples,
+        eligible_slots,
+        assignments,
+        selected_slots,
+        role="train",
+    )
+    validation_piece_ids = collect_piece_ids_for_role(
+        examples,
+        eligible_slots,
+        assignments,
+        selected_slots,
+        role="validation",
+    )
+    validation_overlap = {
+        slot: sorted(allowed_piece_ids[slot] & validation_piece_ids[slot])
+        for slot in selected_slots
+    }
+    if any(validation_overlap.values()):
+        raise ValueError(
+            "Synthetic query scope leaks validation piece IDs: "
+            f"{validation_overlap}"
+        )
+    samples = build_catalog_samples(
+        metadata,
+        candidate_state["piece_to_local"],
+        allowed_piece_ids=allowed_piece_ids,
+        forbidden_piece_ids=validation_piece_ids,
+    )
+    empty_slots = [slot for slot in selected_slots if not samples[slot]]
+    if empty_slots:
+        raise ValueError(
+            f"No fold-train canonical samples for requested slots: {empty_slots}"
+        )
     train_samples, validation_samples = split_catalog_samples(
         samples,
         validation_percent=args.validation_percent,
@@ -103,6 +158,37 @@ def main() -> int:
         args.max_validation_images,
         args.seed + 1,
     )
+    if args.dry_run:
+        payload = {
+            "version": 1,
+            "status": "ready",
+            "training_started": False,
+            "slots": list(args.slots),
+            "allowed_piece_counts": {
+                slot: len(allowed_piece_ids[slot])
+                for slot in sorted(selected_slots)
+            },
+            "validation_piece_overlap_counts": {
+                slot: len(validation_overlap[slot])
+                for slot in sorted(selected_slots)
+            },
+            "train_image_count": sum(map(len, train_samples.values())),
+            "validation_image_count": sum(
+                map(len, validation_samples.values())
+            ),
+            "candidate_count": len(metadata),
+            "sources": {
+                "index_dir": portable_path(args.index_dir),
+                "examples": portable_path(args.examples),
+                "slot_eligibility_manifest": portable_path(
+                    args.slot_eligibility_manifest
+                ),
+                "fold_manifest": portable_path(args.fold_manifest),
+            },
+        }
+        write_json(args.output, payload)
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 0
 
     from transformers import AutoModel
 
@@ -220,6 +306,11 @@ def main() -> int:
             "best_epoch": best_epoch,
             "seed": args.seed,
             "training_source": "augmented_canonical_equipment_renders",
+            "training_source_scope": "fold_train_only",
+            "source_fold_manifest": portable_path(args.fold_manifest),
+            "source_slot_eligibility_manifest": portable_path(
+                args.slot_eligibility_manifest
+            ),
         },
         args.checkpoint,
     )
@@ -248,10 +339,24 @@ def main() -> int:
                     map(len, validation_samples.values())
                 ),
                 "race_invariant_positive_policy": "all_piece_renders",
+                "query_piece_scope": "fold_train_only",
+                "allowed_piece_counts": {
+                    slot: len(allowed_piece_ids[slot])
+                    for slot in sorted(selected_slots)
+                },
+                "validation_piece_overlap_counts": {
+                    slot: len(validation_overlap[slot])
+                    for slot in sorted(selected_slots)
+                },
                 "slots": list(args.slots),
                 "history": history,
             },
             "index_dir": portable_path(args.index_dir),
+            "examples": portable_path(args.examples),
+            "slot_eligibility_manifest": portable_path(
+                args.slot_eligibility_manifest
+            ),
+            "fold_manifest": portable_path(args.fold_manifest),
             "resume_checkpoint": portable_path(args.resume_checkpoint),
         },
     )
@@ -262,6 +367,9 @@ def main() -> int:
 def build_catalog_samples(
     metadata: Sequence[dict[str, Any]],
     piece_to_local: dict[str, dict[int, tuple[int, ...]]],
+    *,
+    allowed_piece_ids: dict[str, set[int]] | None = None,
+    forbidden_piece_ids: dict[str, set[int]] | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
     local_indices = defaultdict(int)
     output = {slot: [] for slot in SLOTS}
@@ -271,6 +379,25 @@ def build_catalog_samples(
             continue
         local_index = local_indices[slot]
         local_indices[slot] += 1
+        row_piece_ids = {
+            int(piece["piece_id"])
+            for piece in row.get("pieces", [])
+        }
+        allowed_match = (
+            row_piece_ids.intersection(allowed_piece_ids.get(slot, set()))
+            if allowed_piece_ids is not None
+            else row_piece_ids
+        )
+        if not allowed_match:
+            continue
+        forbidden_match = row_piece_ids.intersection(
+            (forbidden_piece_ids or {}).get(slot, set())
+        )
+        if forbidden_match:
+            raise ValueError(
+                "Fold-train canonical row also contains validation pieces: "
+                f"slot={slot} piece_ids={sorted(forbidden_match)}"
+            )
         positives = sorted(
             {
                 candidate_index
@@ -294,6 +421,30 @@ def build_catalog_samples(
                 "positives": tuple(positives),
             }
         )
+    return output
+
+
+def collect_piece_ids_for_role(
+    examples: Sequence[dict[str, Any]],
+    eligible_slots: dict[str, set[str]],
+    assignments: dict[str, str],
+    selected_slots: set[str],
+    *,
+    role: str,
+) -> dict[str, set[int]]:
+    output = {slot: set() for slot in selected_slots}
+    for example in examples:
+        if assignments.get(str(example.get("glamour_id"))) != role:
+            continue
+        example_id = str(example.get("example_id"))
+        labels = example.get("core_slot_labels") or {}
+        for slot in selected_slots.intersection(
+            eligible_slots.get(example_id, set())
+        ):
+            output[slot].update(
+                int(piece_id)
+                for piece_id in (labels.get(slot) or {}).get("piece_ids", [])
+            )
     return output
 
 

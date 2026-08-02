@@ -98,8 +98,8 @@ def fold_gate(audit: Mapping[str, Any]) -> bool:
 def collect_crop_record_presence(
     examples: Sequence[Mapping[str, Any]],
     regions_dir: Path,
-) -> dict[str, list[dict[str, str]]]:
-    output: dict[str, list[dict[str, str]]] = {}
+) -> dict[str, list[dict[str, Any]]]:
+    output: dict[str, list[dict[str, Any]]] = {}
     for example in examples:
         source_path = Path(str(example["local_path"]))
         stem = f"{source_path.parent.name}-{source_path.stem}"
@@ -120,14 +120,27 @@ def collect_crop_record_presence(
                 else crop_stem.rsplit("-", 1)[-1]
             )
             existing_crop_names.add(crop_name)
-        rows = [
-            {
-                "slot": str(region.get("slot")),
-                "visibility": str(region.get("visibility")),
-            }
-            for region in manifest.get("regions", [])
-            if str(region.get("name")) in existing_crop_names
-        ]
+        rows = []
+        for region in manifest.get("regions", []):
+            if str(region.get("name")) not in existing_crop_names:
+                continue
+            box = region.get("box") or ()
+            width = (
+                max(0, int(box[2]) - int(box[0])) if len(box) == 4 else 0
+            )
+            height = (
+                max(0, int(box[3]) - int(box[1])) if len(box) == 4 else 0
+            )
+            rows.append(
+                {
+                    "slot": str(region.get("slot")),
+                    "name": str(region.get("name")),
+                    "role": str(region.get("role")),
+                    "visibility": str(region.get("visibility")),
+                    "width": width,
+                    "height": height,
+                }
+            )
         if rows:
             output[str(example["example_id"])] = rows
     return output
@@ -156,6 +169,90 @@ def audit_crop_coverage(
         "coverage_rate": (checked - len(missing)) / checked if checked else 0.0,
         "missing_count": len(missing),
         "missing": missing[:100],
+    }
+
+
+def summarize_numeric(values: Sequence[float]) -> dict[str, float | int]:
+    ordered = sorted(float(value) for value in values)
+    if not ordered:
+        return {"count": 0}
+
+    def percentile(fraction: float) -> float:
+        position = (len(ordered) - 1) * fraction
+        lower = int(position)
+        upper = min(lower + 1, len(ordered) - 1)
+        weight = position - lower
+        return ordered[lower] * (1.0 - weight) + ordered[upper] * weight
+
+    return {
+        "count": len(ordered),
+        "min": ordered[0],
+        "p10": percentile(0.10),
+        "p25": percentile(0.25),
+        "median": percentile(0.50),
+        "p75": percentile(0.75),
+        "p90": percentile(0.90),
+        "max": ordered[-1],
+    }
+
+
+def audit_crop_resolution(
+    eligibility_rows: Sequence[Mapping[str, Any]],
+    crop_records: Mapping[str, Sequence[Mapping[str, Any]]],
+) -> dict[str, Any]:
+    by_slot: dict[str, Any] = {}
+    for slot in SLOTS:
+        short_sides = []
+        pixel_counts = []
+        missing_primary = []
+        eligible_count = 0
+        for row in eligibility_rows:
+            if slot not in row.get("eligible_slots", []):
+                continue
+            eligible_count += 1
+            example_id = str(row["example_id"])
+            primary = [
+                record
+                for record in crop_records.get(example_id, [])
+                if record.get("slot") == slot
+                and record.get("role") == "primary"
+                and str(record.get("visibility")) in TRAINING_VISIBLE_STATES
+                and int(record.get("width") or 0) > 0
+                and int(record.get("height") or 0) > 0
+            ]
+            if not primary:
+                missing_primary.append(example_id)
+                continue
+            short_sides.append(
+                sum(
+                    min(int(record["width"]), int(record["height"]))
+                    for record in primary
+                )
+                / len(primary)
+            )
+            pixel_counts.append(
+                sum(
+                    int(record["width"]) * int(record["height"])
+                    for record in primary
+                )
+                / len(primary)
+            )
+        by_slot[slot] = {
+            "eligible_image_count": eligible_count,
+            "measured_image_count": len(short_sides),
+            "missing_primary_count": len(missing_primary),
+            "missing_primary": missing_primary[:100],
+            "primary_short_side_pixels": summarize_numeric(short_sides),
+            "primary_crop_pixels": summarize_numeric(pixel_counts),
+        }
+    return {
+        "status": "descriptive_only",
+        "slots": by_slot,
+        "interpretation_limit": (
+            "Native crop dimensions do not establish how many pixels belong "
+            "to the labelled equipment. A visible crop can still be dominated "
+            "by background, body garments, weapons, or occlusion."
+        ),
     }
 
 
@@ -199,10 +296,9 @@ def main() -> int:
         image_rows,
         args.near_duplicate_hamming,
     )
-    crop_coverage = audit_crop_coverage(
-        eligibility,
-        collect_crop_record_presence(union_examples, args.regions_dir),
-    )
+    crop_records = collect_crop_record_presence(union_examples, args.regions_dir)
+    crop_coverage = audit_crop_coverage(eligibility, crop_records)
+    crop_resolution = audit_crop_resolution(eligibility, crop_records)
     thresholds = Thresholds(
         min_train_images_per_fold=args.min_train_images,
         min_validation_images_per_fold=args.min_validation_images,
@@ -245,8 +341,10 @@ def main() -> int:
         args.slot_eligibility_manifest.read_bytes()
     ).hexdigest()
     payload = {
-        "version": 1,
+        "version": 2,
         "status": "ready_for_training" if ready else "do_not_train",
+        "readiness_scope": "controlled_training_only",
+        "target_accuracy_sufficiency": "not_established",
         "training_started": False,
         "eligibility_integrity": {"error_count": error_count, **errors},
         "eligibility_sha256": manifest_hash,
@@ -254,6 +352,7 @@ def main() -> int:
         "images": image_audit,
         "near_duplicate_pairs": len(near_pairs),
         "crop_coverage": crop_coverage,
+        "crop_resolution": crop_resolution,
         "slot_gates": slot_gates,
         "folds": folds,
         "thresholds": {
@@ -272,8 +371,11 @@ def main() -> int:
             },
         },
         "interpretation_limit": (
-            "This validates data and split readiness, not model accuracy. New "
-            "strict metrics must be registered after training and evaluation."
+            "This validates labels, files, crop presence, quantities and split "
+            "readiness for controlled training. It does not prove that native "
+            "equipment pixels or appearance diversity are sufficient for a "
+            "target model accuracy. New strict metrics must be registered "
+            "after training and evaluation."
         ),
     }
     write_json(args.output, payload)

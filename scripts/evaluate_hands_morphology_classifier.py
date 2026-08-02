@@ -32,6 +32,7 @@ from ffxiv_prism.vision.evaluation_split import load_split_assignments
 from scripts.evaluate_glamour_matching import collect_crop_records
 from scripts.train_glamour_query_encoder import (
     encode_records,
+    load_slot_eligibility,
     load_query_head_from_checkpoint,
 )
 
@@ -52,7 +53,9 @@ def main() -> int:
     parser.add_argument("--model-id", default="facebook/dinov2-base")
     parser.add_argument("--query-checkpoint", type=Path, required=True)
     parser.add_argument("--examples", type=Path, required=True)
-    parser.add_argument("--quality-manifest", type=Path, required=True)
+    quality_group = parser.add_mutually_exclusive_group(required=True)
+    quality_group.add_argument("--quality-manifest", type=Path)
+    quality_group.add_argument("--slot-eligibility-manifest", type=Path)
     parser.add_argument("--regions-dir", type=Path, required=True)
     parser.add_argument("--fold", type=int, required=True)
     parser.add_argument("--fold-manifest", type=Path, required=True)
@@ -66,10 +69,17 @@ def main() -> int:
     args = parser.parse_args()
 
     assignments = load_split_assignments(args.fold_manifest)
-    quality = {
-        str(row["example_id"]): bool(row.get("passed"))
-        for row in read_jsonl(args.quality_manifest)
-    }
+    if args.slot_eligibility_manifest is not None:
+        eligible_slots = load_slot_eligibility(args.slot_eligibility_manifest)
+        quality = {
+            example_id: "HANDS" in slots
+            for example_id, slots in eligible_slots.items()
+        }
+    else:
+        quality = {
+            str(row["example_id"]): bool(row.get("passed"))
+            for row in read_jsonl(args.quality_manifest)
+        }
     examples = [
         row
         for row in read_jsonl(args.examples)
@@ -206,6 +216,10 @@ def main() -> int:
         "slot": "HANDS",
         "fold": args.fold,
         "fold_manifest": portable_path(args.fold_manifest),
+        "quality_manifest": portable_path(args.quality_manifest),
+        "slot_eligibility_manifest": portable_path(
+            args.slot_eligibility_manifest
+        ),
         "query_checkpoint": portable_path(args.query_checkpoint),
         "classes": list(HANDS_MORPHOLOGY_CLASSES),
         "crop_names": list(CROP_NAMES),
