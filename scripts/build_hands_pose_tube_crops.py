@@ -31,6 +31,51 @@ HANDS_CROP_SIDES = {
     "hands_forearm_right": ("right",),
     "hands_arm_cover_context": ("left", "right"),
 }
+EXTENT_FRACTIONS = {"short": 0.20, "medium": 0.55, "long": 1.0}
+
+
+def build_extent_profile_lookup(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    allowed_sources: set[str] | None = None,
+) -> dict[tuple[int, str], str]:
+    lookup: dict[tuple[int, str], str] = {}
+    conflicts: set[tuple[int, str]] = set()
+    for row in rows:
+        source = str(row.get("extent_source") or "")
+        if allowed_sources is not None and source not in allowed_sources:
+            continue
+        extent_class = str(row.get("extent_class") or "")
+        if extent_class not in EXTENT_FRACTIONS:
+            continue
+        try:
+            key = (
+                int(row["piece_id"]),
+                str(row.get("model_gender") or "").lower(),
+            )
+        except (KeyError, TypeError, ValueError):
+            continue
+        if key in lookup and lookup[key] != extent_class:
+            conflicts.add(key)
+        else:
+            lookup[key] = extent_class
+    for key in conflicts:
+        lookup.pop(key, None)
+    return lookup
+
+
+def example_extent_class(
+    example: Mapping[str, Any],
+    lookup: Mapping[tuple[int, str], str],
+) -> str | None:
+    label = (example.get("core_slot_labels") or {}).get("HANDS") or {}
+    gender = str(example.get("model_gender") or "").lower()
+    classes = {
+        lookup[(int(piece_id), gender)]
+        for piece_id in label.get("piece_ids") or []
+        if (int(piece_id), gender) in lookup
+    }
+    return next(iter(classes)) if len(classes) == 1 else None
 
 
 def normalize_keypoints(
@@ -59,9 +104,12 @@ def arm_tube_mask(
     upper_extension: float,
     minimum_score: float,
     feather: float,
+    forearm_extent: float = 1.0,
 ) -> Image.Image | None:
     if width_ratio <= 0:
         raise ValueError("width_ratio must be positive")
+    if not 0 <= forearm_extent <= 1:
+        raise ValueError("forearm_extent must be in [0, 1]")
     mask = Image.new("L", image_size, 0)
     draw = ImageDraw.Draw(mask)
     accepted = 0
@@ -75,23 +123,25 @@ def arm_tube_mask(
         forearm_length = math.dist(elbow[:2], wrist[:2])
         if forearm_length < 2:
             continue
-        upper_point = (
-            elbow[0] + (shoulder[0] - elbow[0]) * upper_extension,
-            elbow[1] + (shoulder[1] - elbow[1]) * upper_extension,
+        proximal_point = (
+            wrist[0] + (elbow[0] - wrist[0]) * forearm_extent,
+            wrist[1] + (elbow[1] - wrist[1]) * forearm_extent,
         )
         hand_point = (
             wrist[0] + (wrist[0] - elbow[0]) * wrist_extension,
             wrist[1] + (wrist[1] - elbow[1]) * wrist_extension,
         )
         width = max(5, int(round(forearm_length * width_ratio)))
-        draw.line(
-            (upper_point, elbow[:2], wrist[:2], hand_point),
-            fill=255,
-            width=width,
-            joint="curve",
-        )
+        arm_points = [proximal_point, wrist[:2], hand_point]
+        if forearm_extent >= 1.0 and upper_extension > 0:
+            upper_point = (
+                elbow[0] + (shoulder[0] - elbow[0]) * upper_extension,
+                elbow[1] + (shoulder[1] - elbow[1]) * upper_extension,
+            )
+            arm_points.insert(0, upper_point)
+        draw.line(tuple(arm_points), fill=255, width=width, joint="curve")
         radius = width / 2
-        for x, y in (upper_point, elbow[:2], wrist[:2], hand_point):
+        for x, y in arm_points:
             draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill=255)
         accepted += 1
     if not accepted:
@@ -139,16 +189,43 @@ def main() -> int:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--width-ratio", type=float, default=0.58)
     parser.add_argument("--wrist-extension", type=float, default=0.48)
+    parser.add_argument(
+        "--forearm-extent",
+        type=float,
+        default=1.0,
+        help=(
+            "Fraction of the wrist-to-elbow segment retained. Values below "
+            "one make genuinely wrist-local crops instead of always keeping "
+            "the full sleeve."
+        ),
+    )
     parser.add_argument("--upper-extension", type=float, default=0.25)
     parser.add_argument("--minimum-score", type=float, default=0.2)
     parser.add_argument("--feather", type=float, default=2.0)
     parser.add_argument("--background", type=int, nargs=3, default=[238, 234, 224])
+    parser.add_argument(
+        "--extent-profiles",
+        type=Path,
+        help=(
+            "Optional canonical piece/gender extent profiles. When supplied, "
+            "only examples with one unambiguous profile are written and each "
+            "uses the corresponding short/medium/long forearm extent."
+        ),
+    )
+    parser.add_argument(
+        "--extent-sources",
+        nargs="+",
+        default=["calibrated_name_prior"],
+        help="Accepted extent_source values when --extent-profiles is supplied.",
+    )
     args = parser.parse_args()
 
     if args.width_ratio <= 0:
         parser.error("width-ratio must be positive")
     if args.wrist_extension < 0 or args.upper_extension < 0:
         parser.error("extension ratios must not be negative")
+    if not 0 <= args.forearm_extent <= 1:
+        parser.error("forearm-extent must be in [0, 1]")
     if not 0 <= args.minimum_score <= 2:
         parser.error("minimum-score is outside the supported range")
     if any(not 0 <= value <= 255 for value in args.background):
@@ -167,10 +244,35 @@ def main() -> int:
     if not selected_examples:
         raise ValueError("No eligible HANDS examples matched the requested fold roles")
 
+    extent_lookup = None
+    if args.extent_profiles is not None:
+        extent_lookup = build_extent_profile_lookup(
+            read_jsonl(args.extent_profiles),
+            allowed_sources=set(args.extent_sources),
+        )
+        if not extent_lookup:
+            raise ValueError(
+                "Extent profiles accepted no unambiguous piece/gender rows"
+            )
+
     background = tuple(int(value) for value in args.background)
     status_counts: Counter[str] = Counter()
     written_examples = 0
+    extent_counts: Counter[str] = Counter()
     for example in selected_examples:
+        example_extent = (
+            example_extent_class(example, extent_lookup)
+            if extent_lookup is not None
+            else None
+        )
+        if extent_lookup is not None and example_extent is None:
+            status_counts["no_unambiguous_extent_profile"] += 1
+            continue
+        applied_forearm_extent = (
+            EXTENT_FRACTIONS[example_extent]
+            if example_extent is not None
+            else args.forearm_extent
+        )
         source_path = resolve_project_path(example.get("local_path"))
         if source_path is None or not source_path.is_file():
             status_counts["missing_source"] += 1
@@ -211,6 +313,7 @@ def main() -> int:
                         upper_extension=args.upper_extension,
                         minimum_score=args.minimum_score,
                         feather=args.feather,
+                        forearm_extent=applied_forearm_extent,
                     )
                 mask = masks[sides]
                 # The parent directory and manifest retain the source stem.  Do
@@ -248,6 +351,9 @@ def main() -> int:
             "hands_crop_parameters": {
                 "width_ratio": args.width_ratio,
                 "wrist_extension": args.wrist_extension,
+                "forearm_extent": applied_forearm_extent,
+                "configured_forearm_extent": args.forearm_extent,
+                "extent_class": example_extent,
                 "upper_extension": args.upper_extension,
                 "minimum_score": args.minimum_score,
                 "feather": args.feather,
@@ -260,6 +366,7 @@ def main() -> int:
             encoding="utf-8",
         )
         written_examples += 1
+        extent_counts[str(example_extent or "fixed")] += 1
         if written_examples % 100 == 0 or written_examples == len(selected_examples):
             print(
                 f"pose_tube={written_examples}/{len(selected_examples)}",
@@ -274,21 +381,25 @@ def main() -> int:
         "fold_roles": sorted(selected_roles),
         "blind_test_accessed": False,
         "status_counts": dict(status_counts),
+        "extent_class_counts": dict(extent_counts),
         "parameters": {
             "width_ratio": args.width_ratio,
             "wrist_extension": args.wrist_extension,
+            "forearm_extent": args.forearm_extent,
             "upper_extension": args.upper_extension,
             "minimum_score": args.minimum_score,
             "feather": args.feather,
             "background": list(background),
+            "extent_sources": (
+                list(args.extent_sources) if args.extent_profiles is not None else None
+            ),
         },
         "sources": {
             "examples": portable_path(args.examples),
-            "slot_eligibility_manifest": portable_path(
-                args.slot_eligibility_manifest
-            ),
+            "slot_eligibility_manifest": portable_path(args.slot_eligibility_manifest),
             "fold_manifest": portable_path(args.fold_manifest),
             "regions_dir": portable_path(args.regions_dir),
+            "extent_profiles": portable_path(args.extent_profiles),
         },
     }
     args.output_dir.mkdir(parents=True, exist_ok=True)
