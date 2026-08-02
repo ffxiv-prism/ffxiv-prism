@@ -21,6 +21,7 @@ from ffxiv_prism.matching.patch_profiles import (
 )
 from ffxiv_prism.paths import CACHE_DIR, portable_path
 from ffxiv_prism.torch_device import resolve_torch_device
+from scripts.evaluate_cached_query_retrieval import build_quality_by_id
 from scripts.evaluate_retrieval_funnel import (
     VISIBLE_WEIGHTS,
     appearance_name_key,
@@ -30,6 +31,7 @@ from scripts.evaluate_retrieval_funnel import (
     summarize_ranked_cases,
     validate_cutoffs,
 )
+from scripts.train_glamour_query_encoder import load_slot_eligibility
 
 
 def select_query_records(
@@ -83,7 +85,9 @@ def main() -> int:
         description="Evaluate local DINO patch-set retrieval for one HANDS crop route."
     )
     parser.add_argument("--examples", type=Path, required=True)
-    parser.add_argument("--quality-manifest", type=Path, required=True)
+    quality_group = parser.add_mutually_exclusive_group(required=True)
+    quality_group.add_argument("--quality-manifest", type=Path)
+    quality_group.add_argument("--slot-eligibility-manifest", type=Path)
     parser.add_argument("--regions-dir", type=Path, required=True)
     parser.add_argument("--candidate-index-dir", type=Path, required=True)
     parser.add_argument("--patch-index", type=Path, required=True)
@@ -105,10 +109,20 @@ def main() -> int:
 
     cutoffs = validate_cutoffs(args.cutoffs, max(args.cutoffs))
     examples = read_jsonl(args.examples)
-    quality_by_id = {
-        str(row["example_id"]): bool(row.get("passed"))
-        for row in read_jsonl(args.quality_manifest)
-    }
+    quality_by_id = build_quality_by_id(
+        examples,
+        slot="HANDS",
+        quality_rows=(
+            read_jsonl(args.quality_manifest)
+            if args.quality_manifest is not None
+            else None
+        ),
+        eligibility=(
+            load_slot_eligibility(args.slot_eligibility_manifest)
+            if args.slot_eligibility_manifest is not None
+            else None
+        ),
+    )
     metadata = read_jsonl(args.candidate_index_dir / "metadata.jsonl")
     patch_index = load_patch_profile_index(args.patch_index)
     if len(patch_index.profiles) != len(patch_index.metadata_indices):
@@ -265,6 +279,10 @@ def main() -> int:
         "slot": "HANDS",
         "fold": args.fold,
         "fold_manifest": portable_path(args.fold_manifest),
+        "quality_manifest": portable_path(args.quality_manifest),
+        "slot_eligibility_manifest": portable_path(
+            args.slot_eligibility_manifest
+        ),
         "candidate_index_dir": portable_path(args.candidate_index_dir),
         "patch_index": portable_path(args.patch_index),
         "query_crop": args.query_crop,

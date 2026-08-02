@@ -10,8 +10,11 @@ from scripts.train_glamour_query_encoder import (
     LowRankResidualPooler,
     SlotAttentionPooler,
     apply_training_reviews,
+    apply_slot_eligibility,
     filter_crop_records_by_slots,
+    filter_examples_by_slot_eligibility,
     group_training_samples,
+    hands_pose_mirror_paths,
     load_foreground_allowlist,
     prune_training_samples,
     unfreeze_last_blocks,
@@ -58,6 +61,62 @@ class QueryEncoderTests(unittest.TestCase):
                 "10:0": [{"slot": "BODY", "path": "body.jpg"}],
                 "11:0": [{"slot": "HEAD", "path": "head.jpg"}],
             },
+        )
+
+    def test_slot_eligibility_filters_examples_and_each_crop_slot(self) -> None:
+        examples = [
+            {"example_id": "1:0"},
+            {"example_id": "2:0"},
+        ]
+        eligibility = {
+            "1:0": {"HEAD"},
+            "2:0": {"BODY", "HANDS"},
+        }
+        records = {
+            "1:0": [{"slot": "HEAD"}, {"slot": "BODY"}],
+            "2:0": [{"slot": "BODY"}, {"slot": "HANDS"}],
+        }
+
+        selected_examples = filter_examples_by_slot_eligibility(
+            examples,
+            eligibility,
+            ["HEAD"],
+        )
+        selected_records = apply_slot_eligibility(records, eligibility)
+
+        self.assertEqual(selected_examples, [{"example_id": "1:0"}])
+        self.assertEqual(selected_records["1:0"], [{"slot": "HEAD"}])
+        self.assertEqual(
+            selected_records["2:0"],
+            [{"slot": "BODY"}, {"slot": "HANDS"}],
+        )
+
+    def test_pose_normalization_mirrors_only_right_hand_local_crops(self) -> None:
+        records = {
+            "1:0": [
+                {"slot": "HANDS", "name": "hands_left", "path": "left.jpg"},
+                {"slot": "HANDS", "name": "hands_right", "path": "right.jpg"},
+                {
+                    "slot": "HANDS",
+                    "name": "hands_forearm_right",
+                    "path": "forearm.jpg",
+                },
+                {
+                    "slot": "HANDS",
+                    "name": "hands_arm_cover_context",
+                    "path": "context.jpg",
+                },
+            ]
+        }
+
+        paths = hands_pose_mirror_paths(
+            records,
+            {"right.jpg": "right-foreground.jpg"},
+        )
+
+        self.assertEqual(
+            paths,
+            {"right.jpg", "right-foreground.jpg", "forearm.jpg"},
         )
 
     def test_visual_review_can_reject_image_or_one_slot(self) -> None:

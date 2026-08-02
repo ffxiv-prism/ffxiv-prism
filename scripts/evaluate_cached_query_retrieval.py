@@ -4,6 +4,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Any, Mapping, Sequence
 
 import numpy as np
 
@@ -22,6 +23,7 @@ from scripts.evaluate_retrieval_funnel import (
     summarize_ranked_cases,
     validate_cutoffs,
 )
+from scripts.train_glamour_query_encoder import load_slot_eligibility
 
 
 def load_query_embeddings(path: Path) -> dict[str, np.ndarray]:
@@ -36,6 +38,28 @@ def load_query_embeddings(path: Path) -> dict[str, np.ndarray]:
     return dict(zip(paths, embeddings, strict=True))
 
 
+def build_quality_by_id(
+    examples: Sequence[Mapping[str, Any]],
+    *,
+    slot: str,
+    quality_rows: Sequence[Mapping[str, Any]] | None = None,
+    eligibility: Mapping[str, set[str]] | None = None,
+) -> dict[str, bool]:
+    if (quality_rows is None) == (eligibility is None):
+        raise ValueError("Provide exactly one quality source")
+    if quality_rows is not None:
+        return {
+            str(row["example_id"]): bool(row.get("passed"))
+            for row in quality_rows
+        }
+    return {
+        str(example["example_id"]): (
+            slot in (eligibility or {}).get(str(example["example_id"]), set())
+        )
+        for example in examples
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
@@ -44,18 +68,26 @@ def main() -> int:
         )
     )
     parser.add_argument("--examples", type=Path, required=True)
-    parser.add_argument("--quality-manifest", type=Path, required=True)
+    quality_group = parser.add_mutually_exclusive_group(required=True)
+    quality_group.add_argument("--quality-manifest", type=Path)
+    quality_group.add_argument("--slot-eligibility-manifest", type=Path)
     parser.add_argument("--slot", choices=SLOTS, required=True)
     parser.add_argument("--regions-dir", type=Path, required=True)
     parser.add_argument("--index-dir", type=Path, required=True)
     parser.add_argument("--fold", type=int, required=True)
     parser.add_argument("--fold-manifest", type=Path, required=True)
+    parser.add_argument(
+        "--fold-role",
+        choices=("train", "validation", "blind_test"),
+        default="validation",
+    )
     parser.add_argument("--query-cache", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--device", default="auto")
     parser.add_argument("--candidate-k", type=int, default=1000)
     parser.add_argument("--candidate-crop-routing", action="store_true")
     parser.add_argument("--candidate-gender-routing", action="store_true")
+    parser.add_argument("--candidate-gender-fallback", action="store_true")
     parser.add_argument("--fusion", choices=("max", "rrf"), default="max")
     parser.add_argument("--rrf-k", type=int, default=60)
     parser.add_argument(
@@ -72,10 +104,20 @@ def main() -> int:
 
     cutoffs = validate_cutoffs(args.cutoffs, args.candidate_k)
     examples = read_jsonl(args.examples)
-    quality_by_id = {
-        str(row["example_id"]): bool(row.get("passed"))
-        for row in read_jsonl(args.quality_manifest)
-    }
+    quality_by_id = build_quality_by_id(
+        examples,
+        slot=args.slot,
+        quality_rows=(
+            read_jsonl(args.quality_manifest)
+            if args.quality_manifest is not None
+            else None
+        ),
+        eligibility=(
+            load_slot_eligibility(args.slot_eligibility_manifest)
+            if args.slot_eligibility_manifest is not None
+            else None
+        ),
+    )
     metadata = read_jsonl(args.index_dir / "metadata.jsonl")
     candidate_embeddings = np.load(args.index_dir / "embeddings.npy", mmap_mode="r")
     context = build_fold_context(
@@ -85,6 +127,7 @@ def main() -> int:
         quality_by_id=quality_by_id,
         regions_dir=args.regions_dir,
         slot=args.slot,
+        fold_role=args.fold_role,
     )
     query_embeddings = load_query_embeddings(args.query_cache)
     missing_paths = sorted(
@@ -125,6 +168,7 @@ def main() -> int:
         device=args.device,
         candidate_crop_routes=candidate_crop_routes,
         candidate_gender_by_example=candidate_gender_by_example,
+        candidate_gender_fallback=args.candidate_gender_fallback,
     )
     cases = rank_body_cases(
         context["examples"],
@@ -140,12 +184,18 @@ def main() -> int:
     payload = {
         "slot": args.slot,
         "fold": args.fold,
+        "fold_role": args.fold_role,
         "fold_manifest": portable_path(args.fold_manifest),
         "index_dir": portable_path(args.index_dir),
         "query_cache": portable_path(args.query_cache),
+        "quality_manifest": portable_path(args.quality_manifest),
+        "slot_eligibility_manifest": portable_path(
+            args.slot_eligibility_manifest
+        ),
         "candidate_k": args.candidate_k,
         "candidate_crop_routing": args.candidate_crop_routing,
         "candidate_gender_routing": args.candidate_gender_routing,
+        "candidate_gender_fallback": args.candidate_gender_fallback,
         "fusion": args.fusion,
         "rrf_k": args.rrf_k,
         "included_top_results": args.include_top_results,

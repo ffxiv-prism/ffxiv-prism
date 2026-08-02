@@ -27,6 +27,7 @@ from scripts.evaluate_retrieval_funnel import (
 )
 from scripts.train_glamour_query_encoder import (
     encode_records,
+    load_slot_eligibility,
     load_query_head_from_checkpoint,
 )
 
@@ -40,13 +41,26 @@ def main() -> int:
     )
     parser.add_argument("--model-id", default="facebook/dinov2-base")
     parser.add_argument("--examples", type=Path, required=True)
-    parser.add_argument("--quality-manifest", type=Path, required=True)
+    quality_group = parser.add_mutually_exclusive_group(required=True)
+    quality_group.add_argument("--quality-manifest", type=Path)
+    quality_group.add_argument("--slot-eligibility-manifest", type=Path)
     parser.add_argument("--slot", choices=SLOTS, required=True)
     parser.add_argument("--regions-dir", type=Path, required=True)
     parser.add_argument("--index-dir", type=Path, required=True)
     parser.add_argument("--fold", type=int, required=True)
     parser.add_argument("--fold-manifest", type=Path, required=True)
+    parser.add_argument(
+        "--fold-role",
+        choices=("train", "validation", "blind_test"),
+        default="validation",
+        help="Evaluate the selected manifest role (default: validation).",
+    )
     parser.add_argument("--query-checkpoint", type=Path)
+    parser.add_argument(
+        "--pose-normalize-hands",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+    )
     parser.add_argument("--query-cache", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--device", default="auto")
@@ -61,6 +75,14 @@ def main() -> int:
         "--candidate-gender-routing",
         action="store_true",
         help="Search candidate renders matching the query model gender.",
+    )
+    parser.add_argument(
+        "--candidate-gender-fallback",
+        action="store_true",
+        help=(
+            "With gender routing, retain opposite-gender rows only for pieces "
+            "that have no render in the query gender."
+        ),
     )
     parser.add_argument(
         "--fusion",
@@ -84,10 +106,20 @@ def main() -> int:
     device = resolve_torch_device(args.device)
     cutoffs = validate_cutoffs(args.cutoffs, args.candidate_k)
     examples = read_jsonl(args.examples)
-    quality_by_id = {
-        str(row["example_id"]): bool(row.get("passed"))
-        for row in read_jsonl(args.quality_manifest)
-    }
+    if args.quality_manifest:
+        quality_by_id = {
+            str(row["example_id"]): bool(row.get("passed"))
+            for row in read_jsonl(args.quality_manifest)
+        }
+    else:
+        eligibility = load_slot_eligibility(args.slot_eligibility_manifest)
+        quality_by_id = {
+            str(example["example_id"]): (
+                args.slot
+                in eligibility.get(str(example["example_id"]), set())
+            )
+            for example in examples
+        }
     metadata = read_jsonl(args.index_dir / "metadata.jsonl")
     candidate_embeddings = np.load(args.index_dir / "embeddings.npy", mmap_mode="r")
     context = build_fold_context(
@@ -97,6 +129,7 @@ def main() -> int:
         quality_by_id=quality_by_id,
         regions_dir=args.regions_dir,
         slot=args.slot,
+        fold_role=args.fold_role,
     )
     candidate_crop_routes = None
     if args.candidate_crop_routing:
@@ -137,6 +170,7 @@ def main() -> int:
         context["records"],
         args.batch_size,
         device,
+        pose_normalize_hands=args.pose_normalize_hands,
     )
     if args.query_cache:
         paths = sorted(query_embeddings)
@@ -164,6 +198,7 @@ def main() -> int:
         device=str(device),
         candidate_crop_routes=candidate_crop_routes,
         candidate_gender_by_example=candidate_gender_by_example,
+        candidate_gender_fallback=args.candidate_gender_fallback,
     )
     cases = rank_body_cases(
         context["examples"],
@@ -179,13 +214,20 @@ def main() -> int:
     payload: dict[str, Any] = {
         "slot": args.slot,
         "fold": args.fold,
+        "fold_role": args.fold_role,
         "fold_manifest": portable_path(args.fold_manifest),
         "index_dir": portable_path(args.index_dir),
         "query_checkpoint": portable_path(args.query_checkpoint),
+        "quality_manifest": portable_path(args.quality_manifest),
+        "slot_eligibility_manifest": portable_path(
+            args.slot_eligibility_manifest
+        ),
+        "pose_normalize_hands": args.pose_normalize_hands,
         "query_cache": portable_path(args.query_cache),
         "candidate_k": args.candidate_k,
         "candidate_crop_routing": args.candidate_crop_routing,
         "candidate_gender_routing": args.candidate_gender_routing,
+        "candidate_gender_fallback": args.candidate_gender_fallback,
         "fusion": args.fusion,
         "rrf_k": args.rrf_k,
         "included_top_results": args.include_top_results,

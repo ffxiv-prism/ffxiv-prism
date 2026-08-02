@@ -4,6 +4,7 @@ import argparse
 import json
 import re
 import sys
+from collections import defaultdict
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -512,6 +513,7 @@ def search_crops(
     device: str = "cpu",
     candidate_crop_routes: Mapping[str, Sequence[str]] | None = None,
     candidate_gender_by_example: Mapping[str, str] | None = None,
+    candidate_gender_fallback: bool = False,
 ) -> dict[str, list[dict[str, Any]]]:
     torch_device = resolve_torch_device(device)
     use_cuda = torch_device.type == "cuda"
@@ -523,6 +525,13 @@ def search_crops(
         tuple[str, tuple[str, ...], str], np.ndarray
     ] = {}
     results: dict[str, list[dict[str, Any]]] = {}
+    piece_genders: dict[tuple[str, int], set[str]] = defaultdict(set)
+    if candidate_gender_fallback:
+        for row in metadata:
+            row_slot = str(row.get("slot", ""))
+            row_gender = str(row.get("model_gender", "")).lower()
+            for piece in row.get("pieces", []):
+                piece_genders[(row_slot, int(piece["piece_id"]))].add(row_gender)
     for records in crop_records.values():
         for record in records:
             path = str(record["path"])
@@ -557,6 +566,20 @@ def search_crops(
                             not candidate_gender
                             or str(row.get("model_gender", "")).lower()
                             == candidate_gender
+                            or (
+                                candidate_gender_fallback
+                                and any(
+                                    candidate_gender
+                                    not in piece_genders.get(
+                                        (
+                                            str(row.get("slot", "")),
+                                            int(piece["piece_id"]),
+                                        ),
+                                        set(),
+                                    )
+                                    for piece in row.get("pieces", [])
+                                )
+                            )
                         )
                     ],
                     dtype=np.int64,

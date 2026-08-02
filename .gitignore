@@ -83,6 +83,8 @@ data/processed/glamour_examples_huiji_*
 # Player-derived per-image/per-slot review decisions remain local and are
 # generated from ignored manual review artifacts before training.
 data/processed/training_visibility_reviews_*.jsonl
+data/processed/slot_quality_recovery_reviews_*.jsonl
+data/processed/slot_quality_eligibility_*.jsonl
 
 # Broad experiment-output policy. Durable conclusions belong in the current
 # status document and compact metrics snapshot.

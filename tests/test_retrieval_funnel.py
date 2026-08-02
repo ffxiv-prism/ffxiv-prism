@@ -8,12 +8,24 @@ from scripts.evaluate_glamour_embedding_model import search_crops
 from scripts.evaluate_retrieval_funnel import (
     combine_stage_cases,
     rank_body_cases,
+    select_split_ids,
     summarize_funnel_cases,
     validate_cutoffs,
 )
 
 
 class RetrievalFunnelTest(unittest.TestCase):
+    def test_select_split_ids_keeps_requested_fold_role(self) -> None:
+        assignments = {
+            "1": "train",
+            "2": "validation",
+            "3": "blind_test",
+        }
+        self.assertEqual(select_split_ids(assignments, "train"), {"1"})
+        self.assertEqual(select_split_ids(assignments, "validation"), {"2"})
+        with self.assertRaises(ValueError):
+            select_split_ids(assignments, "test")
+
     def test_validate_cutoffs_normalizes_and_checks_candidate_limit(self) -> None:
         self.assertEqual(validate_cutoffs([10, 1, 10], 10), (1, 10))
         with self.assertRaises(ValueError):
@@ -62,6 +74,52 @@ class RetrievalFunnelTest(unittest.TestCase):
         self.assertEqual(
             [row["piece_id"] for row in results["left.png"]],
             [2],
+        )
+
+    def test_search_crops_can_retain_gender_exclusive_pieces(self) -> None:
+        metadata = [
+            {
+                "slot": "HANDS",
+                "candidate_crop": "left_arm_tight",
+                "model_gender": "male",
+                "pieces": [{"piece_id": 1, "name_en": "Male Common"}],
+                "image_row_id": 1,
+                "local_path": "male.png",
+                "source_image_url": "https://example.test/male.png",
+            },
+            {
+                "slot": "HANDS",
+                "candidate_crop": "left_arm_tight",
+                "model_gender": "female",
+                "pieces": [{"piece_id": 2, "name_en": "Female Only"}],
+                "image_row_id": 2,
+                "local_path": "female.png",
+                "source_image_url": "https://example.test/female.png",
+            },
+        ]
+        records = {
+            "example": [
+                {
+                    "example_id": "example",
+                    "slot": "HANDS",
+                    "name": "hands_left",
+                    "path": "query.png",
+                }
+            ]
+        }
+        results = search_crops(
+            metadata,
+            np.asarray([[1.0, 0.0], [0.9, 0.1]], dtype=np.float32),
+            records,
+            {"query.png": np.asarray([1.0, 0.0], dtype=np.float32)},
+            10,
+            candidate_crop_routes={"hands_left": ("left_arm_tight",)},
+            candidate_gender_by_example={"example": "male"},
+            candidate_gender_fallback=True,
+        )
+        self.assertEqual(
+            [row["piece_id"] for row in results["query.png"]],
+            [1, 2],
         )
 
     def test_search_crops_preserves_piece_order_when_rows_share_pieces(self) -> None:

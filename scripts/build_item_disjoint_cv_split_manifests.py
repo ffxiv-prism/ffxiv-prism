@@ -7,8 +7,11 @@ import sys
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+SRC_DIR = PROJECT_ROOT / "src"
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
 
 from ffxiv_prism.jsonl import read_jsonl
 
@@ -27,6 +30,17 @@ def slot_item_key(example: dict, slot: str) -> str | None:
 def body_item_key(example: dict) -> str | None:
     """Backward-compatible BODY identity helper."""
     return slot_item_key(example, "BODY")
+
+
+def eligible_example_ids_for_slot(
+    rows: list[dict],
+    slot: str,
+) -> set[str]:
+    return {
+        str(row["example_id"])
+        for row in rows
+        if slot in row.get("eligible_slots", [])
+    }
 
 
 def item_fold(item_key: str, folds: int, seed: int) -> int:
@@ -103,12 +117,22 @@ def main() -> int:
     )
     parser.add_argument("--base-split", type=Path, required=True)
     parser.add_argument("--examples", type=Path, required=True)
-    parser.add_argument(
+    eligibility_group = parser.add_mutually_exclusive_group()
+    eligibility_group.add_argument(
         "--quality-manifest",
         type=Path,
         help=(
             "Optional JSONL quality manifest. When supplied, target-slot identities "
             "are greedily balanced by passed train image count."
+        ),
+    )
+    eligibility_group.add_argument(
+        "--slot-eligibility-manifest",
+        type=Path,
+        help=(
+            "Optional JSONL per-example eligible_slots manifest. This permits "
+            "human-reviewed slot recovery without admitting other slots from "
+            "a globally rejected image."
         ),
     )
     parser.add_argument(
@@ -136,6 +160,11 @@ def main() -> int:
             for row in read_jsonl(args.quality_manifest)
             if row.get("passed")
         }
+    elif args.slot_eligibility_manifest:
+        accepted_example_ids = eligible_example_ids_for_slot(
+            read_jsonl(args.slot_eligibility_manifest),
+            args.slot,
+        )
 
     item_keys: dict[str, str] = {}
     item_weights: dict[str, int] = {}
@@ -190,7 +219,9 @@ def main() -> int:
             if item_fold_index == fold
         }
         payload = {
-            "version": 3 if item_fold_map is not None else 2,
+            "version": 4 if args.slot_eligibility_manifest else (
+                3 if item_fold_map is not None else 2
+            ),
             "policy": (
                 "Inner CV over official train only; all glamour groups sharing "
                 f"a {args.slot} piece identity remain in one fold."
@@ -201,6 +232,11 @@ def main() -> int:
             "source_quality_manifest": (
                 args.quality_manifest.as_posix()
                 if args.quality_manifest
+                else None
+            ),
+            "source_slot_eligibility_manifest": (
+                args.slot_eligibility_manifest.as_posix()
+                if args.slot_eligibility_manifest
                 else None
             ),
             "seed": args.seed,

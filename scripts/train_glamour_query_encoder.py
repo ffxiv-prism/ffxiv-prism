@@ -54,6 +54,7 @@ DEFAULT_FOREGROUND_REGIONS = Path("data/debug/global-foreground-v1")
 DEFAULT_OUTPUT = PROCESSED_DIR / "glamour_query_encoder_eval.json"
 DEFAULT_CHECKPOINT = Path("data/models/glamour_query_encoder.pt")
 DEFAULT_SPLIT_MANIFEST = PROCESSED_DIR / "glamour_split_v2.json"
+HANDS_RIGHT_CROP_NAMES = frozenset({"hands_right", "hands_forearm_right"})
 
 
 @dataclass(frozen=True)
@@ -163,6 +164,15 @@ def main() -> int:
         help=(
             "Optional JSONL quality manifest. Only examples with passed=true "
             "are used for training and evaluation."
+        ),
+    )
+    parser.add_argument(
+        "--slot-eligibility-manifest",
+        type=Path,
+        help=(
+            "Optional JSONL per-example eligible_slots manifest. It can add "
+            "human-reviewed slots from globally rejected images without "
+            "admitting any unreviewed slot."
         ),
     )
     parser.add_argument(
@@ -286,9 +296,27 @@ def main() -> int:
         default=True,
     )
     parser.add_argument(
+        "--pose-normalize-hands",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "Mirror right-hand and right-forearm crops into left-oriented "
+            "coordinates and disable random horizontal flips. This tests "
+            "pose-normalized local correspondence instead of global view mixing."
+        ),
+    )
+    parser.add_argument(
         "--skip-evaluation",
         action="store_true",
         help="Save the training checkpoint without the final retrieval evaluation.",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help=(
+            "Validate data, crops, split assignments and train sample counts "
+            "without loading or updating the query model."
+        ),
     )
     args = parser.parse_args()
     if not 0.0 <= args.alternate_probability <= 1.0:
@@ -301,6 +329,10 @@ def main() -> int:
         parser.error("--adapter-rank must not be negative")
     if args.adapter_rank and args.slot_attention:
         parser.error("--adapter-rank cannot be combined with --slot-attention")
+    if args.quality_manifest and args.slot_eligibility_manifest:
+        parser.error(
+            "--quality-manifest and --slot-eligibility-manifest are mutually exclusive"
+        )
 
     set_seed(args.seed)
     device = resolve_torch_device(args.device)
@@ -334,6 +366,7 @@ def main() -> int:
             dtype=np.float32,
         )
     examples = read_jsonl(args.examples)
+    slot_eligibility = None
     if args.quality_manifest is not None:
         examples = filter_examples_by_quality(
             examples,
@@ -341,6 +374,15 @@ def main() -> int:
         )
         if not examples:
             raise ValueError("Quality manifest accepted no training examples")
+    elif args.slot_eligibility_manifest is not None:
+        slot_eligibility = load_slot_eligibility(args.slot_eligibility_manifest)
+        examples = filter_examples_by_slot_eligibility(
+            examples,
+            slot_eligibility,
+            args.slots,
+        )
+        if not examples:
+            raise ValueError("Slot eligibility accepted no training examples")
     records = collect_crop_records(examples, args.regions_dir)
     alternate_records = collect_crop_records(examples, args.alternate_regions_dir)
     records = filter_crop_records_by_slots(records, args.slots)
@@ -348,6 +390,12 @@ def main() -> int:
         alternate_records,
         args.slots,
     )
+    if slot_eligibility is not None:
+        records = apply_slot_eligibility(records, slot_eligibility)
+        alternate_records = apply_slot_eligibility(
+            alternate_records,
+            slot_eligibility,
+        )
     review_queue = args.foreground_review_queue
     if review_queue is None:
         candidate_queue = args.alternate_regions_dir / "vision_review_queue.jsonl"
@@ -361,6 +409,11 @@ def main() -> int:
         records,
         alternate_records,
         allowed_example_ids=alternate_allowlist,
+    )
+    pose_mirror_paths = (
+        hands_pose_mirror_paths(records, alternate_paths)
+        if args.pose_normalize_hands
+        else set()
     )
 
     if args.split_manifest.is_file():
@@ -450,6 +503,44 @@ def main() -> int:
         group_ids=training_group_ids,
         group_weights=domain_weights,
     )
+    requested_sample_counts = {
+        slot: len(grouped_samples[slot]) for slot in args.slots
+    }
+    empty_slots = [
+        slot for slot, count in requested_sample_counts.items() if count == 0
+    ]
+    if empty_slots:
+        raise ValueError(f"No training samples for requested slots: {empty_slots}")
+    if args.dry_run:
+        payload = {
+            "version": 1,
+            "status": "ready",
+            "training_started": False,
+            "slots": list(args.slots),
+            "eligible_example_count": len(examples),
+            "training_group_counts": requested_sample_counts,
+            "split_example_counts": {
+                split: len(rows) for split, rows in split_examples.items()
+            },
+            "split_crop_counts": {
+                split: sum(len(rows) for rows in records_by_example.values())
+                for split, records_by_example in split_records.items()
+            },
+            "sources": {
+                "examples": portable_path(args.examples),
+                "quality_manifest": portable_path(args.quality_manifest),
+                "slot_eligibility_manifest": portable_path(
+                    args.slot_eligibility_manifest
+                ),
+                "regions_dir": portable_path(args.regions_dir),
+                "vision_reviews": portable_path(args.vision_reviews),
+                "split_manifest": portable_path(args.split_manifest),
+                "index_dir": portable_path(args.index_dir),
+            },
+        }
+        write_json(args.output, payload)
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 0
 
     from transformers import AutoModel
 
@@ -540,6 +631,8 @@ def main() -> int:
             hard_negative_margin=args.hard_negative_margin,
             device=device,
             augment=args.augment,
+            pose_mirror_paths=pose_mirror_paths,
+            pose_normalize_hands=args.pose_normalize_hands,
             preprocess=args.preprocess,
         )
         if args.fixed_epochs:
@@ -570,6 +663,7 @@ def main() -> int:
                 split_records["validation"],
                 args.batch_size,
                 device,
+                pose_normalize_hands=args.pose_normalize_hands,
                 preprocess=args.preprocess,
             )
             validation_search = search_crops(
@@ -661,6 +755,7 @@ def main() -> int:
             "best_epoch": best_epoch,
             "fixed_epochs": args.fixed_epochs,
             "seed": args.seed,
+            "pose_normalize_hands": args.pose_normalize_hands,
             "optimizer_state_dict": optimizer.state_dict(),
             "epochs_completed": history[-1]["epoch"] if history else start_epoch,
             "history": history,
@@ -676,6 +771,7 @@ def main() -> int:
             },
             "training": {
                 "fixed_epochs": args.fixed_epochs,
+                "pose_normalize_hands": args.pose_normalize_hands,
                 "resume_checkpoint": portable_path(args.resume_checkpoint),
                 "slots": list(args.slots),
                 "history": history,
@@ -710,6 +806,7 @@ def main() -> int:
             relevant_records,
             args.batch_size,
             device,
+            pose_normalize_hands=args.pose_normalize_hands,
             preprocess=args.preprocess,
         )
         search = search_crops(
@@ -754,6 +851,7 @@ def main() -> int:
             "learning_rate": args.learning_rate,
             "preprocess": args.preprocess,
             "augment": args.augment,
+            "pose_normalize_hands": args.pose_normalize_hands,
             "fixed_epochs": args.fixed_epochs,
             "weight_decay": args.weight_decay,
             "temperature": args.temperature,
@@ -769,6 +867,9 @@ def main() -> int:
             "foreground_review_queue": portable_path(review_queue),
             "vision_reviews": portable_path(args.vision_reviews),
             "quality_manifest": portable_path(args.quality_manifest),
+            "slot_eligibility_manifest": portable_path(
+                args.slot_eligibility_manifest
+            ),
             "quality_example_count": len(examples),
             "candidate_race": args.candidate_race,
             "candidate_model_gender": args.candidate_model_gender,
@@ -845,6 +946,69 @@ def filter_crop_records_by_slots(
         ]
         for example_id, rows in records.items()
     }
+
+
+def load_slot_eligibility(path: Path) -> dict[str, set[str]]:
+    output: dict[str, set[str]] = {}
+    for row in read_jsonl(path):
+        example_id = str(row["example_id"])
+        if example_id in output:
+            raise ValueError(f"Duplicate slot eligibility example_id: {example_id}")
+        slots = {str(slot) for slot in row.get("eligible_slots", [])}
+        unknown = slots - set(SLOTS)
+        if not slots or unknown:
+            raise ValueError(
+                f"Invalid eligible_slots for {example_id}: {sorted(slots)}"
+            )
+        output[example_id] = slots
+    return output
+
+
+def filter_examples_by_slot_eligibility(
+    examples: Sequence[Mapping[str, Any]],
+    eligibility: Mapping[str, set[str]],
+    slots: Sequence[str],
+) -> list[dict[str, Any]]:
+    requested = set(slots)
+    return [
+        dict(example)
+        for example in examples
+        if eligibility.get(str(example["example_id"]), set()) & requested
+    ]
+
+
+def apply_slot_eligibility(
+    records: dict[str, list[dict[str, Any]]],
+    eligibility: Mapping[str, set[str]],
+) -> dict[str, list[dict[str, Any]]]:
+    return {
+        example_id: [
+            record
+            for record in rows
+            if str(record.get("slot")) in eligibility.get(example_id, set())
+        ]
+        for example_id, rows in records.items()
+        if example_id in eligibility
+    }
+
+
+def hands_pose_mirror_paths(
+    records: Mapping[str, Sequence[Mapping[str, Any]]],
+    alternate_paths: Mapping[str, str] | None = None,
+) -> set[str]:
+    primary = {
+        str(record["path"])
+        for rows in records.values()
+        for record in rows
+        if record.get("slot") == "HANDS"
+        and record.get("name") in HANDS_RIGHT_CROP_NAMES
+    }
+    alternates = {
+        str((alternate_paths or {})[path])
+        for path in primary
+        if path in (alternate_paths or {})
+    }
+    return primary | alternates
 
 
 def unfreeze_last_blocks(
@@ -1141,6 +1305,8 @@ def train_epoch(
     hard_negative_margin: float,
     device: torch.device,
     augment: bool,
+    pose_mirror_paths: set[str],
+    pose_normalize_hands: bool,
     preprocess: str,
 ) -> float:
     model.train()
@@ -1168,6 +1334,8 @@ def train_epoch(
             pixels = load_pixel_batch(
                 paths,
                 augment=augment,
+                mirror_paths=pose_mirror_paths,
+                random_mirror=not pose_normalize_hands,
                 preprocess=preprocess,
             ).to(device)
             optimizer.zero_grad(set_to_none=True)
@@ -1276,6 +1444,7 @@ def encode_records(
     batch_size: int,
     device: torch.device,
     *,
+    pose_normalize_hands: bool = False,
     preprocess: str = "color",
 ) -> dict[str, np.ndarray]:
     model.eval()
@@ -1287,6 +1456,11 @@ def encode_records(
         for rows in records.values()
         for record in rows
     }
+    mirror_paths = (
+        hands_pose_mirror_paths(records)
+        if pose_normalize_hands
+        else set()
+    )
     for slot in SLOTS:
         paths = sorted(
             path
@@ -1298,6 +1472,7 @@ def encode_records(
             pixels = load_pixel_batch(
                 batch_paths,
                 augment=False,
+                mirror_paths=mirror_paths,
                 preprocess=preprocess,
             ).to(device)
             tokens = model(pixel_values=pixels).last_hidden_state
@@ -1320,14 +1495,20 @@ def load_pixel_batch(
     paths: Sequence[str],
     *,
     augment: bool,
+    mirror_paths: set[str] | None = None,
+    random_mirror: bool = True,
     preprocess: str = "color",
 ) -> torch.Tensor:
     arrays = []
     for path in paths:
         with Image.open(path) as source:
             image = source.convert("RGB")
+        if str(path) in (mirror_paths or set()):
+            mirrored = ImageOps.mirror(image)
+            image.close()
+            image = mirrored
         if augment:
-            image = augment_query(image)
+            image = augment_query(image, allow_mirror=random_mirror)
         if preprocess == "gray":
             grayscale = ImageOps.grayscale(image).convert("RGB")
             image.close()
@@ -1348,9 +1529,13 @@ def load_pixel_batch(
     return torch.from_numpy(np.stack(arrays))
 
 
-def augment_query(image: Image.Image) -> Image.Image:
+def augment_query(
+    image: Image.Image,
+    *,
+    allow_mirror: bool = True,
+) -> Image.Image:
     output = image
-    if random.random() < 0.5:
+    if allow_mirror and random.random() < 0.5:
         mirrored = ImageOps.mirror(output)
         output.close()
         output = mirrored

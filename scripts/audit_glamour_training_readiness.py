@@ -628,6 +628,7 @@ def audit_folds(
     near_pairs: Sequence[Mapping[str, Any]],
     thresholds: Thresholds,
     registered_eligible: int | None,
+    fold_dir: Path | None = None,
 ) -> dict[str, Any]:
     fold_rows = []
     pooled_validation_examples: set[str] = set()
@@ -639,7 +640,8 @@ def audit_folds(
     examples_by_id = {
         str(example.get("example_id")): example for example in examples
     }
-    for fold_path in sorted(resolve_input(FOLD_DIRS[slot]).glob("fold-*.json")):
+    selected_fold_dir = fold_dir if fold_dir is not None else FOLD_DIRS[slot]
+    for fold_path in sorted(resolve_input(selected_fold_dir).glob("fold-*.json")):
         payload = json.loads(fold_path.read_text(encoding="utf-8"))
         assignments = {
             str(key): str(value)

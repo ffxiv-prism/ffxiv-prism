@@ -6,6 +6,7 @@ from scripts.build_item_disjoint_cv_split_manifests import (
     body_item_key,
     build_balanced_item_fold_map,
     build_item_disjoint_assignments,
+    eligible_example_ids_for_slot,
     slot_item_key,
 )
 
@@ -56,6 +57,21 @@ class ItemDisjointCvSplitManifestTests(unittest.TestCase):
         }
         self.assertEqual(slot_item_key(example, "FEET"), "name:example boots")
         self.assertIsNone(slot_item_key(example, "HANDS"))
+
+    def test_slot_eligibility_never_admits_unreviewed_slots(self) -> None:
+        rows = [
+            {"example_id": "1:0", "eligible_slots": ["HEAD"]},
+            {"example_id": "2:0", "eligible_slots": ["BODY", "HANDS"]},
+        ]
+
+        self.assertEqual(
+            eligible_example_ids_for_slot(rows, "HEAD"),
+            {"1:0"},
+        )
+        self.assertEqual(
+            eligible_example_ids_for_slot(rows, "HANDS"),
+            {"2:0"},
+        )
 
 
 

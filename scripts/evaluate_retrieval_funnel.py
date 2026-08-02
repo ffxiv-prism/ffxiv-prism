@@ -5,7 +5,7 @@ import gc
 import sys
 from collections import Counter
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 import numpy as np
 import torch
@@ -340,13 +340,10 @@ def build_fold_context(
     quality_by_id: dict[str, bool],
     regions_dir: Path,
     slot: str,
+    fold_role: str = "validation",
 ) -> dict[str, Any]:
     assignments = load_split_assignments(fold_manifest)
-    selected_ids = {
-        glamour_id
-        for glamour_id, role in assignments.items()
-        if role == "validation"
-    }
+    selected_ids = select_split_ids(assignments, fold_role)
     split_examples = [
         example
         for example in all_examples
@@ -372,9 +369,27 @@ def build_fold_context(
     )
     return {
         "fold": fold,
+        "fold_role": fold_role,
         "fold_manifest": fold_manifest,
         "examples": examples,
         "records": records,
+    }
+
+
+def select_split_ids(
+    assignments: Mapping[str, str],
+    fold_role: str,
+) -> set[str]:
+    allowed_roles = {"train", "validation", "blind_test"}
+    if fold_role not in allowed_roles:
+        raise ValueError(
+            f"Unsupported fold role {fold_role!r}; "
+            f"expected one of {sorted(allowed_roles)}"
+        )
+    return {
+        str(glamour_id)
+        for glamour_id, role in assignments.items()
+        if role == fold_role
     }
 
 
