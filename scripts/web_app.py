@@ -14,6 +14,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from email import policy
 from email.parser import BytesParser
+from functools import lru_cache
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -28,6 +29,7 @@ DATA_IMAGE_ROOT = PROJECT_ROOT / "data" / "raw" / "eorzea_collection" / "images"
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 MAX_JSON_BYTES = 1024 * 1024
 SLOTS = ("HEAD", "BODY", "HANDS", "LEGS", "FEET")
+EXECUTION_DEVICES = {"cpu", "cuda"}
 RUNNING_STATES = {"queued", "running"}
 DATASET_MODES: dict[str, list[str]] = {
     "standard": [],
@@ -60,6 +62,7 @@ class Job:
     return_code: int | None = None
     error: str | None = None
     output_dir: str | None = None
+    device: str | None = None
     logs: list[str] = field(default_factory=list)
 
     def public(self, *, include_logs: bool = True) -> dict[str, Any]:
@@ -88,6 +91,7 @@ class JobRegistry:
         title: str,
         job_id: str | None = None,
         output_dir: Path | None = None,
+        device: str | None = None,
     ) -> Job:
         with self._lock:
             active = next(
@@ -105,14 +109,21 @@ class JobRegistry:
                     if output_dir is not None
                     else None
                 ),
+                device=device,
             )
             self._jobs[job.id] = job
             return job
 
-    def start(self, job: Job, command: list[str]) -> None:
+    def start(
+        self,
+        job: Job,
+        command: list[str],
+        *,
+        environment_overrides: dict[str, str] | None = None,
+    ) -> None:
         thread = threading.Thread(
             target=self._run,
-            args=(job.id, command),
+            args=(job.id, command, environment_overrides or {}),
             name=f"ffxiv-prism-{job.kind}-{job.id}",
             daemon=True,
         )
@@ -138,7 +149,12 @@ class JobRegistry:
             )
             return [job.public(include_logs=False) for job in jobs[:20]]
 
-    def _run(self, job_id: str, command: list[str]) -> None:
+    def _run(
+        self,
+        job_id: str,
+        command: list[str],
+        environment_overrides: dict[str, str],
+    ) -> None:
         with self._lock:
             job = self._jobs[job_id]
             job.status = "running"
@@ -150,6 +166,7 @@ class JobRegistry:
             environment = os.environ.copy()
             environment.setdefault("PYTHONIOENCODING", "utf-8")
             environment.setdefault("PYTHONUTF8", "1")
+            environment.update(environment_overrides)
             process = subprocess.Popen(
                 command,
                 cwd=PROJECT_ROOT,
@@ -245,6 +262,7 @@ def build_recognition_command(
     top_k: int,
     gender: str | None,
     profile: str,
+    device: str,
 ) -> list[str]:
     if not slots or any(slot not in SLOTS for slot in slots):
         raise ValueError("至少选择一个有效槽位。")
@@ -254,6 +272,8 @@ def build_recognition_command(
         raise ValueError("角色性别参数无效。")
     if profile not in {"current-best", "base"}:
         raise ValueError("识别配置无效。")
+    if device not in EXECUTION_DEVICES:
+        raise ValueError("运行设备必须是 CPU 或 GPU。")
 
     command = [
         python_executable,
@@ -265,12 +285,83 @@ def build_recognition_command(
         str(top_k),
         "--profile",
         profile,
+        "--device",
+        device,
         "--output-dir",
         str(output_dir),
     ]
     if gender:
         command.extend(["--gender", gender])
     return command
+
+
+def _probe_execution_runtime(python_executable: str) -> dict[str, Any]:
+    try:
+        import torch
+
+        cuda_available = bool(torch.cuda.is_available())
+        return {
+            "python_executable": python_executable,
+            "python_version": ".".join(map(str, sys.version_info[:3])),
+            "torch_version": torch.__version__,
+            "torch_threads": torch.get_num_threads(),
+            "logical_processors": os.cpu_count(),
+            "cpu": {
+                "available": True,
+                "label": "CPU",
+            },
+            "gpu": {
+                "available": cuda_available,
+                "label": "GPU",
+                "device_name": torch.cuda.get_device_name(0)
+                if cuda_available
+                else None,
+                "reason": None
+                if cuda_available
+                else "当前 Python/PyTorch 环境未检测到可用 CUDA GPU。",
+            },
+        }
+    except (ImportError, OSError, RuntimeError) as exc:
+        return {
+            "python_executable": python_executable,
+            "python_version": None,
+            "torch_version": None,
+            "torch_threads": None,
+            "logical_processors": os.cpu_count(),
+            "cpu": {
+                "available": True,
+                "label": "CPU",
+            },
+            "gpu": {
+                "available": False,
+                "label": "GPU",
+                "device_name": None,
+                "reason": f"无法确认 GPU 可用性：{exc}",
+            },
+        }
+
+
+@lru_cache(maxsize=4)
+def execution_runtime_status(python_executable: str) -> dict[str, Any]:
+    return _probe_execution_runtime(python_executable)
+
+
+def validate_execution_device(device: str, runtime: dict[str, Any]) -> str:
+    if device not in EXECUTION_DEVICES:
+        raise ValueError("运行设备必须是 CPU 或 GPU。")
+    if device == "cuda" and not bool(runtime.get("gpu", {}).get("available")):
+        reason = runtime.get("gpu", {}).get("reason") or "当前环境没有可用 CUDA GPU。"
+        raise ValueError(
+            f"无法使用 GPU：{reason} 请按 environment-gpu.yml 配置环境并重启 WebUI，"
+            "或改选 CPU。"
+        )
+    return device
+
+
+def execution_environment_overrides(device: str) -> dict[str, str]:
+    if device not in EXECUTION_DEVICES:
+        raise ValueError("运行设备必须是 CPU 或 GPU。")
+    return {"CUDA_VISIBLE_DEVICES": "-1"} if device == "cpu" else {}
 
 
 def build_dataset_command(*, python_executable: str, mode: str) -> list[str]:
@@ -420,6 +511,9 @@ class PrismRequestHandler(BaseHTTPRequestHandler):
                         "app": "FFXIV Prism",
                         "local": True,
                         "dataset": dataset_status(),
+                        "execution": execution_runtime_status(
+                            self.registry.python_executable
+                        ),
                         "jobs": self.registry.list(),
                     }
                 )
@@ -497,6 +591,12 @@ class PrismRequestHandler(BaseHTTPRequestHandler):
         top_k = int(fields.get("top_k", "10"))
         gender = fields.get("gender") or None
         profile = fields.get("profile", "current-best")
+        runtime = execution_runtime_status(self.registry.python_executable)
+        default_device = "cuda" if runtime["gpu"]["available"] else "cpu"
+        device = validate_execution_device(
+            fields.get("device", default_device),
+            runtime,
+        )
 
         job_id = uuid.uuid4().hex[:12]
         output_dir = OUTPUT_ROOT / job_id
@@ -505,6 +605,7 @@ class PrismRequestHandler(BaseHTTPRequestHandler):
             title=f"识别 {Path(original_name).name}",
             job_id=job_id,
             output_dir=output_dir,
+            device=device,
         )
         try:
             upload_dir = output_dir / "input"
@@ -519,11 +620,16 @@ class PrismRequestHandler(BaseHTTPRequestHandler):
                 top_k=top_k,
                 gender=gender,
                 profile=profile,
+                device=device,
             )
         except Exception as exc:
             self.registry.fail_reserved(job.id, str(exc))
             raise
-        self.registry.start(job, command)
+        self.registry.start(
+            job,
+            command,
+            environment_overrides=execution_environment_overrides(device),
+        )
         self._send_json({"job": job.public()}, status=HTTPStatus.ACCEPTED)
 
     def _start_dataset_update(self) -> None:
@@ -639,8 +745,12 @@ class PrismServer(ThreadingHTTPServer):
         server_address: tuple[str, int],
         registry: JobRegistry | None = None,
     ) -> None:
-        super().__init__(server_address, PrismRequestHandler)
         self.registry = registry or JobRegistry()
+        # Load PyTorch and cache device capabilities on the server's main thread.
+        # Importing Conda extension modules for the first time in a request worker
+        # can fail on Windows before the environment DLL search path is settled.
+        execution_runtime_status(self.registry.python_executable)
+        super().__init__(server_address, PrismRequestHandler)
 
 
 def _parse_job_route(path: str) -> tuple[str, str | None] | None:

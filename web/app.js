@@ -11,6 +11,12 @@ const elements = {
   fileMeta: $("#file-meta"),
   changeImage: $("#change-image"),
   recognizeButton: $("#recognize-button"),
+  deviceInputs: $$("input[name=\"device\"]"),
+  deviceCpu: $("#device-cpu"),
+  deviceGpu: $("#device-gpu"),
+  cpuDetail: $("#cpu-detail"),
+  gpuDetail: $("#gpu-detail"),
+  deviceNote: $("#device-note"),
   jobPanel: $("#job-panel"),
   jobTitle: $("#job-title"),
   jobState: $("#job-state"),
@@ -51,6 +57,8 @@ let previewUrl = null;
 let pollTimer = null;
 let activeResult = null;
 let activeSlot = null;
+let runtimeLoaded = false;
+let taskBusy = false;
 
 function formatNumber(value) {
   if (value === null || value === undefined) return "—";
@@ -64,6 +72,53 @@ function formatBytes(bytes) {
 
 function fileUrl(path) {
   return `/api/file?path=${encodeURIComponent(path)}`;
+}
+
+function selectedDevice() {
+  return elements.deviceInputs.find((input) => input.checked && !input.disabled)?.value || null;
+}
+
+function deviceLabel(device) {
+  return String(device || "").startsWith("cuda") ? "GPU" : "CPU";
+}
+
+function updateRecognizeAvailability() {
+  elements.recognizeButton.disabled = !selectedImage || !selectedDevice() || !runtimeLoaded || taskBusy;
+}
+
+function updateDeviceNote() {
+  const device = selectedDevice();
+  if (device === "cuda") {
+    const gpuName = elements.gpuDetail.dataset.deviceName;
+    elements.deviceNote.innerHTML = `本次任务将固定使用 <strong>GPU</strong>${gpuName ? ` · ${escapeHtml(gpuName)}` : ""}。`;
+  } else if (device === "cpu") {
+    elements.deviceNote.innerHTML = "本次任务将固定使用 <strong>CPU</strong>，并对该子进程隐藏 CUDA。";
+  } else {
+    elements.deviceNote.textContent = "当前没有可用的运行设备。";
+  }
+}
+
+function renderExecutionRuntime(execution) {
+  const cpu = execution?.cpu || {};
+  const gpu = execution?.gpu || {};
+  runtimeLoaded = true;
+  elements.deviceCpu.disabled = !cpu.available;
+  elements.deviceGpu.disabled = !gpu.available;
+  elements.cpuDetail.textContent = execution?.logical_processors
+    ? `${execution.logical_processors} 个逻辑处理器 · 兼容性优先`
+    : "兼容性优先，推断速度较慢";
+  elements.gpuDetail.textContent = gpu.available
+    ? gpu.device_name || "CUDA 可用"
+    : gpu.reason || "当前环境不可用";
+  elements.gpuDetail.dataset.deviceName = gpu.available ? gpu.device_name || "CUDA" : "";
+  $("[data-device-option=\"cuda\"]").classList.toggle("unavailable", !gpu.available);
+
+  if (!selectedDevice()) {
+    if (gpu.available) elements.deviceGpu.checked = true;
+    else if (cpu.available) elements.deviceCpu.checked = true;
+  }
+  updateDeviceNote();
+  updateRecognizeAvailability();
 }
 
 async function api(url, options = {}) {
@@ -91,12 +146,20 @@ async function loadStatus() {
   try {
     const payload = await api("/api/status");
     renderDatasetStatus(payload.dataset);
+    renderExecutionRuntime(payload.execution);
     const active = payload.jobs.find((job) => ["queued", "running"].includes(job.status));
+    taskBusy = Boolean(active);
+    updateRecognizeAvailability();
     if (active) {
       renderJob(active);
       startPolling(active.id);
     }
   } catch (error) {
+    runtimeLoaded = false;
+    elements.deviceCpu.disabled = true;
+    elements.deviceGpu.disabled = true;
+    elements.deviceNote.textContent = "无法读取运行环境，请检查本地服务日志。";
+    updateRecognizeAvailability();
     $("#dataset-ready").textContent = "读取失败";
     $("#dataset-ready").classList.add("unready");
     $("#dataset-updated").textContent = error.message;
@@ -136,7 +199,7 @@ function selectImage(file) {
   elements.fileMeta.textContent = `${formatBytes(file.size)} · 保存在本地任务目录`;
   elements.dropZone.hidden = true;
   elements.selectedFile.hidden = false;
-  elements.recognizeButton.disabled = false;
+  updateRecognizeAvailability();
 }
 
 for (const dropTarget of [elements.dropZone, elements.selectedFile]) {
@@ -168,6 +231,12 @@ elements.dropZone.addEventListener("keydown", (event) => {
 
 elements.input.addEventListener("change", () => selectImage(elements.input.files[0]));
 elements.changeImage.addEventListener("click", () => elements.input.click());
+for (const input of elements.deviceInputs) {
+  input.addEventListener("change", () => {
+    updateDeviceNote();
+    updateRecognizeAvailability();
+  });
+}
 
 elements.form.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -183,7 +252,9 @@ elements.form.addEventListener("submit", async (event) => {
   form.append("top_k", $("#top-k").value);
   form.append("slots", slots.join(","));
   form.append("profile", "current-best");
-  elements.recognizeButton.disabled = true;
+  form.append("device", selectedDevice());
+  taskBusy = true;
+  updateRecognizeAvailability();
   elements.results.hidden = true;
   try {
     const payload = await api("/api/recognize", { method: "POST", body: form });
@@ -192,13 +263,16 @@ elements.form.addEventListener("submit", async (event) => {
     elements.jobPanel.scrollIntoView({ behavior: "smooth", block: "center" });
   } catch (error) {
     showToast(error.message);
-    elements.recognizeButton.disabled = false;
+    taskBusy = false;
+    updateRecognizeAvailability();
   }
 });
 
 function renderJob(job) {
   elements.jobPanel.hidden = false;
-  elements.jobTitle.textContent = job.title;
+  elements.jobTitle.textContent = job.device
+    ? `${job.title} · ${deviceLabel(job.device)}`
+    : job.title;
   elements.jobStage.textContent = job.error || job.stage || "等待中";
   elements.jobLog.textContent = (job.logs || []).join("\n");
   elements.jobLog.scrollTop = elements.jobLog.scrollHeight;
@@ -224,7 +298,8 @@ function startPolling(jobId) {
         pollTimer = window.setTimeout(poll, 1400);
         return;
       }
-      elements.recognizeButton.disabled = !selectedImage;
+      taskBusy = false;
+      updateRecognizeAvailability();
       await loadStatus();
       if (job.status === "succeeded" && job.kind === "recognition") {
         const result = await api(job.result_url);
@@ -236,7 +311,8 @@ function startPolling(jobId) {
       }
     } catch (error) {
       showToast(error.message);
-      elements.recognizeButton.disabled = !selectedImage;
+      taskBusy = false;
+      updateRecognizeAvailability();
     }
   };
   poll();
@@ -247,7 +323,7 @@ function renderResults(result, reportUrl) {
   activeSlot = result.slots?.[0]?.slot || null;
   elements.results.hidden = false;
   elements.rawReport.href = reportUrl;
-  elements.resultSummary.textContent = `${result.slots.length} 个部位 · 每个部位最多 ${result.top_k} 件候选 · 姿态质量 ${Math.round(result.pose_quality * 100)}%`;
+  elements.resultSummary.textContent = `${deviceLabel(result.device)} 推断 · ${result.slots.length} 个部位 · 每个部位最多 ${result.top_k} 件候选 · 姿态质量 ${Math.round(result.pose_quality * 100)}%`;
   elements.visualGrid.innerHTML = "";
 
   const visuals = [

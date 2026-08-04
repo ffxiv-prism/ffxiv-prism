@@ -3,6 +3,8 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
+from unittest import mock
 
 from scripts import web_app
 
@@ -21,6 +23,7 @@ class WebAppTests(unittest.TestCase):
                 top_k=20,
                 gender="female",
                 profile="current-best",
+                device="cuda",
             )
 
         self.assertEqual(command[0], "python")
@@ -30,7 +33,59 @@ class WebAppTests(unittest.TestCase):
             ["HEAD", "BODY"],
         )
         self.assertEqual(command[command.index("--top-k") + 1], "20")
+        self.assertEqual(command[command.index("--device") + 1], "cuda")
         self.assertEqual(command[-2:], ["--gender", "female"])
+
+    def test_build_recognition_command_rejects_unknown_device(self) -> None:
+        with self.assertRaisesRegex(ValueError, "CPU 或 GPU"):
+            web_app.build_recognition_command(
+                python_executable="python",
+                image_path=Path("source.png"),
+                output_dir=Path("result"),
+                slots=["BODY"],
+                top_k=10,
+                gender=None,
+                profile="current-best",
+                device="auto",
+            )
+
+    def test_cpu_execution_hides_cuda_from_child_process(self) -> None:
+        self.assertEqual(
+            web_app.execution_environment_overrides("cpu"),
+            {"CUDA_VISIBLE_DEVICES": "-1"},
+        )
+        self.assertEqual(web_app.execution_environment_overrides("cuda"), {})
+
+    def test_gpu_selection_requires_available_cuda_runtime(self) -> None:
+        runtime = {
+            "gpu": {
+                "available": False,
+                "reason": "测试环境没有 CUDA。",
+            }
+        }
+        with self.assertRaisesRegex(ValueError, "environment-gpu.yml"):
+            web_app.validate_execution_device("cuda", runtime)
+        self.assertEqual(web_app.validate_execution_device("cpu", runtime), "cpu")
+
+    def test_runtime_probe_reports_cpu_and_gpu_options(self) -> None:
+        fake_torch = SimpleNamespace(
+            __version__="2.11.0+cu130",
+            get_num_threads=lambda: 12,
+            cuda=SimpleNamespace(
+                is_available=lambda: True,
+                get_device_name=lambda _index: "Test GPU",
+            ),
+        )
+        with (
+            mock.patch.dict("sys.modules", {"torch": fake_torch}),
+            mock.patch.object(web_app.os, "cpu_count", return_value=20),
+        ):
+            runtime = web_app._probe_execution_runtime("python")
+
+        self.assertTrue(runtime["cpu"]["available"])
+        self.assertTrue(runtime["gpu"]["available"])
+        self.assertEqual(runtime["gpu"]["device_name"], "Test GPU")
+        self.assertEqual(runtime["logical_processors"], 20)
 
     def test_frontend_offers_top_20_and_replacement_drop_target(self) -> None:
         html = (web_app.WEB_ROOT / "index.html").read_text(encoding="utf-8")
@@ -42,6 +97,11 @@ class WebAppTests(unittest.TestCase):
         self.assertIn("candidate.is_no_equipment", javascript)
         self.assertIn("不显示外观", javascript)
         self.assertIn(".candidate.no-equipment", stylesheet)
+        self.assertIn('name="device" value="cuda"', html)
+        self.assertIn('name="device" value="cpu"', html)
+        self.assertIn('form.append("device", selectedDevice())', javascript)
+        self.assertIn("renderExecutionRuntime(payload.execution)", javascript)
+        self.assertIn(".device-option-card", stylesheet)
 
     def test_detect_image_extension(self) -> None:
         cases = [

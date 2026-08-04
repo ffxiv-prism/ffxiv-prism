@@ -6,8 +6,8 @@
   <meta name="color-scheme" content="dark">
   <meta name="description" content="FFXIV Prism 本地装备外观识别工作台">
   <title>FFXIV Prism · 本地识别工作台</title>
-  <link rel="stylesheet" href="/static/styles.css?v=2">
-  <script src="/static/app.js?v=2" defer></script>
+  <link rel="stylesheet" href="/static/styles.css?v=3">
+  <script src="/static/app.js?v=3" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -69,6 +69,36 @@
               </select>
             </label>
           </div>
+
+          <fieldset class="device-fieldset">
+            <legend>
+              <span>运行环境</span>
+              <small>每次任务固定，不会自动切换</small>
+            </legend>
+            <div class="device-options">
+              <label class="device-option" data-device-option="cuda">
+                <input id="device-gpu" type="radio" name="device" value="cuda" checked disabled>
+                <span class="device-option-card">
+                  <span class="device-option-copy">
+                    <b>GPU</b>
+                    <small id="gpu-detail">正在检测 CUDA…</small>
+                  </span>
+                  <span class="device-badge">推荐</span>
+                </span>
+              </label>
+              <label class="device-option" data-device-option="cpu">
+                <input id="device-cpu" type="radio" name="device" value="cpu" disabled>
+                <span class="device-option-card">
+                  <span class="device-option-copy">
+                    <b>CPU</b>
+                    <small id="cpu-detail">正在读取运行环境…</small>
+                  </span>
+                  <span class="device-badge device-badge-neutral">兼容</span>
+                </span>
+              </label>
+            </div>
+            <p class="device-note" id="device-note" aria-live="polite">正在检查可用运行设备…</p>
+          </fieldset>
 
           <fieldset class="slot-fieldset">
             <legend>识别部位</legend>
