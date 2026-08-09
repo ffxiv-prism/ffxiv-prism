@@ -16,7 +16,7 @@ if "torch" not in sys.modules:
 import torch
 from PIL import Image, ImageDraw, ImageFont
 
-from ffxiv_prism.paths import CACHE_DIR
+from ffxiv_prism.model_assets import load_pretrained
 from ffxiv_prism.torch_device import resolve_torch_device
 
 DEFAULT_POSE_MODEL = "usyd-community/vitpose-base-simple"
@@ -135,27 +135,8 @@ class SinglePersonPoseEstimator:
 
         self.model_id = model_id
         self.device = resolve_torch_device(device)
-        cache_dir = CACHE_DIR / "huggingface" / "hub"
-        try:
-            self.processor = VitPoseImageProcessorPil.from_pretrained(
-                model_id,
-                cache_dir=cache_dir,
-                local_files_only=True,
-            )
-            self.model = VitPoseForPoseEstimation.from_pretrained(
-                model_id,
-                cache_dir=cache_dir,
-                local_files_only=True,
-            )
-        except OSError:
-            self.processor = VitPoseImageProcessorPil.from_pretrained(
-                model_id,
-                cache_dir=cache_dir,
-            )
-            self.model = VitPoseForPoseEstimation.from_pretrained(
-                model_id,
-                cache_dir=cache_dir,
-            )
+        self.processor = load_pretrained(VitPoseImageProcessorPil, model_id)
+        self.model = load_pretrained(VitPoseForPoseEstimation, model_id)
         self.model = self.model.to(self.device).eval()
 
     def estimate(self, image: Image.Image, refine: bool = True) -> tuple[list[Keypoint], tuple[int, int, int, int]]:

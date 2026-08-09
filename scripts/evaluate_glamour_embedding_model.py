@@ -17,7 +17,8 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from ffxiv_prism.jsonl import read_jsonl, write_json, write_jsonl
-from ffxiv_prism.paths import CACHE_DIR, PROCESSED_DIR, portable_path, resolve_project_path
+from ffxiv_prism.model_assets import load_pretrained
+from ffxiv_prism.paths import PROCESSED_DIR, portable_path, resolve_project_path
 from ffxiv_prism.torch_device import resolve_torch_device
 from ffxiv_prism.vision.evaluation_split import load_split_assignments
 from ffxiv_prism.vision.retrieval import DEFAULT_INDEX_DIR, load_index
@@ -272,29 +273,12 @@ class ClipLikeEncoder(EmbeddingEncoder):
         super().__init__(model_id, kind, device, preprocess)
         from transformers import AutoConfig, AutoProcessor, CLIPModel, SiglipModel
 
-        cache_dir = CACHE_DIR / "huggingface" / "hub"
-        self.processor = AutoProcessor.from_pretrained(
-            model_id,
-            cache_dir=cache_dir,
-            local_files_only=True,
-        )
-        config = AutoConfig.from_pretrained(
-            model_id,
-            cache_dir=cache_dir,
-            local_files_only=True,
-        )
+        self.processor = load_pretrained(AutoProcessor, model_id)
+        config = load_pretrained(AutoConfig, model_id)
         if getattr(config, "model_type", None) == "siglip":
-            self.model = SiglipModel.from_pretrained(
-                model_id,
-                cache_dir=cache_dir,
-                local_files_only=True,
-            ).to(self.device).eval()
+            self.model = load_pretrained(SiglipModel, model_id).to(self.device).eval()
         else:
-            self.model = CLIPModel.from_pretrained(
-                model_id,
-                cache_dir=cache_dir,
-                local_files_only=True,
-            ).to(self.device).eval()
+            self.model = load_pretrained(CLIPModel, model_id).to(self.device).eval()
 
     def encode_batch(self, paths: Sequence[Path]) -> np.ndarray:
         images = [self.prepare_image(path) for path in paths]
@@ -327,11 +311,7 @@ class DinoV2Encoder(EmbeddingEncoder):
         self.pooling = pooling
         from transformers import AutoModel
 
-        self.model = AutoModel.from_pretrained(
-            model_id,
-            cache_dir=CACHE_DIR / "huggingface" / "hub",
-            local_files_only=True,
-        ).to(self.device).eval()
+        self.model = load_pretrained(AutoModel, model_id).to(self.device).eval()
 
     def encode_batch(self, paths: Sequence[Path]) -> np.ndarray:
         arrays = []

@@ -6,20 +6,45 @@ FFXIV Prism 是一个本地优先的《最终幻想 XIV》装备外观候选检�
 
 ## 快速开始
 
-推荐使用项目 Conda 环境：
+仓库通过 Git LFS 提供 `current-best` 的候选向量索引、推理检查点和本地
+DINOv3 权重。首次 clone 前需安装 Git LFS；若已经 clone，再执行 `git lfs pull`：
 
 ```powershell
-conda env create -f environment-gpu.yml
-conda activate ffxiv-prism
-python scripts\recognize_glamour.py --check
+git lfs install
+git clone https://github.com/cool2341999/ffxiv-prism.git
+cd ffxiv-prism
+git lfs pull
 ```
 
-CPU 环境可改用 `environment-cpu.yml`，但完整五部位推理会明显更慢。
+已有 Python 3.12 环境时，安装项目并准备可从官方模型仓下载的公共权重：
+
+```powershell
+python -m pip install -e .
+python scripts\prepare_current_best.py
+```
+
+公共 DINOv2、SigLIP2 和姿态模型仅在首次准备时下载到项目内的
+`var/cache/huggingface`。仓库内的推理资产会按 SHA-256 校验；若提示 Git LFS
+pointer，请先运行 `git lfs pull`。
+
+下载 `current-best` 报告预览所需的装备图片：
+
+```powershell
+python scripts\download_eorzea_images_from_url_manifest.py `
+  --current-best-only `
+  --image-workers 8 `
+  --delay 0.2
+python scripts\download_eorzea_images_from_url_manifest.py --check
+```
+
+CPU-only 环境可使用 `environment-cpu.yml` 创建；完整五部位 CPU 推理会明显更慢。
 
 识别一张图片：
 
 ```powershell
 python scripts\recognize_glamour.py reference.png `
+  --profile current-best `
+  --device cpu `
   --top-k 10 `
   --output-dir data\outputs\glamour-match\reference
 ```
@@ -110,7 +135,10 @@ python scripts\run_data_pipeline.py
 python scripts\run_data_pipeline.py --refresh-source
 ```
 
-远端页面和图片、模型、向量索引、训练缓存、调试图与运行输出均属于本地可再生成资产，不进入 Git。
+装备图片、远端页面、公共模型缓存、训练缓存、调试图与运行输出均属于本地可再
+生成资产，不进入 Git。已发布 `current-best` 所需的候选向量索引、推理检查点和
+DINOv3 权重属于版本化运行资产，通过 Git LFS 随仓库提供；文件清单和哈希位于
+`data/current_best_assets.json`。
 
 ## 项目结构
 
@@ -122,8 +150,8 @@ web/                    无构建步骤的本地网页
 docs/                   当前合并状态文档
 data/processed/         规范小型清单与装备库快照
 data/interim/           仅保留登记的严格三折清单
-data/indexes/           本地活动向量索引（忽略）
-data/models/            本地训练检查点（忽略）
+data/indexes/           current-best 索引随 Git LFS 发布；其他索引忽略
+data/models/            current-best 推理检查点随 Git LFS 发布；训练检查点忽略
 data/debug/             可删除调试输出（忽略）
 data/outputs/           可删除运行输出（忽略）
 var/                    模型运行时与缓存（忽略）
@@ -143,4 +171,4 @@ python scripts\recognize_glamour.py --check
 - 项目只处理单主角、清晰度足够的 FFXIV 风格图片；
 - 染色、遮挡、动作、宽檐头饰、小型饰品和多槽占用会显著影响排序；
 - 排名分数是相对检索信号，不是校准概率；
-- `data/raw`、`data/indexes`、`data/models`、`data/debug`、`data/outputs` 与 `var` 中的大型资产不适合上传代码仓库。
+- 装备图片、训练数据、训练检查点、调试输出和公共模型缓存不进入 Git；仅发布清单中登记的 `current-best` 推理资产通过 Git LFS 提供。

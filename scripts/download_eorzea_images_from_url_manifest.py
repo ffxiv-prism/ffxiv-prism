@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import time
 from pathlib import Path
@@ -18,7 +19,12 @@ from ffxiv_prism.collectors.eorzea_collection.collector import (  # noqa: E402
 )
 from ffxiv_prism.collectors.eorzea_collection.models import ImageCandidate  # noqa: E402
 from ffxiv_prism.jsonl import append_jsonl, read_jsonl  # noqa: E402
-from ffxiv_prism.paths import EORZEA_METADATA_DIR  # noqa: E402
+from ffxiv_prism.matching.inference import current_best_configs  # noqa: E402
+from ffxiv_prism.paths import (  # noqa: E402
+    EORZEA_METADATA_DIR,
+    portable_path,
+    resolve_project_path,
+)
 
 
 def main() -> int:
@@ -42,6 +48,16 @@ def main() -> int:
     parser.add_argument("--delay", type=float, default=2.0, help="Delay between network requests in seconds.")
     parser.add_argument("--timeout", type=float, default=10.0, help="Network timeout per request in seconds.")
     parser.add_argument(
+        "--current-best-only",
+        action="store_true",
+        help="Download only the equipment images referenced by current-best indexes.",
+    )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Report current-best image coverage without downloading.",
+    )
+    parser.add_argument(
         "--ignore-robots",
         action="store_true",
         default=True,
@@ -63,6 +79,38 @@ def main() -> int:
     ]
     if args.gearset_slug:
         rows = [row for row in rows if row.get("gearset_slug") == args.gearset_slug]
+
+    required_images = (
+        current_best_required_images() if args.current_best_only or args.check else {}
+    )
+    if required_images:
+        rows_by_url = {
+            str(row.get("source_image_url")): row
+            for row in rows
+            if row.get("source_image_url")
+        }
+        missing_manifest_urls = sorted(set(required_images) - set(rows_by_url))
+        if missing_manifest_urls:
+            print(
+                json.dumps(
+                    {
+                        "ok": False,
+                        "error": "current-best image URLs are missing from the download manifest",
+                        "missing_url_count": len(missing_manifest_urls),
+                        "examples": missing_manifest_urls[:10],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+            return 2
+        rows = [rows_by_url[url] for url in sorted(required_images)]
+
+    if args.check:
+        report = current_best_image_coverage(required_images)
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        return 0 if report["ok"] else 2
+
     if args.limit is not None:
         rows = rows[: args.limit]
 
@@ -101,7 +149,75 @@ def main() -> int:
             "manifest_path": str(args.manifest),
         },
     )
+    if required_images and args.limit is None:
+        report = current_best_image_coverage(required_images)
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        return 0 if report["ok"] else 2
     return 0
+
+
+def required_image_paths_from_metadata(
+    rows: list[dict[str, object]],
+) -> dict[str, Path]:
+    required: dict[str, Path] = {}
+    for row in rows:
+        url = str(row.get("source_image_url") or "")
+        local_path = resolve_project_path(row.get("local_path"))
+        if not url or local_path is None:
+            continue
+        existing = required.get(url)
+        if existing is not None and existing != local_path:
+            raise ValueError(
+                f"One source image URL maps to multiple local paths: {url}"
+            )
+        required[url] = local_path
+    return required
+
+
+def current_best_required_images() -> dict[str, Path]:
+    index_dirs = {
+        path
+        for config in current_best_configs().values()
+        for path in (config.index_dir, *config.ensemble_index_dirs)
+    }
+    required: dict[str, Path] = {}
+    for index_dir in sorted(index_dirs, key=lambda path: path.as_posix()):
+        metadata_path = index_dir / "metadata.jsonl"
+        if not metadata_path.is_file():
+            raise FileNotFoundError(
+                f"Current-best index metadata is missing: {metadata_path}. "
+                "Run `git lfs pull` first."
+            )
+        for url, path in required_image_paths_from_metadata(
+            read_jsonl(metadata_path)
+        ).items():
+            existing = required.get(url)
+            if existing is not None and existing != path:
+                raise ValueError(
+                    f"Current-best indexes disagree on the local path for {url}"
+                )
+            required[url] = path
+    return required
+
+
+def current_best_image_coverage(
+    required_images: dict[str, Path],
+) -> dict[str, object]:
+    missing = [
+        path
+        for path in required_images.values()
+        if not path.is_file()
+    ]
+    return {
+        "ok": not missing,
+        "required_image_count": len(required_images),
+        "available_image_count": len(required_images) - len(missing),
+        "missing_image_count": len(missing),
+        "missing_examples": [
+            portable_path(path)
+            for path in missing[:10]
+        ],
+    }
 
 
 class ImageDownloadProgress:

@@ -121,3 +121,37 @@ var/models/**
 var/tmp/**
 *.orig
 *.rej
+
+# Published current-best runtime assets. Candidate equipment images remain
+# ignored and are downloaded by each user after cloning.
+!data/indexes/facebook-dinov2-base-slot-aligned-v3-body-multiscale-20260730/
+!data/indexes/facebook-dinov2-base-slot-aligned-v3-body-multiscale-20260730/**
+!data/indexes/facebook-dinov3-vitb16-body-multiscale-v3-20260730/
+!data/indexes/facebook-dinov3-vitb16-body-multiscale-v3-20260730/**
+!data/indexes/facebook-dinov2-base-head-multiscale-v4-20260730/
+!data/indexes/facebook-dinov2-base-head-multiscale-v4-20260730/**
+!data/indexes/google-siglip2-base-patch16-224-head-multiscale-v4-20260730/
+!data/indexes/google-siglip2-base-patch16-224-head-multiscale-v4-20260730/**
+!data/indexes/facebook-dinov3-vitb16-head-multiscale-v4-20260730/
+!data/indexes/facebook-dinov3-vitb16-head-multiscale-v4-20260730/**
+!data/indexes/facebook-dinov2-base-hands-multiscale-v5-20260730/
+!data/indexes/facebook-dinov2-base-hands-multiscale-v5-20260730/**
+!data/indexes/facebook-dinov2-base-legs-multiscale-v6-20260730/
+!data/indexes/facebook-dinov2-base-legs-multiscale-v6-20260730/**
+!data/indexes/facebook-dinov3-vitb16-legs-multiscale-v6-20260730/
+!data/indexes/facebook-dinov3-vitb16-legs-multiscale-v6-20260730/**
+!data/indexes/facebook-dinov2-base-feet-multiscale-v7-clean-20260730/
+!data/indexes/facebook-dinov2-base-feet-multiscale-v7-clean-20260730/**
+!data/indexes/google-siglip2-base-patch16-224-feet-multiscale-v7-clean-20260730/
+!data/indexes/google-siglip2-base-patch16-224-feet-multiscale-v7-clean-20260730/**
+
+!data/models/current-best/
+!data/models/current-best/**
+
+!var/models/dinov3-vitb16-pretrain-lvd1689m/
+var/models/dinov3-vitb16-pretrain-lvd1689m/*
+!var/models/dinov3-vitb16-pretrain-lvd1689m/config.json
+!var/models/dinov3-vitb16-pretrain-lvd1689m/configuration.json
+!var/models/dinov3-vitb16-pretrain-lvd1689m/LICENSE.md
+!var/models/dinov3-vitb16-pretrain-lvd1689m/model.safetensors
+!var/models/dinov3-vitb16-pretrain-lvd1689m/preprocessor_config.json

@@ -10,12 +10,12 @@ import numpy as np
 from PIL import Image, UnidentifiedImageError
 
 from ffxiv_prism.paths import (
-    CACHE_DIR,
     INDEXES_DIR,
     PROJECT_ROOT,
     portable_path,
     resolve_project_path,
 )
+from ffxiv_prism.model_assets import is_remote_model_id, model_weight_files
 from ffxiv_prism.vision.outfit_regions import CropRegion
 
 
@@ -93,7 +93,7 @@ class SlotInferenceConfig:
 
 
 def current_best_configs() -> dict[str, SlotInferenceConfig]:
-    models = PROJECT_ROOT / "data" / "models"
+    models = PROJECT_ROOT / "data" / "models" / "current-best"
     return {
         "BODY": SlotInferenceConfig(
             slot="BODY",
@@ -315,27 +315,17 @@ def inspect_assets(
 ) -> dict[str, Any]:
     missing: list[str] = []
     invalid: list[str] = []
+    downloadable_models: set[str] = set()
+    cached_models: set[str] = set()
     slot_details: dict[str, Any] = {}
 
-    def model_weight_files(model_id: str) -> list[Path]:
-        local_model = resolve_project_path(model_id)
-        if local_model is not None and local_model.is_dir():
-            return [
-                path
-                for name in ("model.safetensors", "pytorch_model.bin")
-                if (path := local_model / name).is_file()
-            ]
-        model_cache = (
-            CACHE_DIR
-            / "huggingface"
-            / "hub"
-            / f"models--{model_id.replace('/', '--')}"
-        )
-        return [
-            path
-            for filename in ("model.safetensors", "pytorch_model.bin")
-            for path in model_cache.glob(f"snapshots/*/{filename}")
-        ]
+    def inspect_model(model_id: str) -> None:
+        if model_weight_files(model_id):
+            cached_models.add(model_id)
+        elif is_remote_model_id(model_id):
+            downloadable_models.add(model_id)
+        else:
+            missing.append(f"model weights for {model_id}")
 
     def inspect_index(
         slot: str,
@@ -536,19 +526,13 @@ def inspect_assets(
         inspect_index(slot, "primary", config.index_dir, detail)
         for offset, index_dir in enumerate(config.ensemble_index_dirs, start=1):
             inspect_index(slot, f"ensemble_{offset}", index_dir, detail)
+        inspect_model("facebook/dinov2-base")
         for model_id in config.ensemble_model_ids:
-            if not model_weight_files(model_id):
-                missing.append(f"model weights for {model_id}")
-        if (
-            config.style_model_id is not None
-            and not model_weight_files(config.style_model_id)
-        ):
-            missing.append(f"model weights for {config.style_model_id}")
-        if (
-            config.no_equipment_model_id is not None
-            and not model_weight_files(config.no_equipment_model_id)
-        ):
-            missing.append(f"model weights for {config.no_equipment_model_id}")
+            inspect_model(model_id)
+        if config.style_model_id is not None:
+            inspect_model(config.style_model_id)
+        if config.no_equipment_model_id is not None:
+            inspect_model(config.no_equipment_model_id)
         for checkpoint in (config.query_checkpoint, config.reranker_checkpoint):
             if checkpoint is not None and not checkpoint.is_file():
                 missing.append(str(checkpoint))
@@ -565,8 +549,10 @@ def inspect_assets(
         slot_details[slot] = detail
     return {
         "ok": not missing and not invalid,
-        "missing": missing,
-        "invalid": invalid,
+        "missing": sorted(set(missing)),
+        "invalid": sorted(set(invalid)),
+        "cached_models": sorted(cached_models),
+        "downloadable_models": sorted(downloadable_models),
         "slots": slot_details,
     }
 

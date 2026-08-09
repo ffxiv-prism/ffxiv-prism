@@ -42,6 +42,7 @@ from ffxiv_prism.matching.head_morphology import (
     head_morphology_class,
     predict_ridge_probabilities,
 )
+from ffxiv_prism.model_assets import load_pretrained
 from ffxiv_prism.matching.garment_morphology import (
     STYLE_CANDIDATE_CROP_BOXES_NORMALIZED,
     STYLE_PROMPTS_BY_SLOT,
@@ -52,7 +53,6 @@ from ffxiv_prism.matching.garment_morphology import (
     style_policy,
 )
 from ffxiv_prism.paths import (
-    CACHE_DIR,
     PROCESSED_DIR,
     PROJECT_ROOT,
     portable_path,
@@ -587,11 +587,7 @@ def _run_slot(
         candidate_embeddings,
         config.slot,
     )
-    model = AutoModel.from_pretrained(
-        "facebook/dinov2-base",
-        cache_dir=CACHE_DIR / "huggingface" / "hub",
-        local_files_only=True,
-    ).to(device)
+    model = load_pretrained(AutoModel, "facebook/dinov2-base").to(device)
     spatial_index = None
     spatial_query_profile = None
     if config.spatial_index is not None:
@@ -723,10 +719,9 @@ def _run_slot(
                 )
                 del ensemble_encoder, query_vectors
             else:
-                ensemble_model = AutoModel.from_pretrained(
+                ensemble_model = load_pretrained(
+                    AutoModel,
                     ensemble_model_id,
-                    cache_dir=CACHE_DIR / "huggingface" / "hub",
-                    local_files_only=True,
                 ).to(device)
                 ensemble_query_head = load_query_head_from_checkpoint(
                     ensemble_query_checkpoint,
@@ -1141,16 +1136,8 @@ def _classify_style_paths(
         return np.empty((0, len(prompts)), dtype=np.float32)
     from transformers import AutoModel, AutoProcessor
 
-    processor = AutoProcessor.from_pretrained(
-        model_id,
-        cache_dir=CACHE_DIR / "huggingface" / "hub",
-        local_files_only=True,
-    )
-    model = AutoModel.from_pretrained(
-        model_id,
-        cache_dir=CACHE_DIR / "huggingface" / "hub",
-        local_files_only=True,
-    ).to(device).eval()
+    processor = load_pretrained(AutoProcessor, model_id)
+    model = load_pretrained(AutoModel, model_id).to(device).eval()
     probabilities: list[np.ndarray] = []
     try:
         for start in range(0, len(paths), batch_size):

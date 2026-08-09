@@ -168,6 +168,7 @@ class GlamourInferenceTests(unittest.TestCase):
             PROJECT_ROOT
             / "data"
             / "models"
+            / "current-best"
             / "appearance_disjoint_cv_v97_body_fold01_dinov3_e10.pt",
         )
         self.assertEqual(config.ensemble_branch_weights, (1.0, 0.0, 1.25))
@@ -507,6 +508,7 @@ class GlamourInferenceTests(unittest.TestCase):
                 PROJECT_ROOT
                 / "data"
                 / "models"
+                / "current-best"
                 / "appearance_disjoint_cv_v71_head_fold01_dinov3_e3.pt",
             ),
         )
@@ -517,6 +519,7 @@ class GlamourInferenceTests(unittest.TestCase):
             PROJECT_ROOT
             / "data"
             / "models"
+            / "current-best"
             / "head_morphology_v73_fold01_qv65_upper_binary_ridge.npz",
         )
         self.assertEqual(
