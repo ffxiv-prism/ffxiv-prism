@@ -23,19 +23,54 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Build pose-driven FFXIV outfit region crops for single-person screenshots.")
     parser.add_argument("images", nargs="*", type=Path)
     parser.add_argument("--dataset", type=Path, help="Processed glamour JSONL whose local_path values should be analyzed.")
+    parser.add_argument(
+        "--slot-eligibility-manifest",
+        type=Path,
+        help=(
+            "Optional JSONL eligible_slots manifest. When supplied with "
+            "--dataset, only eligible example_ids are cropped."
+        ),
+    )
     parser.add_argument("--limit", type=int)
     parser.add_argument("--output-dir", type=Path, default=Path("data/debug/outfit-regions"))
     parser.add_argument("--model-id", default=DEFAULT_POSE_MODEL)
-    parser.add_argument("--device", default="cpu")
+    parser.add_argument("--device", default="auto")
     parser.add_argument("--no-refine", action="store_true")
     parser.add_argument("--quiet", action="store_true")
+    parser.add_argument(
+        "--crops-only",
+        action="store_true",
+        help="Skip overlay and contact-sheet rendering for training preparation.",
+    )
+    parser.add_argument(
+        "--skip-existing",
+        action="store_true",
+        help="Reuse an existing per-image region manifest and crops.",
+    )
     args = parser.parse_args()
+
+    if args.slot_eligibility_manifest and not args.dataset:
+        parser.error("--slot-eligibility-manifest requires --dataset")
+    eligible_example_ids = None
+    if args.slot_eligibility_manifest:
+        eligible_example_ids = {
+            str(json.loads(line)["example_id"])
+            for line in args.slot_eligibility_manifest.read_text(
+                encoding="utf-8"
+            ).splitlines()
+            if line.strip()
+        }
 
     image_paths = list(args.images)
     if args.dataset:
         for line in args.dataset.read_text(encoding="utf-8").splitlines():
             if line.strip():
-                image_paths.append(Path(json.loads(line)["local_path"]))
+                row = json.loads(line)
+                if (
+                    eligible_example_ids is None
+                    or str(row["example_id"]) in eligible_example_ids
+                ):
+                    image_paths.append(Path(row["local_path"]))
     image_paths = list(dict.fromkeys(image_paths))
     if args.limit is not None:
         image_paths = image_paths[: args.limit]
@@ -47,26 +82,47 @@ def main() -> int:
     summaries = []
     visibility_counts: Counter[tuple[str, str]] = Counter()
     for image_path in image_paths:
+        stem = f"{image_path.parent.name}-{image_path.stem}"
+        manifest_path = args.output_dir / stem / f"{stem}-regions.json"
+        if args.skip_existing and manifest_path.is_file():
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            summaries.append(manifest)
+            for slot in ("HEAD", "BODY", "HANDS", "LEGS", "FEET"):
+                slot_regions = [
+                    region
+                    for region in manifest.get("regions", [])
+                    if region.get("slot") == slot
+                ]
+                if slot_regions:
+                    best = max(
+                        slot_regions,
+                        key=lambda region: float(region.get("confidence", 0.0)),
+                    )
+                    visibility_counts[(slot, str(best["visibility"]))] += 1
+            continue
         image = Image.open(image_path).convert("RGB")
         keypoints, person_box = estimator.estimate(image, refine=not args.no_refine)
         regions = build_outfit_regions(keypoints, image.size)
-        stem = f"{image_path.parent.name}-{image_path.stem}"
         crop_dir = args.output_dir / stem / "crops"
         crop_paths = save_region_crops(image, regions, crop_dir, stem)
         overlay_path = args.output_dir / stem / f"{stem}-overlay.jpg"
         sheet_path = args.output_dir / stem / f"{stem}-crops.jpg"
-        manifest_path = args.output_dir / stem / f"{stem}-regions.json"
-        overlay_path.parent.mkdir(parents=True, exist_ok=True)
-        render_debug_overlay(image, keypoints, person_box, regions).save(overlay_path, quality=94)
-        render_crop_contact_sheet(image, regions).save(sheet_path, quality=92)
+        if not args.crops_only:
+            overlay_path.parent.mkdir(parents=True, exist_ok=True)
+            render_debug_overlay(image, keypoints, person_box, regions).save(overlay_path, quality=94)
+            render_crop_contact_sheet(image, regions).save(sheet_path, quality=92)
         manifest = {
             "source_image": portable_path(image_path),
             "model_id": estimator.model_id,
             "single_person_assumption": True,
             **region_manifest(keypoints, person_box, regions),
             "crop_paths": [portable_path(path) for path in crop_paths],
-            "overlay_path": portable_path(overlay_path),
-            "contact_sheet_path": portable_path(sheet_path),
+            "overlay_path": (
+                None if args.crops_only else portable_path(overlay_path)
+            ),
+            "contact_sheet_path": (
+                None if args.crops_only else portable_path(sheet_path)
+            ),
         }
         manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
         summaries.append(manifest)
@@ -87,6 +143,12 @@ def main() -> int:
         "image_count": len(summaries),
         "single_person_assumption": True,
         "model_id": estimator.model_id,
+        "crops_only": args.crops_only,
+        "slot_eligibility_manifest": (
+            portable_path(args.slot_eligibility_manifest)
+            if args.slot_eligibility_manifest
+            else None
+        ),
         "by_slot_visibility": {
             slot: {
                 visibility: visibility_counts[(slot, visibility)]

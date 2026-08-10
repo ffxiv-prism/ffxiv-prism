@@ -1,0 +1,13 @@
+name: ffxiv-prism-gpu
+channels:
+  - defaults
+dependencies:
+  - python=3.12
+  - pip
+  - setuptools
+  - wheel
+  - pip:
+      - --extra-index-url https://download.pytorch.org/whl/cu130
+      - torch==2.11.0+cu130
+      - torchvision==0.26.0+cu130
+      - -e .

@@ -35,15 +35,35 @@ def build_eorzea_image_index(
 
 
 def dedupe_by_hash_and_url(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    deduped: list[dict[str, Any]] = []
-    seen: set[tuple[str | None, str | None]] = set()
-    for row in rows:
-        key = (row.get("sha256"), row.get("source_image_url"))
+    """Keep the newest manifest record for each canonical source image.
+
+    Static Eorzea URLs are occasionally republished with different bytes.  The
+    raw manifest is append-only, so treating ``(sha256, url)`` as the identity
+    retained both the stale and refreshed record and made one local file appear
+    twice in the processed index.  A source URL (or its local-path fallback) is
+    the stable sample identity; walking newest-to-oldest makes refreshes replace
+    stale metadata without changing the raw audit log.
+    """
+
+    deduped_reversed: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for row in reversed(rows):
+        source_url = str(row.get("source_image_url") or "").strip()
+        local_path = str(row.get("local_path") or "").strip()
+        sha256 = str(row.get("sha256") or "").strip()
+        if source_url:
+            key = ("source_image_url", source_url)
+        elif local_path:
+            key = ("local_path", local_path)
+        elif sha256:
+            key = ("sha256", sha256)
+        else:
+            key = ("row", json.dumps(row, ensure_ascii=False, sort_keys=True))
         if key in seen:
             continue
         seen.add(key)
-        deduped.append(normalize_image_row(row))
-    return deduped
+        deduped_reversed.append(normalize_image_row(row))
+    return list(reversed(deduped_reversed))
 
 
 def normalize_image_row(row: dict[str, Any]) -> dict[str, Any]:

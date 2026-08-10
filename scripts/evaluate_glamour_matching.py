@@ -297,6 +297,17 @@ def evaluate_config(
                         "score": row["score"],
                         "image_row_id": best.get("image_row_id"),
                         "local_path": best.get("local_path"),
+                        "source_example_id": best.get("source_example_id"),
+                        "source_glamour_id": best.get("source_glamour_id"),
+                        "neighbor_vote_fraction_5": best.get(
+                            "neighbor_vote_fraction_5"
+                        ),
+                        "neighbor_vote_fraction_10": best.get(
+                            "neighbor_vote_fraction_10"
+                        ),
+                        "neighbor_vote_fraction_20": best.get(
+                            "neighbor_vote_fraction_20"
+                        ),
                         "best_crop": row["best_crop"]["name"],
                         "evidence": sorted(
                             evidence_by_piece[row["piece_id"]],
@@ -306,7 +317,15 @@ def evaluate_config(
                     }
                 )
             rank = next((row["rank"] for row in results if int(row["piece_id"]) in eligible_ids), None)
-            appearance_rank = next((row["rank"] for row in results if row.get("appearance_key") == expected_key), None)
+            appearance_rank = next(
+                (
+                    row["rank"]
+                    for row in results
+                    if int(row["piece_id"]) in eligible_ids
+                    or row.get("appearance_key") == expected_key
+                ),
+                None,
+            )
             outcomes.append(
                 {
                     **base_outcome(example, slot, label, "eligible"),

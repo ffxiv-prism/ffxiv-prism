@@ -1,30 +1,174 @@
 {
   "by_flag": {
-    "duplicate_sha256": 820
+    "duplicate_sha256": 827,
+    "missing_file": 106
   },
   "by_format": {
-    "png": 39925,
-    "webp": 10
+    "png": 39817,
+    "unknown": 106,
+    "webp": 12
   },
   "by_status": {
-    "ready": 39935
+    "missing": 106,
+    "ready": 39829
   },
   "byte_size_mismatch_rows": 0,
   "duplicate_local_path_rows": 0,
-  "duplicate_sha256_rows": 820,
-  "file_exists_rows": 39935,
+  "duplicate_sha256_rows": 827,
+  "file_exists_rows": 39829,
   "flagged_rows": 0,
   "image_rows": 39935,
-  "index": "data\\processed\\eorzea_images_index.jsonl",
+  "index": "data/processed/eorzea_images_index.jsonl",
   "invalid_examples": [],
   "invalid_rows": 0,
   "min_height": 64,
   "min_width": 64,
-  "missing_examples": [],
-  "missing_manifest": "data\\processed\\eorzea_missing_images_manifest.jsonl",
-  "missing_rows": 0,
-  "output": "data\\processed\\eorzea_images_qa_index.jsonl",
-  "readable_image_rows": 39935,
-  "ready_rows": 39935,
+  "missing_examples": [
+    {
+      "dye_state": "normal",
+      "gearset_slug": "panthean-maiming",
+      "image_part": "front",
+      "local_path": "data/raw/eorzea_collection/images/gearset_static/panthean-maiming/alliance-aglaia-panthean-maiming-hyur-male-normal-front.png",
+      "source_image_url": "https://gearsets.eorzeacollection.com/alliance/myths-of-the-realm/aglaia/panthean-maiming/hyur-male-front.png"
+    },
+    {
+      "dye_state": "normal",
+      "gearset_slug": "panthean-maiming",
+      "image_part": "front",
+      "local_path": "data/raw/eorzea_collection/images/gearset_static/panthean-maiming/alliance-aglaia-panthean-maiming-lalafell-male-normal-front.png",
+      "source_image_url": "https://gearsets.eorzeacollection.com/alliance/myths-of-the-realm/aglaia/panthean-maiming/lalafell-male-front.png"
+    },
+    {
+      "dye_state": "normal",
+      "gearset_slug": "panthean-maiming",
+      "image_part": "front",
+      "local_path": "data/raw/eorzea_collection/images/gearset_static/panthean-maiming/alliance-aglaia-panthean-maiming-viera-female-normal-front.png",
+      "source_image_url": "https://gearsets.eorzeacollection.com/alliance/myths-of-the-realm/aglaia/panthean-maiming/viera-female-front.png"
+    },
+    {
+      "dye_state": "normal",
+      "gearset_slug": "panthean-scouting",
+      "image_part": "front",
+      "local_path": "data/raw/eorzea_collection/images/gearset_static/panthean-scouting/alliance-aglaia-panthean-scouting-hrothgar-male-normal-front.png",
+      "source_image_url": "https://gearsets.eorzeacollection.com/alliance/myths-of-the-realm/aglaia/panthean-scouting/hrothgar-male-front.png"
+    },
+    {
+      "dye_state": "normal",
+      "gearset_slug": "panthean-scouting",
+      "image_part": "front",
+      "local_path": "data/raw/eorzea_collection/images/gearset_static/panthean-scouting/alliance-aglaia-panthean-scouting-hyur-female-normal-front.png",
+      "source_image_url": "https://gearsets.eorzeacollection.com/alliance/myths-of-the-realm/aglaia/panthean-scouting/hyur-female-front.png"
+    },
+    {
+      "dye_state": "normal",
+      "gearset_slug": "panthean-scouting",
+      "image_part": "back",
+      "local_path": "data/raw/eorzea_collection/images/gearset_static/panthean-scouting/alliance-aglaia-panthean-scouting-hyur-male-normal-back.png",
+      "source_image_url": "https://gearsets.eorzeacollection.com/alliance/myths-of-the-realm/aglaia/panthean-scouting/hyur-male-back.png"
+    },
+    {
+      "dye_state": "normal",
+      "gearset_slug": "panthean-scouting",
+      "image_part": "front",
+      "local_path": "data/raw/eorzea_collection/images/gearset_static/panthean-scouting/alliance-aglaia-panthean-scouting-hyur-male-normal-front.png",
+      "source_image_url": "https://gearsets.eorzeacollection.com/alliance/myths-of-the-realm/aglaia/panthean-scouting/hyur-male-front.png"
+    },
+    {
+      "dye_state": "normal",
+      "gearset_slug": "panthean-scouting",
+      "image_part": "front",
+      "local_path": "data/raw/eorzea_collection/images/gearset_static/panthean-scouting/alliance-aglaia-panthean-scouting-viera-female-normal-front.png",
+      "source_image_url": "https://gearsets.eorzeacollection.com/alliance/myths-of-the-realm/aglaia/panthean-scouting/viera-female-front.png"
+    },
+    {
+      "dye_state": "normal",
+      "gearset_slug": "yorha-type-53-scouting",
+      "image_part": "front",
+      "local_path": "data/raw/eorzea_collection/images/gearset_static/yorha-type-53-scouting/alliance-yorha-type-53-yorha-type-53-scouting-hyur-male-normal-front.png",
+      "source_image_url": "https://gearsets.eorzeacollection.com/alliance/nier/yorha-type-53/yorha-type-53-scouting/hyur-male-front.png"
+    },
+    {
+      "dye_state": "dyed",
+      "gearset_slug": "vanadielian-aiming",
+      "image_part": "back",
+      "local_path": "data/raw/eorzea_collection/images/gearset_static/vanadielian-aiming/alliance-windurst-vanadielian-aiming-hyur-female-dyed-back.png",
+      "source_image_url": "https://gearsets.eorzeacollection.com/alliance/vanadiel/windurst/vanadielian-aiming/hyur-female-dyed-back.png"
+    },
+    {
+      "dye_state": "dyed",
+      "gearset_slug": "vanadielian-casting",
+      "image_part": "front",
+      "local_path": "data/raw/eorzea_collection/images/gearset_static/vanadielian-casting/alliance-windurst-vanadielian-casting-hyur-female-dyed-front.png",
+      "source_image_url": "https://gearsets.eorzeacollection.com/alliance/vanadiel/windurst/vanadielian-casting/hyur-female-dyed-front.png"
+    },
+    {
+      "dye_state": "dyed",
+      "gearset_slug": "vanadielian-maiming",
+      "image_part": "back",
+      "local_path": "data/raw/eorzea_collection/images/gearset_static/vanadielian-maiming/alliance-windurst-vanadielian-maiming-hyur-female-dyed-back.png",
+      "source_image_url": "https://gearsets.eorzeacollection.com/alliance/vanadiel/windurst/vanadielian-maiming/hyur-female-dyed-back.png"
+    },
+    {
+      "dye_state": "dyed",
+      "gearset_slug": "vanadielian-aiming",
+      "image_part": "body",
+      "local_path": "data/raw/eorzea_collection/images/gearset_static/vanadielian-aiming/alliance-windurst-vanadielian-aiming-hyur-female-dyed-body.png",
+      "source_image_url": "https://gearsets.eorzeacollection.com/alliance/vanadiel/windurst/vanadielian-aiming/hyur-female-dyed-body.png"
+    },
+    {
+      "dye_state": "dyed",
+      "gearset_slug": "vanadielian-aiming",
+      "image_part": "front",
+      "local_path": "data/raw/eorzea_collection/images/gearset_static/vanadielian-aiming/alliance-windurst-vanadielian-aiming-hyur-female-dyed-front.png",
+      "source_image_url": "https://gearsets.eorzeacollection.com/alliance/vanadiel/windurst/vanadielian-aiming/hyur-female-dyed-front.png"
+    },
+    {
+      "dye_state": "dyed",
+      "gearset_slug": "vanadielian-aiming",
+      "image_part": "hands",
+      "local_path": "data/raw/eorzea_collection/images/gearset_static/vanadielian-aiming/alliance-windurst-vanadielian-aiming-hyur-female-dyed-hands.png",
+      "source_image_url": "https://gearsets.eorzeacollection.com/alliance/vanadiel/windurst/vanadielian-aiming/hyur-female-dyed-hands.png"
+    },
+    {
+      "dye_state": "dyed",
+      "gearset_slug": "vanadielian-aiming",
+      "image_part": "head",
+      "local_path": "data/raw/eorzea_collection/images/gearset_static/vanadielian-aiming/alliance-windurst-vanadielian-aiming-hyur-female-dyed-head.png",
+      "source_image_url": "https://gearsets.eorzeacollection.com/alliance/vanadiel/windurst/vanadielian-aiming/hyur-female-dyed-head.png"
+    },
+    {
+      "dye_state": "dyed",
+      "gearset_slug": "vanadielian-aiming",
+      "image_part": "legs",
+      "local_path": "data/raw/eorzea_collection/images/gearset_static/vanadielian-aiming/alliance-windurst-vanadielian-aiming-hyur-female-dyed-legs.png",
+      "source_image_url": "https://gearsets.eorzeacollection.com/alliance/vanadiel/windurst/vanadielian-aiming/hyur-female-dyed-legs.png"
+    },
+    {
+      "dye_state": "dyed",
+      "gearset_slug": "vanadielian-aiming",
+      "image_part": "back",
+      "local_path": "data/raw/eorzea_collection/images/gearset_static/vanadielian-aiming/alliance-windurst-vanadielian-aiming-hyur-male-dyed-back.png",
+      "source_image_url": "https://gearsets.eorzeacollection.com/alliance/vanadiel/windurst/vanadielian-aiming/hyur-male-dyed-back.png"
+    },
+    {
+      "dye_state": "dyed",
+      "gearset_slug": "vanadielian-aiming",
+      "image_part": "body",
+      "local_path": "data/raw/eorzea_collection/images/gearset_static/vanadielian-aiming/alliance-windurst-vanadielian-aiming-hyur-male-dyed-body.png",
+      "source_image_url": "https://gearsets.eorzeacollection.com/alliance/vanadiel/windurst/vanadielian-aiming/hyur-male-dyed-body.png"
+    },
+    {
+      "dye_state": "dyed",
+      "gearset_slug": "vanadielian-aiming",
+      "image_part": "feet",
+      "local_path": "data/raw/eorzea_collection/images/gearset_static/vanadielian-aiming/alliance-windurst-vanadielian-aiming-hyur-male-dyed-feet.png",
+      "source_image_url": "https://gearsets.eorzeacollection.com/alliance/vanadiel/windurst/vanadielian-aiming/hyur-male-dyed-feet.png"
+    }
+  ],
+  "missing_manifest": "data/processed/eorzea_missing_images_manifest.jsonl",
+  "missing_rows": 106,
+  "output": "data/processed/eorzea_images_qa_index.jsonl",
+  "readable_image_rows": 39829,
+  "ready_rows": 39829,
   "too_small_rows": 0
 }

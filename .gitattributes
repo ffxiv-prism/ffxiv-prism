@@ -6,3 +6,9 @@
 *.jpeg binary
 *.webp binary
 *.gif binary
+
+# Versioned current-best runtime binaries are fetched automatically by Git LFS.
+data/indexes/** filter=lfs diff=lfs merge=lfs -text
+data/indexes/.gitkeep -filter -diff -merge text
+data/models/current-best/*.pt filter=lfs diff=lfs merge=lfs -text
+var/models/dinov3-vitb16-pretrain-lvd1689m/model.safetensors filter=lfs diff=lfs merge=lfs -text

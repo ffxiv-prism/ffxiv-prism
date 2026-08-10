@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="FFXIV Prism 本地装备外观识别工作台">
+  <title>FFXIV Prism · 本地识别工作台</title>
+  <link rel="stylesheet" href="/static/styles.css?v=3">
+  <script src="/static/app.js?v=3" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="FFXIV Prism 首页">
+      <span class="brand-mark" aria-hidden="true">✦</span>
+      <span class="brand-name">FFXIV <b>PRISM</b></span>
+    </a>
+    <div class="topbar-actions">
+      <span class="local-status"><i aria-hidden="true"></i>仅在本机运行</span>
+      <button class="button button-quiet" type="button" data-open-update>更新数据集</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="eyebrow">GLAMOUR RECOGNITION</div>
+      <h1 id="hero-title">从一张截图，<br>找到相似装备。</h1>
+      <p>上传清晰的单人全身截图，Prism 会在本地拆分五个装备部位，并从你的本地资料库中返回候选。</p>
+    </section>
+
+    <section class="workspace-grid">
+      <div class="upload-card panel">
+        <form id="recognition-form">
+          <label class="drop-zone" id="drop-zone" for="image-input" tabindex="0">
+            <input id="image-input" name="image" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+            <span class="upload-glyph" aria-hidden="true">⌁</span>
+            <span class="drop-title">拖拽角色截图到这里</span>
+            <span class="drop-subtitle">或点击选择图片 · PNG、JPG、WebP · 最大 25 MB</span>
+          </label>
+
+          <div class="selected-file" id="selected-file" aria-label="已选择图片，可拖入新图片替换" hidden>
+            <div class="preview-wrap">
+              <img id="image-preview" alt="待识别图片预览">
+            </div>
+            <div class="file-copy">
+              <strong id="file-name"></strong>
+              <span id="file-meta"></span>
+              <span class="replace-hint">可继续拖入新图片直接替换</span>
+              <button class="text-button" id="change-image" type="button">更换图片</button>
+            </div>
+          </div>
+
+          <div class="controls">
+            <label class="field">
+              <span>角色性别</span>
+              <select id="gender" name="gender">
+                <option value="">自动 / 不限制</option>
+                <option value="female">女性模型</option>
+                <option value="male">男性模型</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>每个部位候选</span>
+              <select id="top-k" name="top_k">
+                <option value="5">5 件</option>
+                <option value="10" selected>10 件</option>
+                <option value="15">15 件</option>
+                <option value="20">20 件</option>
+              </select>
+            </label>
+          </div>
+
+          <fieldset class="device-fieldset">
+            <legend>
+              <span>运行环境</span>
+              <small>每次任务固定，不会自动切换</small>
+            </legend>
+            <div class="device-options">
+              <label class="device-option" data-device-option="cuda">
+                <input id="device-gpu" type="radio" name="device" value="cuda" checked disabled>
+                <span class="device-option-card">
+                  <span class="device-option-copy">
+                    <b>GPU</b>
+                    <small id="gpu-detail">正在检测 CUDA…</small>
+                  </span>
+                  <span class="device-badge">推荐</span>
+                </span>
+              </label>
+              <label class="device-option" data-device-option="cpu">
+                <input id="device-cpu" type="radio" name="device" value="cpu" disabled>
+                <span class="device-option-card">
+                  <span class="device-option-copy">
+                    <b>CPU</b>
+                    <small id="cpu-detail">正在读取运行环境…</small>
+                  </span>
+                  <span class="device-badge device-badge-neutral">兼容</span>
+                </span>
+              </label>
+            </div>
+            <p class="device-note" id="device-note" aria-live="polite">正在检查可用运行设备…</p>
+          </fieldset>
+
+          <fieldset class="slot-fieldset">
+            <legend>识别部位</legend>
+            <div class="slot-options">
+              <label><input type="checkbox" name="slot" value="HEAD" checked><span>头部</span></label>
+              <label><input type="checkbox" name="slot" value="BODY" checked><span>身体</span></label>
+              <label><input type="checkbox" name="slot" value="HANDS" checked><span>手部</span></label>
+              <label><input type="checkbox" name="slot" value="LEGS" checked><span>腿部</span></label>
+              <label><input type="checkbox" name="slot" value="FEET" checked><span>脚部</span></label>
+            </div>
+          </fieldset>
+
+          <div class="form-footer">
+            <p><span aria-hidden="true">◇</span> 图片与结果不会离开本机</p>
+            <button class="button button-primary" id="recognize-button" type="submit" disabled>
+              开始识别 <span aria-hidden="true">→</span>
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <aside class="side-stack">
+        <section class="panel dataset-card" aria-labelledby="dataset-heading">
+          <div class="section-heading">
+            <div>
+              <span class="eyebrow">LOCAL LIBRARY</span>
+              <h2 id="dataset-heading">本地资料库</h2>
+            </div>
+            <span class="status-pill" id="dataset-ready">读取中</span>
+          </div>
+          <div class="metric-grid">
+            <div><strong id="metric-pieces">—</strong><span>装备条目</span></div>
+            <div><strong id="metric-images">—</strong><span>可用图片</span></div>
+            <div><strong id="metric-missing">—</strong><span>缺失图片</span></div>
+          </div>
+          <p class="updated-time" id="dataset-updated">正在读取本地摘要…</p>
+          <button class="button button-secondary button-block" type="button" data-open-update>
+            启动数据集更新
+          </button>
+        </section>
+
+        <section class="panel guide-card">
+          <span class="eyebrow">BEST INPUT</span>
+          <h2>怎样的图片效果更好？</h2>
+          <ol>
+            <li><span>01</span><p><b>单一角色</b>避免多人同框与严重遮挡</p></li>
+            <li><span>02</span><p><b>完整全身</b>尤其保留帽檐、鞋尖与鞋底</p></li>
+            <li><span>03</span><p><b>正面光照</b>让轮廓与装备细节清晰可见</p></li>
+          </ol>
+        </section>
+      </aside>
+    </section>
+
+    <section class="job-panel panel" id="job-panel" hidden aria-live="polite">
+      <div class="job-header">
+        <div>
+          <span class="eyebrow">LOCAL TASK</span>
+          <h2 id="job-title">正在准备</h2>
+        </div>
+        <span class="job-state" id="job-state">等待中</span>
+      </div>
+      <div class="progress-track"><span id="progress-bar"></span></div>
+      <p class="job-stage" id="job-stage">等待本地进程启动…</p>
+      <details>
+        <summary>查看运行日志</summary>
+        <pre id="job-log"></pre>
+      </details>
+    </section>
+
+    <section class="results-section" id="results-section" hidden aria-labelledby="results-title">
+      <div class="results-heading">
+        <div>
+          <span class="eyebrow">RECOGNITION REPORT</span>
+          <h2 id="results-title">识别结果</h2>
+          <p id="result-summary"></p>
+        </div>
+        <a class="button button-quiet" id="raw-report-link" href="#" target="_blank" rel="noopener">打开原始报告</a>
+      </div>
+
+      <div class="visual-grid" id="visual-grid"></div>
+      <div class="notice" id="result-notice"></div>
+      <div class="slot-tabs" id="slot-tabs" role="tablist" aria-label="装备部位"></div>
+      <div id="slot-results"></div>
+    </section>
+  </main>
+
+  <footer>
+    <span>FFXIV Prism</span>
+    <span>候选分数仅用于相对排序，请结合裁剪质检图人工确认。</span>
+  </footer>
+
+  <dialog id="update-dialog">
+    <form method="dialog" class="dialog-shell" id="update-form">
+      <div class="dialog-header">
+        <div>
+          <span class="eyebrow">DATASET UPDATE</span>
+          <h2>更新本地数据集</h2>
+        </div>
+        <button class="icon-button" value="cancel" aria-label="关闭">×</button>
+      </div>
+      <p>更新会使用当前 Python 环境运行项目已有的数据流水线。任务期间请保持此窗口与终端开启。</p>
+      <label class="field">
+        <span>更新范围</span>
+        <select id="update-mode">
+          <option value="standard">标准增量更新（推荐）</option>
+          <option value="local-index">只重建本地索引与数据库</option>
+          <option value="full">完整发现与更新</option>
+        </select>
+      </label>
+      <div class="mode-note" id="mode-note">
+        读取已有发现列表，更新详情、中文名称、图片索引与 SQLite 数据库。
+      </div>
+      <div class="dialog-actions">
+        <button class="button button-quiet" value="cancel">取消</button>
+        <button class="button button-primary" id="start-update" value="default">开始更新</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>

@@ -11,11 +11,20 @@ from PIL import Image, ImageEnhance, ImageFile, ImageFilter, ImageOps
 
 from ffxiv_prism.jsonl import read_jsonl, write_json, write_jsonl
 from ffxiv_prism.paths import INDEXES_DIR, PROCESSED_DIR, portable_path, resolve_project_path
+from ffxiv_prism.torch_device import resolve_torch_device
 
 DEFAULT_MODEL_ID = "openai/clip-vit-base-patch32"
 DEFAULT_INDEX_DIR = INDEXES_DIR / "clip-vit-base-patch32"
 DEFAULT_DB_PATH = PROCESSED_DIR / "eorzea.sqlite"
 VALID_SLOTS = ("HEAD", "BODY", "HANDS", "LEGS", "FEET")
+VISUAL_VARIANT_PREFIXES = (
+    "augmented ",
+    "antiquated ",
+    "idealized ",
+    "replica ",
+    "virtuous ",
+    "weathered ",
+)
 
 # Eorzea static PNGs occasionally have a truncated tail but fully decodable pixels.
 ImageFile.LOAD_TRUNCATED_IMAGES = True
@@ -28,13 +37,42 @@ class RetrievalIndex:
     manifest: dict[str, Any]
 
 
+def visual_piece_family_name(name: str) -> str:
+    """Normalize upgrade prefixes while preserving the underlying visual item name."""
+    normalized = " ".join(str(name).casefold().split())
+    for prefix in VISUAL_VARIANT_PREFIXES:
+        if normalized.startswith(prefix):
+            return normalized[len(prefix) :]
+    return normalized
+
+
+def select_primary_visual_pieces(pieces: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Remove unrelated set pieces accidentally linked to a slot-specific image.
+
+    Eorzea Collection lists the pictured slot item first, followed on some newer
+    pages by accessories and weapons that share the same gearset.  Those trailing
+    links used to become independent candidates with exactly the same image score.
+    Upgrade/replica variants of the first item are retained because they represent
+    the same pictured appearance.
+    """
+    if not pieces:
+        return []
+    anchor_family = visual_piece_family_name(str(pieces[0].get("name_en") or ""))
+    selected = [
+        dict(piece)
+        for piece in pieces
+        if visual_piece_family_name(str(piece.get("name_en") or "")) == anchor_family
+    ]
+    return selected or [dict(pieces[0])]
+
+
 class ClipImageEncoder:
     def __init__(self, model_id: str = DEFAULT_MODEL_ID, device: str = "auto") -> None:
         import torch
         from transformers import AutoProcessor, CLIPModel
 
         self.torch = torch
-        self.device = choose_device(torch, device)
+        self.device = str(resolve_torch_device(device, torch_module=torch))
         self.model_id = model_id
         try:
             self.processor = AutoProcessor.from_pretrained(model_id, local_files_only=True)
@@ -85,13 +123,8 @@ class ClipImageEncoder:
 
 
 def choose_device(torch: Any, requested: str) -> str:
-    if requested != "auto":
-        return requested
-    if torch.cuda.is_available():
-        return "cuda"
-    if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-        return "mps"
-    return "cpu"
+    """Backward-compatible wrapper around the shared device resolver."""
+    return str(resolve_torch_device(requested, torch_module=torch))
 
 
 def open_rgb(path: Path) -> Image.Image:
@@ -149,6 +182,8 @@ def load_candidate_images(
         conn.close()
 
     rows = list(grouped.values())
+    for row in rows:
+        row["pieces"] = select_primary_visual_pieces(row["pieces"])
     return rows[:limit] if limit is not None else rows
 
 

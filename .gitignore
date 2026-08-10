@@ -30,19 +30,81 @@ data/raw/eorzea_collection/images/**
 
 # Generated repair manifest; summary JSON keeps the durable QA result.
 data/processed/eorzea_missing_images_manifest.jsonl
-# Generated visual retrieval indexes and evaluation outputs.
+# Generated visual retrieval indexes and local model weights.
 data/indexes/**
 !data/indexes/.gitkeep
+data/models/**
 data/samples/retrieval_eval.generated.jsonl
 data/processed/retrieval_eval_results.json
 data/processed/retrieval_eval_cross_view_results.json
 data/processed/retrieval_eval_results.latest.json
+# Train-only folds, embedding caches, queues, and evaluation reports are
+# reproducible local experiment artifacts. Frozen player-derived splits stay
+# local because their glamour-level assignments are not code-repository data.
+data/interim/**
+!data/interim/.gitkeep
+# Pose manifests and review deltas are merged into the final quality manifest.
+data/processed/front_fullbody_quality_pose_v*
+data/processed/front_fullbody_visual_reviews_v*
+data/processed/front_fullbody_quality_auto_v*
+data/processed/front_fullbody_quality_final_v*
+data/processed/glamour_body_confidence_router_*.json
+data/processed/glamour_clip_eval_*.json
+data/processed/glamour_dinov2_*_eval_*.json
+data/processed/glamour_examples_hq_*.jsonl
+data/processed/glamour_exemplar_*.json
+data/processed/glamour_pair_reranker_*.json
+data/processed/glamour_query_encoder_v*.json
+data/processed/piece_appearance_equivalence_*.json
 data/processed/retrieval_eval_cross_view_results.latest.json
 data/samples/retrieval_eval_images/**
 data/processed/retrieval_eval_mild_results.json
 data/processed/retrieval_eval_stress_results.json
 data/processed/glamour_crop_embeddings*.npz
 data/processed/glamour_matching_eval_results*.json
+data/processed/glamour_adapter_eval*.json
+data/processed/glamour_query_encoder_eval*.json
+data/processed/glamour_query_encoder_*_eval.json
+data/processed/glamour_query_embeddings*.npz
+data/processed/glamour_pair_reranker_eval*.json
+data/processed/glamour_pair_reranker_blind*.json
+data/processed/glamour_matching_eval_*.json
+data/processed/synthetic_query_encoder_*.json
+data/processed/glamour_mask_*_summary.json
+data/processed/glamour_mask_ensemble_eval.json
+data/processed/sam2_mask_ablation*.json
+data/processed/glamour_examples_blind_*.jsonl
+data/processed/front_fullbody_quality_v*.jsonl
+data/processed/front_fullbody_quality_v*.summary.json
+data/processed/front_fullbody_quality_clip_ensemble_pilot*
+# Player-derived quality manifests and labels remain local. They may contain
+# glamour-level source metadata and must not be uploaded with the code.
+data/processed/glamour_examples_huiji_*
+# Player-derived per-image/per-slot review decisions remain local and are
+# generated from ignored manual review artifacts before training.
+data/processed/training_visibility_reviews_*.jsonl
+data/processed/slot_quality_recovery_reviews_*.jsonl
+data/processed/slot_quality_eligibility_*.jsonl
+
+# Broad experiment-output policy. Durable conclusions belong in the current
+# status document and compact metrics snapshot.
+data/processed/*.npz
+data/processed/appearance_disjoint_cv_*.json
+data/processed/retrieval_*.json
+data/processed/search_cache_*.npz
+data/processed/patch_score_cache_*.npz
+data/processed/*_progress.txt
+data/processed/synthetic_hands_*.json
+data/processed/*morphology_v*.json
+data/processed/*current_best_v*_summary.json
+data/processed/recognition_optimization_report_v*_sources.json
+data/processed/v*_stdout.txt
+data/processed/v*_stderr.txt
+
+# Large upstream exports and Huiji-expanded raw copies are acquisition caches.
+data/raw/game_data/xiv_datamining_*
+data/raw/game_data/cafemaker_item_models_*
+data/raw/eorzea_collection/glamours/metadata/glamour_examples_raw_huiji_*
 # Player-uploaded glamour pages and screenshots are local source caches.
 data/raw/eorzea_collection/glamours/html/**
 !data/raw/eorzea_collection/glamours/html/.gitkeep
@@ -50,3 +112,46 @@ data/raw/eorzea_collection/glamours/images/**
 !data/raw/eorzea_collection/glamours/images/.gitkeep
 # Generated pose/crop inspection outputs.
 data/debug/**
+data/outputs/**
+!data/outputs/.gitkeep
+
+# Local model runtimes, scratch space, and patch-conflict backups are never
+# portable source artifacts.
+var/models/**
+var/tmp/**
+*.orig
+*.rej
+
+# Published current-best runtime assets. Candidate equipment images remain
+# ignored and are downloaded by each user after cloning.
+!data/indexes/facebook-dinov2-base-slot-aligned-v3-body-multiscale-20260730/
+!data/indexes/facebook-dinov2-base-slot-aligned-v3-body-multiscale-20260730/**
+!data/indexes/facebook-dinov3-vitb16-body-multiscale-v3-20260730/
+!data/indexes/facebook-dinov3-vitb16-body-multiscale-v3-20260730/**
+!data/indexes/facebook-dinov2-base-head-multiscale-v4-20260730/
+!data/indexes/facebook-dinov2-base-head-multiscale-v4-20260730/**
+!data/indexes/google-siglip2-base-patch16-224-head-multiscale-v4-20260730/
+!data/indexes/google-siglip2-base-patch16-224-head-multiscale-v4-20260730/**
+!data/indexes/facebook-dinov3-vitb16-head-multiscale-v4-20260730/
+!data/indexes/facebook-dinov3-vitb16-head-multiscale-v4-20260730/**
+!data/indexes/facebook-dinov2-base-hands-multiscale-v5-20260730/
+!data/indexes/facebook-dinov2-base-hands-multiscale-v5-20260730/**
+!data/indexes/facebook-dinov2-base-legs-multiscale-v6-20260730/
+!data/indexes/facebook-dinov2-base-legs-multiscale-v6-20260730/**
+!data/indexes/facebook-dinov3-vitb16-legs-multiscale-v6-20260730/
+!data/indexes/facebook-dinov3-vitb16-legs-multiscale-v6-20260730/**
+!data/indexes/facebook-dinov2-base-feet-multiscale-v7-clean-20260730/
+!data/indexes/facebook-dinov2-base-feet-multiscale-v7-clean-20260730/**
+!data/indexes/google-siglip2-base-patch16-224-feet-multiscale-v7-clean-20260730/
+!data/indexes/google-siglip2-base-patch16-224-feet-multiscale-v7-clean-20260730/**
+
+!data/models/current-best/
+!data/models/current-best/**
+
+!var/models/dinov3-vitb16-pretrain-lvd1689m/
+var/models/dinov3-vitb16-pretrain-lvd1689m/*
+!var/models/dinov3-vitb16-pretrain-lvd1689m/config.json
+!var/models/dinov3-vitb16-pretrain-lvd1689m/configuration.json
+!var/models/dinov3-vitb16-pretrain-lvd1689m/LICENSE.md
+!var/models/dinov3-vitb16-pretrain-lvd1689m/model.safetensors
+!var/models/dinov3-vitb16-pretrain-lvd1689m/preprocessor_config.json

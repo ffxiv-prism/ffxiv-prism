@@ -57,7 +57,11 @@ def parse_glamour_page(html: str, page_url: str) -> dict[str, Any]:
     return record
 
 
-def enrich_equipment_from_sqlite(record: dict[str, Any], db_path: Path) -> dict[str, Any]:
+def enrich_equipment_from_sqlite(
+    record: dict[str, Any],
+    db_path: Path,
+    appearance_equivalence: dict[int, list[int]] | None = None,
+) -> dict[str, Any]:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
@@ -77,7 +81,20 @@ def enrich_equipment_from_sqlite(record: dict[str, Any], db_path: Path) -> dict[
             rows = [row for row in all_rows if row["name_en"] == name]
             match_type = "exact_item"
             equivalence_rule = None
-            if not rows:
+            if rows:
+                exact_ids = {int(row["piece_id"]) for row in rows}
+                equivalent_ids = set(exact_ids)
+                for piece_id in exact_ids:
+                    equivalent_ids.update((appearance_equivalence or {}).get(piece_id, []))
+                if equivalent_ids != exact_ids:
+                    rows = [
+                        row
+                        for row in all_rows
+                        if int(row["piece_id"]) in equivalent_ids
+                        and row["slot"] == item.get("slot")
+                    ]
+                    equivalence_rule = "canonical_embedding_similarity"
+            else:
                 key = appearance_name_key(name)
                 rows = [
                     row

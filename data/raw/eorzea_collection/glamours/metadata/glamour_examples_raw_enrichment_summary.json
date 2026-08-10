@@ -1,0 +1,17 @@
+{
+  "appearance_equivalence": "data/processed/piece_appearance_equivalence_dinov2_cross0975_family094.json",
+  "database": "data/processed/eorzea.sqlite",
+  "equivalence_rule_counts": {
+    "canonical_embedding_similarity": 1741,
+    "normalized_variant_name": 93
+  },
+  "input": "data/raw/eorzea_collection/glamours/metadata/glamour_examples_raw.jsonl",
+  "match_type_counts": {
+    "appearance_equivalent": 93,
+    "empty": 79,
+    "exact_item": 3756,
+    "unmatched": 152
+  },
+  "output": "data/raw/eorzea_collection/glamours/metadata/glamour_examples_raw.jsonl",
+  "records": 816
+}

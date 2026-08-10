@@ -86,6 +86,7 @@ class EorzeaCollectionCollector:
         self,
         start_url: str = f"{BASE_URL}/gearsets",
         max_pages: int = 1,
+        force_refresh: bool = False,
     ) -> tuple[list[str], CollectionSummary]:
         queue = [absolute_url(start_url)]
         visited: set[str] = set()
@@ -98,7 +99,12 @@ class EorzeaCollectionCollector:
             if url in visited:
                 continue
             visited.add(url)
-            html_text, from_cache = self._fetch_html(url, "gearset-list", short_hash(url))
+            html_text, from_cache = self._fetch_html(
+                url,
+                "gearset-list",
+                short_hash(url),
+                force_refresh=force_refresh,
+            )
             summary = summary.add(
                 pages_fetched=0 if from_cache else 1,
                 pages_from_cache=1 if from_cache else 0,
@@ -359,9 +365,20 @@ class EorzeaCollectionCollector:
             image_part=candidate.image_part,
         )
 
-    def _fetch_html(self, url: str, category: str, slug: str) -> tuple[str, bool]:
+    def _fetch_html(
+        self,
+        url: str,
+        category: str,
+        slug: str,
+        *,
+        force_refresh: bool = False,
+    ) -> tuple[str, bool]:
         target = self.html_dir / category / f"{slug}.html"
-        text, result = self.http.fetch_text(url, target)
+        text, result = self.http.fetch_text(
+            url,
+            target,
+            force_refresh=force_refresh,
+        )
         return text, result.from_cache
 
     def _download_image(self, candidate: ImageCandidate) -> tuple[Path, bool]:

@@ -1,9 +1,62 @@
 {
-  "core_slot_labels": 246,
-  "errors": [],
-  "image_count_total": 201,
+  "collected_this_run": 10,
+  "core_slot_labels": 7940,
+  "errors": [
+    {
+      "error": "ValueError: Non-exact non-empty core items: HANDS=Leather Ringbands",
+      "url": "https://ffxiv.eorzeacollection.com/glamour/335300"
+    },
+    {
+      "error": "ValueError: Non-exact non-empty core items: HEAD=Hempen Bandana",
+      "url": "https://ffxiv.eorzeacollection.com/glamour/332593"
+    }
+  ],
+  "finished_at": "2026-07-03T13:00:35Z",
+  "image_count_total": 6447,
   "output": "data/raw/eorzea_collection/glamours/metadata/glamour_examples_raw.jsonl",
-  "records_total": 50,
-  "removed_non_exact_records": 20,
-  "selection_policy": "all_nonempty_core_slots_exact_item"
+  "records_total": 1617,
+  "requested": 20,
+  "skipped": [
+    {
+      "glamour_id": 315073,
+      "reason": "model_gender='male' does not match 'female'",
+      "url": "https://ffxiv.eorzeacollection.com/glamour/315073"
+    },
+    {
+      "glamour_id": 235116,
+      "reason": "model_gender='male' does not match 'female'",
+      "url": "https://ffxiv.eorzeacollection.com/glamour/235116"
+    },
+    {
+      "glamour_id": 304585,
+      "reason": "model_gender='male' does not match 'female'",
+      "url": "https://ffxiv.eorzeacollection.com/glamour/304585"
+    },
+    {
+      "glamour_id": 286236,
+      "reason": "model_gender='male' does not match 'female'",
+      "url": "https://ffxiv.eorzeacollection.com/glamour/286236"
+    },
+    {
+      "glamour_id": 232122,
+      "reason": "model_gender='male' does not match 'female'",
+      "url": "https://ffxiv.eorzeacollection.com/glamour/232122"
+    },
+    {
+      "glamour_id": 341265,
+      "reason": "model_gender='male' does not match 'female'",
+      "url": "https://ffxiv.eorzeacollection.com/glamour/341265"
+    },
+    {
+      "glamour_id": 342794,
+      "reason": "model_gender='male' does not match 'female'",
+      "url": "https://ffxiv.eorzeacollection.com/glamour/342794"
+    },
+    {
+      "glamour_id": 341188,
+      "reason": "model_gender='male' does not match 'female'",
+      "url": "https://ffxiv.eorzeacollection.com/glamour/341188"
+    }
+  ],
+  "skipped_this_run": 8
 }
