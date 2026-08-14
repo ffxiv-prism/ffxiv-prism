@@ -33,6 +33,35 @@ class GlamourCollectorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "outside glamour"):
             MODULE.validate_record(record)
 
+    def test_validate_record_rejects_missing_glamour_images(self) -> None:
+        record = {
+            "glamour_id": 10,
+            "image_urls": [],
+            "equipment": [{"slot": slot} for slot in MODULE.CORE_SLOTS],
+        }
+        with self.assertRaisesRegex(ValueError, "No player glamour screenshots found"):
+            MODULE.validate_record(record)
+
+    def test_validate_record_rejects_wrong_core_slots(self) -> None:
+        record = {
+            "glamour_id": 10,
+            "image_urls": ["https://glamours.eorzeacollection.com/10/image.png"],
+            "equipment": [
+                {"slot": slot}
+                for slot in (*MODULE.CORE_SLOTS[:-1], MODULE.CORE_SLOTS[0])
+            ],
+        }
+        with self.assertRaisesRegex(ValueError, "Expected exactly five core slots"):
+            MODULE.validate_record(record)
+
+    def test_validate_record_accepts_valid_record(self) -> None:
+        record = {
+            "glamour_id": 10,
+            "image_urls": ["https://glamours.eorzeacollection.com/10/image.png"],
+            "equipment": [{"slot": slot} for slot in MODULE.CORE_SLOTS],
+        }
+        MODULE.validate_record(record)
+
     def test_require_all_core_items_matched_rejects_unmatched_nonempty_slot(self) -> None:
         record = {
             "equipment": [
