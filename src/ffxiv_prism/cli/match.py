@@ -44,18 +44,25 @@ from ffxiv_prism.matching.head_morphology import (
 )
 from ffxiv_prism.model_assets import load_pretrained
 from ffxiv_prism.matching.garment_morphology import (
-    LONG_BODY_OCCLUSION_MIN_PROBABILITY,
-    OCCLUDED_LEGS_PLAIN_MIN_PROBABILITY,
-    OCCLUDED_LEGS_RERANK_BLEND,
-    OCCLUDED_LEGS_STYLE_CLASSES,
-    OCCLUDED_LEGS_STYLE_PROMPTS,
+    LONG_BODY_COVERED_LEGWEAR_CANDIDATE_PROMPTS,
+    LONG_BODY_COVERED_LEGWEAR_QUERY_PROMPTS,
+    LONG_BODY_COVERED_LEGWEAR_RERANK_BLEND,
+    LONG_BODY_LEGWEAR_COVERAGE_CLASSES,
+    LONG_BODY_LEGWEAR_COVERAGE_PROMPTS,
+    LONG_BODY_LEGWEAR_MIN_LONG_TOP_PROBABILITY,
+    LONG_BODY_LEGWEAR_MIN_STYLE_CONFIDENCE,
+    LONG_BODY_LEGWEAR_MIN_VISIBILITY,
+    LONG_BODY_LEGWEAR_QUERY_CROPS,
+    LONG_BODY_LEGWEAR_VISIBILITY_CLASSES,
+    LONG_BODY_LEGWEAR_VISIBILITY_PROMPTS,
     STYLE_CANDIDATE_CROP_BOXES_NORMALIZED,
     STYLE_PROMPTS_BY_SLOT,
     TARGET_STYLE_CLASSES,
     StylePrediction,
     apply_style_crop_multipliers,
+    long_body_legwear_decision,
     long_top_probability,
-    rerank_candidates_with_plain_trouser_prior,
+    rerank_candidates_with_legwear_profile,
     rerank_candidates_with_style,
     style_policy,
 )
@@ -479,17 +486,174 @@ def _run_slot(
             }
     active_candidate_crop_routes = config.candidate_crop_routes
     body_long_probability = long_top_probability(body_style_diagnostic)
-    legs_occluded_by_body = (
+    long_body_legwear_routing = (
         config.slot == "LEGS"
-        and body_long_probability >= LONG_BODY_OCCLUSION_MIN_PROBABILITY
+        and body_long_probability
+        >= LONG_BODY_LEGWEAR_MIN_LONG_TOP_PROBABILITY
     )
     style_prediction = None
     style_policy_result = None
     style_diagnostic = None
-    if (
+    long_body_legwear_diagnostic = None
+    long_body_legwear_profile = None
+    long_body_legwear_mode = None
+    long_body_legwear_blend = None
+    if long_body_legwear_routing and config.style_model_id is not None:
+        legwear_records_by_name = {
+            str(row.get("name")): row
+            for row in slot_records["query"]
+            if str(row.get("name")) in LONG_BODY_LEGWEAR_QUERY_CROPS
+            and str(row.get("visibility"))
+            not in {"pose_uncertain", "out_of_frame"}
+        }
+        legwear_records = [
+            legwear_records_by_name[name]
+            for name in LONG_BODY_LEGWEAR_QUERY_CROPS
+            if name in legwear_records_by_name
+        ]
+        legwear_paths = [
+            resolve_project_path(row.get("path")) for row in legwear_records
+        ]
+        if legwear_records and all(
+            path is not None and path.is_file() for path in legwear_paths
+        ):
+            query_profiles = _classify_style_path_prompt_groups(
+                str(config.style_model_id),
+                {
+                    "visibility": LONG_BODY_LEGWEAR_VISIBILITY_PROMPTS,
+                    "coverage": LONG_BODY_LEGWEAR_COVERAGE_PROMPTS,
+                    "covered_style": LONG_BODY_COVERED_LEGWEAR_QUERY_PROMPTS,
+                },
+                [path for path in legwear_paths if path is not None],
+                device=device,
+                batch_size=batch_size,
+            )
+            legwear_decision = long_body_legwear_decision(
+                query_profiles["visibility"],
+                query_profiles["coverage"],
+                query_profiles["covered_style"],
+            )
+            selected_crop = (
+                str(legwear_records[legwear_decision.crop_index].get("name"))
+                if legwear_decision.crop_index is not None
+                else None
+            )
+            rerank_active = (
+                legwear_decision.observable
+                and legwear_decision.confidence
+                >= LONG_BODY_LEGWEAR_MIN_STYLE_CONFIDENCE
+            )
+            if rerank_active:
+                long_body_legwear_profile = legwear_decision.probabilities
+                long_body_legwear_mode = legwear_decision.mode
+                long_body_legwear_blend = (
+                    config.style_blend
+                    if legwear_decision.mode == "exposed"
+                    else LONG_BODY_COVERED_LEGWEAR_RERANK_BLEND
+                )
+            reason = legwear_decision.reason
+            if legwear_decision.observable and not rerank_active:
+                reason = "legwear_style_confidence_below_threshold"
+            style_diagnostic = {
+                "query_crop": selected_crop,
+                "query_crops": [
+                    str(row.get("name")) for row in legwear_records
+                ],
+                "classes": list(legwear_decision.classes),
+                "probabilities": dict(
+                    zip(
+                        legwear_decision.classes,
+                        legwear_decision.probabilities,
+                        strict=True,
+                    )
+                ),
+                "predicted_class": legwear_decision.predicted_class,
+                "confidence": legwear_decision.confidence,
+                "minimum_confidence": LONG_BODY_LEGWEAR_MIN_STYLE_CONFIDENCE,
+                "active": rerank_active,
+                "reason": reason,
+                "rerank_k": config.style_rerank_k,
+                "blend": long_body_legwear_blend,
+                "ranking_changed": False,
+            }
+            crop_profiles = []
+            for index, row in enumerate(legwear_records):
+                crop_profiles.append(
+                    {
+                        "crop": str(row.get("name")),
+                        "visibility": dict(
+                            zip(
+                                LONG_BODY_LEGWEAR_VISIBILITY_CLASSES,
+                                (
+                                    float(value)
+                                    for value in query_profiles["visibility"][index]
+                                ),
+                                strict=True,
+                            )
+                        ),
+                        "coverage": dict(
+                            zip(
+                                LONG_BODY_LEGWEAR_COVERAGE_CLASSES,
+                                (
+                                    float(value)
+                                    for value in query_profiles["coverage"][index]
+                                ),
+                                strict=True,
+                            )
+                        ),
+                    }
+                )
+            long_body_legwear_diagnostic = {
+                "active": rerank_active,
+                "reason": reason,
+                "body_long_top_probability": body_long_probability,
+                "minimum_body_long_top_probability": (
+                    LONG_BODY_LEGWEAR_MIN_LONG_TOP_PROBABILITY
+                ),
+                "observable": legwear_decision.observable,
+                "visible_probability": legwear_decision.visible_probability,
+                "minimum_visibility": LONG_BODY_LEGWEAR_MIN_VISIBILITY,
+                "mode": legwear_decision.mode,
+                "mode_probability": legwear_decision.mode_probability,
+                "selected_crop": selected_crop,
+                "classes": list(legwear_decision.classes),
+                "probabilities": dict(
+                    zip(
+                        legwear_decision.classes,
+                        legwear_decision.probabilities,
+                        strict=True,
+                    )
+                ),
+                "predicted_class": legwear_decision.predicted_class,
+                "confidence": legwear_decision.confidence,
+                "minimum_style_confidence": (
+                    LONG_BODY_LEGWEAR_MIN_STYLE_CONFIDENCE
+                ),
+                "crop_profiles": crop_profiles,
+                "rerank_k": config.style_rerank_k,
+                "blend": long_body_legwear_blend,
+                "ranking_changed": False,
+            }
+        else:
+            style_diagnostic = {
+                "query_crop": config.style_query_crop_name,
+                "query_crops": [
+                    str(row.get("name")) for row in legwear_records
+                ],
+                "active": False,
+                "reason": "query_crops_unavailable",
+                "ranking_changed": False,
+            }
+            long_body_legwear_diagnostic = {
+                "active": False,
+                "reason": "query_crops_unavailable",
+                "body_long_top_probability": body_long_probability,
+                "observable": False,
+                "ranking_changed": False,
+            }
+    elif (
         config.style_model_id is not None
         and config.style_query_crop_name is not None
-        and not legs_occluded_by_body
     ):
         style_record = next(
             (
@@ -578,29 +742,6 @@ def _run_slot(
                 "blend": config.style_blend,
                 "ranking_changed": False,
             }
-    occluded_legs_diagnostic = None
-    if legs_occluded_by_body:
-        style_diagnostic = {
-            "query_crop": config.style_query_crop_name,
-            "active": False,
-            "reason": "suppressed_by_long_body_occlusion",
-            "ranking_changed": False,
-        }
-        occluded_legs_diagnostic = {
-            "active": True,
-            "reason": "long_body_garment_covers_legs",
-            "body_long_top_probability": body_long_probability,
-            "minimum_body_long_top_probability": (
-                LONG_BODY_OCCLUSION_MIN_PROBABILITY
-            ),
-            "classes": list(OCCLUDED_LEGS_STYLE_CLASSES),
-            "rerank_k": config.style_rerank_k,
-            "blend": OCCLUDED_LEGS_RERANK_BLEND,
-            "minimum_plain_probability": (
-                OCCLUDED_LEGS_PLAIN_MIN_PROBABILITY
-            ),
-            "ranking_changed": False,
-        }
     if config.query_crop_names is not None:
         allowed_names = set(config.query_crop_names)
         slot_records = {
@@ -892,7 +1033,7 @@ def _run_slot(
     )
     if style_policy_result is not None and style_policy_result.active:
         retrieval_top_k = max(retrieval_top_k, config.style_rerank_k)
-    if legs_occluded_by_body:
+    if long_body_legwear_profile is not None:
         retrieval_top_k = max(retrieval_top_k, config.style_rerank_k)
     if reference_label is not None:
         retrieval_top_k = max(retrieval_top_k, candidate_k)
@@ -948,7 +1089,8 @@ def _run_slot(
             blend=config.spatial_blend,
         )
     if (
-        legs_occluded_by_body
+        long_body_legwear_profile is not None
+        and long_body_legwear_blend is not None
         and config.style_model_id is not None
         and candidates
     ):
@@ -961,9 +1103,19 @@ def _run_slot(
             path is not None and path.is_file()
             for path in candidate_style_paths
         ):
+            candidate_prompts = (
+                LONG_BODY_LEGWEAR_COVERAGE_PROMPTS
+                if long_body_legwear_mode == "exposed"
+                else LONG_BODY_COVERED_LEGWEAR_CANDIDATE_PROMPTS
+            )
+            candidate_crop_box = (
+                STYLE_CANDIDATE_CROP_BOXES_NORMALIZED["LEGS"]["legs_thighs"]
+                if long_body_legwear_mode == "exposed"
+                else None
+            )
             candidate_style_probabilities = _classify_style_paths(
                 str(config.style_model_id),
-                OCCLUDED_LEGS_STYLE_PROMPTS,
+                candidate_prompts,
                 [
                     path
                     for path in candidate_style_paths
@@ -971,6 +1123,7 @@ def _run_slot(
                 ],
                 device=device,
                 batch_size=batch_size,
+                crop_box_normalized=candidate_crop_box,
             )
             probabilities_by_piece = {
                 int(row["piece_id"]): probabilities
@@ -981,31 +1134,39 @@ def _run_slot(
                 )
             }
             previous_top1 = int(candidates[0]["piece_id"])
-            candidates = rerank_candidates_with_plain_trouser_prior(
+            candidates = rerank_candidates_with_legwear_profile(
                 candidates,
+                long_body_legwear_profile,
                 probabilities_by_piece,
                 rerank_k=config.style_rerank_k,
-                blend=OCCLUDED_LEGS_RERANK_BLEND,
-                minimum_plain_probability=(
-                    OCCLUDED_LEGS_PLAIN_MIN_PROBABILITY
-                ),
+                blend=long_body_legwear_blend,
+                minimum_confidence=LONG_BODY_LEGWEAR_MIN_STYLE_CONFIDENCE,
             )
             current_top1 = int(candidates[0]["piece_id"])
-            if occluded_legs_diagnostic is not None:
-                occluded_legs_diagnostic["candidate_profile_count"] = len(
+            if long_body_legwear_diagnostic is not None:
+                long_body_legwear_diagnostic["candidate_profile_count"] = len(
                     probabilities_by_piece
                 )
-                occluded_legs_diagnostic["maximum_plain_probability"] = max(
-                    float(probabilities[0])
-                    for probabilities in candidate_style_probabilities
-                )
-                occluded_legs_diagnostic["ranking_changed"] = (
+                long_body_legwear_diagnostic["ranking_changed"] = (
                     current_top1 != previous_top1
                 )
-                occluded_legs_diagnostic["previous_top1_piece_id"] = previous_top1
-                occluded_legs_diagnostic["current_top1_piece_id"] = current_top1
-        elif occluded_legs_diagnostic is not None:
-            occluded_legs_diagnostic["rerank_reason"] = (
+                long_body_legwear_diagnostic[
+                    "previous_top1_piece_id"
+                ] = previous_top1
+                long_body_legwear_diagnostic[
+                    "current_top1_piece_id"
+                ] = current_top1
+                if style_diagnostic is not None:
+                    style_diagnostic["candidate_profile_count"] = len(
+                        probabilities_by_piece
+                    )
+                    style_diagnostic["ranking_changed"] = (
+                        current_top1 != previous_top1
+                    )
+                    style_diagnostic["previous_top1_piece_id"] = previous_top1
+                    style_diagnostic["current_top1_piece_id"] = current_top1
+        elif long_body_legwear_diagnostic is not None:
+            long_body_legwear_diagnostic["rerank_reason"] = (
                 "candidate_preview_unavailable"
             )
     elif (
@@ -1168,13 +1329,21 @@ def _run_slot(
         result["no_equipment_diagnostic"] = no_equipment_diagnostic
     if style_diagnostic is not None:
         result["style_diagnostic"] = style_diagnostic
-    if occluded_legs_diagnostic is not None:
-        result["occluded_legs_diagnostic"] = occluded_legs_diagnostic
-        result["ranking_quality"]["level"] = "low"
-        result["ranking_quality"]["reasons"].append(
-            "检测到长上衣遮挡腿部；腿部候选已改用简洁长裤先验，"
-            "但被遮挡装备仍需人工复核。"
-        )
+    if long_body_legwear_diagnostic is not None:
+        result["long_body_legwear_diagnostic"] = long_body_legwear_diagnostic
+        if not long_body_legwear_diagnostic.get("active"):
+            result["ranking_quality"]["level"] = "low"
+            if long_body_legwear_diagnostic.get("observable"):
+                warning = (
+                    "长上衣场景中的下装样式置信度不足；未加入固定下装"
+                    "先验，请人工复核腿部候选。"
+                )
+            else:
+                warning = (
+                    "长上衣场景中没有足够可见的下装区域；系统保留原始"
+                    "检索排序，不猜测短裤、裙子或长裤。"
+                )
+            result["ranking_quality"]["reasons"].append(warning)
     if morphology_diagnostic is not None:
         result["morphology_diagnostic"] = morphology_diagnostic
         if (
@@ -1253,13 +1422,47 @@ def _classify_style_paths(
 ) -> np.ndarray:
     """Classify garment topology with a local SigLIP-style image/text model."""
 
+    return _classify_style_path_prompt_groups(
+        model_id,
+        {"default": prompts},
+        paths,
+        device=device,
+        batch_size=batch_size,
+        crop_box_normalized=crop_box_normalized,
+    )["default"]
+
+
+def _classify_style_path_prompt_groups(
+    model_id: str,
+    prompt_groups: dict[str, tuple[str, ...]],
+    paths: list[Path],
+    *,
+    device: torch.device,
+    batch_size: int,
+    crop_box_normalized: tuple[float, float, float, float] | None = None,
+) -> dict[str, np.ndarray]:
+    """Classify several independent prompt groups with one model load."""
+
+    if not prompt_groups or any(not prompts for prompts in prompt_groups.values()):
+        raise ValueError("prompt groups must be non-empty")
     if not paths:
-        return np.empty((0, len(prompts)), dtype=np.float32)
+        return {
+            name: np.empty((0, len(prompts)), dtype=np.float32)
+            for name, prompts in prompt_groups.items()
+        }
     from transformers import AutoModel, AutoProcessor
 
+    flattened_prompts = []
+    prompt_offsets = {}
+    for name, prompts in prompt_groups.items():
+        start = len(flattened_prompts)
+        flattened_prompts.extend(prompts)
+        prompt_offsets[name] = (start, len(flattened_prompts))
     processor = load_pretrained(AutoProcessor, model_id)
     model = load_pretrained(AutoModel, model_id).to(device).eval()
-    probabilities: list[np.ndarray] = []
+    probabilities: dict[str, list[np.ndarray]] = {
+        name: [] for name in prompt_groups
+    }
     try:
         for start in range(0, len(paths), batch_size):
             images = []
@@ -1280,7 +1483,7 @@ def _classify_style_paths(
                     image = cropped
                 images.append(image)
             inputs = processor(
-                text=list(prompts),
+                text=flattened_prompts,
                 images=images,
                 padding="max_length",
                 return_tensors="pt",
@@ -1296,15 +1499,25 @@ def _classify_style_paths(
                 enabled=device.type == "cuda",
             ):
                 logits = model(**inputs).logits_per_image
-            probabilities.extend(
-                torch.softmax(logits, dim=-1).float().cpu().numpy()
-            )
+            for name, (prompt_start, prompt_end) in prompt_offsets.items():
+                probabilities[name].extend(
+                    torch.softmax(
+                        logits[:, prompt_start:prompt_end],
+                        dim=-1,
+                    )
+                    .float()
+                    .cpu()
+                    .numpy()
+                )
             for image in images:
                 image.close()
     finally:
         del model, processor
         _release_memory()
-    return np.asarray(probabilities, dtype=np.float32)
+    return {
+        name: np.asarray(values, dtype=np.float32)
+        for name, values in probabilities.items()
+    }
 
 
 def _find_known_reference(image_path: Path) -> dict[str, Any] | None:

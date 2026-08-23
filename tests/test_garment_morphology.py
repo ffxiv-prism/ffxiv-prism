@@ -7,8 +7,9 @@ from ffxiv_prism.matching.garment_morphology import (
     LEGS_STYLE_CLASSES,
     StylePrediction,
     apply_style_crop_multipliers,
+    long_body_legwear_decision,
     long_top_probability,
-    rerank_candidates_with_plain_trouser_prior,
+    rerank_candidates_with_legwear_profile,
     rerank_candidates_with_style,
     style_policy,
 )
@@ -106,29 +107,66 @@ class GarmentMorphologyTests(unittest.TestCase):
         )
         self.assertEqual(reranked[0]["piece_id"], 2)
 
-    def test_occluded_legs_prior_promotes_plain_trousers(self) -> None:
+    def test_long_body_visible_covered_legwear_selects_plain_trousers(self) -> None:
+        decision = long_body_legwear_decision(
+            ((0.61, 0.39), (0.74, 0.26)),
+            ((0.08, 0.92), (0.16, 0.84)),
+            ((0.90, 0.06, 0.04), (0.95, 0.03, 0.02)),
+        )
+
+        self.assertTrue(decision.observable)
+        self.assertEqual(decision.mode, "covered")
+        self.assertEqual(decision.predicted_class, "plain_trousers")
+        self.assertEqual(decision.crop_index, 0)
+
+    def test_long_body_visible_exposed_legwear_keeps_short_style(self) -> None:
+        decision = long_body_legwear_decision(
+            ((0.60, 0.40), (0.70, 0.30)),
+            ((0.40, 0.60), (0.72, 0.28)),
+            ((0.80, 0.10, 0.10), (0.85, 0.10, 0.05)),
+        )
+
+        self.assertTrue(decision.observable)
+        self.assertEqual(decision.mode, "exposed")
+        self.assertEqual(decision.predicted_class, "exposed_legs")
+        self.assertEqual(decision.crop_index, 1)
+
+    def test_long_body_hidden_legwear_does_not_invent_a_style(self) -> None:
+        decision = long_body_legwear_decision(
+            ((0.20, 0.80), (0.42, 0.58)),
+            ((0.90, 0.10), (0.80, 0.20)),
+            ((0.90, 0.05, 0.05), (0.85, 0.10, 0.05)),
+        )
+
+        self.assertFalse(decision.observable)
+        self.assertIsNone(decision.mode)
+        self.assertEqual(decision.classes, ())
+        self.assertEqual(decision.probabilities, ())
+
+    def test_long_body_legwear_reranker_matches_query_instead_of_fixed_prior(self) -> None:
         candidates = [
             {"rank": 1, "piece_id": 1, "score": 0.95},
             {"rank": 2, "piece_id": 2, "score": 0.80},
             {"rank": 3, "piece_id": 3, "score": 0.70},
         ]
 
-        reranked = rerank_candidates_with_plain_trouser_prior(
+        reranked = rerank_candidates_with_legwear_profile(
             candidates,
+            (0.90, 0.10),
             {
-                1: (0.05, 0.15, 0.80),
-                2: (0.90, 0.08, 0.02),
-                3: (0.10, 0.80, 0.10),
+                1: (0.05, 0.95),
+                2: (0.95, 0.05),
+                3: (0.80, 0.20),
             },
             rerank_k=3,
             blend=0.65,
-            minimum_plain_probability=0.45,
+            minimum_confidence=0.45,
         )
 
         self.assertEqual(reranked[0]["piece_id"], 2)
         self.assertGreater(
-            reranked[0]["plain_trouser_score"],
-            reranked[1]["plain_trouser_score"],
+            reranked[0]["legwear_style_score"],
+            reranked[1]["legwear_style_score"],
         )
 
     def test_long_top_probability_is_safe_for_missing_diagnostics(self) -> None:
