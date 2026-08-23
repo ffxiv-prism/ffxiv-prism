@@ -44,11 +44,18 @@ from ffxiv_prism.matching.head_morphology import (
 )
 from ffxiv_prism.model_assets import load_pretrained
 from ffxiv_prism.matching.garment_morphology import (
+    LONG_BODY_OCCLUSION_MIN_PROBABILITY,
+    OCCLUDED_LEGS_PLAIN_MIN_PROBABILITY,
+    OCCLUDED_LEGS_RERANK_BLEND,
+    OCCLUDED_LEGS_STYLE_CLASSES,
+    OCCLUDED_LEGS_STYLE_PROMPTS,
     STYLE_CANDIDATE_CROP_BOXES_NORMALIZED,
     STYLE_PROMPTS_BY_SLOT,
     TARGET_STYLE_CLASSES,
     StylePrediction,
     apply_style_crop_multipliers,
+    long_top_probability,
+    rerank_candidates_with_plain_trouser_prior,
     rerank_candidates_with_style,
     style_policy,
 )
@@ -203,7 +210,17 @@ def main(argv: list[str] | None = None) -> int:
             )
         )
     else:
-        for slot, config in configs.items():
+        execution_slots = list(configs)
+        if (
+            "BODY" in execution_slots
+            and "LEGS" in execution_slots
+            and execution_slots.index("BODY") > execution_slots.index("LEGS")
+        ):
+            execution_slots.remove("BODY")
+            execution_slots.insert(execution_slots.index("LEGS"), "BODY")
+        results_by_slot: dict[str, dict[str, Any]] = {}
+        for slot in execution_slots:
+            config = configs[slot]
             print(f"stage=retrieve slot={slot}", flush=True)
             result = _run_slot(
                 config,
@@ -218,8 +235,12 @@ def main(argv: list[str] | None = None) -> int:
                     if known_reference
                     else None
                 ),
+                body_style_diagnostic=(
+                    results_by_slot.get("BODY", {}).get("style_diagnostic")
+                ),
             )
-            results.append(result)
+            results_by_slot[slot] = result
+        results.extend(results_by_slot[slot] for slot in configs)
 
     occupied_slots_by_piece = _load_piece_occupied_slots(
         {
@@ -381,6 +402,7 @@ def _run_slot(
     top_k: int,
     gender: str | None,
     reference_label: dict[str, Any] | None = None,
+    body_style_diagnostic: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     from transformers import AutoModel
 
@@ -456,12 +478,18 @@ def _run_slot(
                 ],
             }
     active_candidate_crop_routes = config.candidate_crop_routes
+    body_long_probability = long_top_probability(body_style_diagnostic)
+    legs_occluded_by_body = (
+        config.slot == "LEGS"
+        and body_long_probability >= LONG_BODY_OCCLUSION_MIN_PROBABILITY
+    )
     style_prediction = None
     style_policy_result = None
     style_diagnostic = None
     if (
         config.style_model_id is not None
         and config.style_query_crop_name is not None
+        and not legs_occluded_by_body
     ):
         style_record = next(
             (
@@ -550,6 +578,29 @@ def _run_slot(
                 "blend": config.style_blend,
                 "ranking_changed": False,
             }
+    occluded_legs_diagnostic = None
+    if legs_occluded_by_body:
+        style_diagnostic = {
+            "query_crop": config.style_query_crop_name,
+            "active": False,
+            "reason": "suppressed_by_long_body_occlusion",
+            "ranking_changed": False,
+        }
+        occluded_legs_diagnostic = {
+            "active": True,
+            "reason": "long_body_garment_covers_legs",
+            "body_long_top_probability": body_long_probability,
+            "minimum_body_long_top_probability": (
+                LONG_BODY_OCCLUSION_MIN_PROBABILITY
+            ),
+            "classes": list(OCCLUDED_LEGS_STYLE_CLASSES),
+            "rerank_k": config.style_rerank_k,
+            "blend": OCCLUDED_LEGS_RERANK_BLEND,
+            "minimum_plain_probability": (
+                OCCLUDED_LEGS_PLAIN_MIN_PROBABILITY
+            ),
+            "ranking_changed": False,
+        }
     if config.query_crop_names is not None:
         allowed_names = set(config.query_crop_names)
         slot_records = {
@@ -841,6 +892,8 @@ def _run_slot(
     )
     if style_policy_result is not None and style_policy_result.active:
         retrieval_top_k = max(retrieval_top_k, config.style_rerank_k)
+    if legs_occluded_by_body:
+        retrieval_top_k = max(retrieval_top_k, config.style_rerank_k)
     if reference_label is not None:
         retrieval_top_k = max(retrieval_top_k, candidate_k)
     if final_pool_search is not None:
@@ -895,6 +948,67 @@ def _run_slot(
             blend=config.spatial_blend,
         )
     if (
+        legs_occluded_by_body
+        and config.style_model_id is not None
+        and candidates
+    ):
+        style_pool = candidates[: min(config.style_rerank_k, len(candidates))]
+        candidate_style_paths = [
+            resolve_project_path(row.get("local_preview"))
+            for row in style_pool
+        ]
+        if all(
+            path is not None and path.is_file()
+            for path in candidate_style_paths
+        ):
+            candidate_style_probabilities = _classify_style_paths(
+                str(config.style_model_id),
+                OCCLUDED_LEGS_STYLE_PROMPTS,
+                [
+                    path
+                    for path in candidate_style_paths
+                    if path is not None
+                ],
+                device=device,
+                batch_size=batch_size,
+            )
+            probabilities_by_piece = {
+                int(row["piece_id"]): probabilities
+                for row, probabilities in zip(
+                    style_pool,
+                    candidate_style_probabilities,
+                    strict=True,
+                )
+            }
+            previous_top1 = int(candidates[0]["piece_id"])
+            candidates = rerank_candidates_with_plain_trouser_prior(
+                candidates,
+                probabilities_by_piece,
+                rerank_k=config.style_rerank_k,
+                blend=OCCLUDED_LEGS_RERANK_BLEND,
+                minimum_plain_probability=(
+                    OCCLUDED_LEGS_PLAIN_MIN_PROBABILITY
+                ),
+            )
+            current_top1 = int(candidates[0]["piece_id"])
+            if occluded_legs_diagnostic is not None:
+                occluded_legs_diagnostic["candidate_profile_count"] = len(
+                    probabilities_by_piece
+                )
+                occluded_legs_diagnostic["maximum_plain_probability"] = max(
+                    float(probabilities[0])
+                    for probabilities in candidate_style_probabilities
+                )
+                occluded_legs_diagnostic["ranking_changed"] = (
+                    current_top1 != previous_top1
+                )
+                occluded_legs_diagnostic["previous_top1_piece_id"] = previous_top1
+                occluded_legs_diagnostic["current_top1_piece_id"] = current_top1
+        elif occluded_legs_diagnostic is not None:
+            occluded_legs_diagnostic["rerank_reason"] = (
+                "candidate_preview_unavailable"
+            )
+    elif (
         style_prediction is not None
         and style_policy_result is not None
         and style_policy_result.active
@@ -1054,6 +1168,13 @@ def _run_slot(
         result["no_equipment_diagnostic"] = no_equipment_diagnostic
     if style_diagnostic is not None:
         result["style_diagnostic"] = style_diagnostic
+    if occluded_legs_diagnostic is not None:
+        result["occluded_legs_diagnostic"] = occluded_legs_diagnostic
+        result["ranking_quality"]["level"] = "low"
+        result["ranking_quality"]["reasons"].append(
+            "检测到长上衣遮挡腿部；腿部候选已改用简洁长裤先验，"
+            "但被遮挡装备仍需人工复核。"
+        )
     if morphology_diagnostic is not None:
         result["morphology_diagnostic"] = morphology_diagnostic
         if (

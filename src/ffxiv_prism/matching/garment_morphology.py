@@ -49,7 +49,7 @@ STYLE_CLASSES = STYLE_CLASSES_BY_SLOT
 STYLE_PROMPTS = STYLE_PROMPTS_BY_SLOT
 
 TARGET_STYLE_CLASSES = {
-    "BODY": frozenset(("crop_top", "sleeveless")),
+    "BODY": frozenset(("crop_top", "sleeveless", "long_top")),
     "LEGS": frozenset(
         ("hot_shorts", "long_shorts", "short_skirt", "asymmetric_thigh_cut")
     ),
@@ -64,6 +64,19 @@ BODY_STYLE_CROP_MULTIPLIERS = {
 BODY_STYLE_CANDIDATE_CROP_ROUTES = {
     "body_torso": ("torso_core",),
     "body_upper_core": ("torso_core",),
+    "body_upper_arm_overlap": ("upper_body",),
+    "body_context": ("upper_body",),
+}
+
+LONG_BODY_STYLE_CROP_MULTIPLIERS = {
+    "body_torso": 0.75,
+    "body_upper_core": 0.35,
+    "body_upper_arm_overlap": 0.45,
+    "body_context": 1.35,
+}
+LONG_BODY_STYLE_CANDIDATE_CROP_ROUTES = {
+    "body_torso": ("upper_body",),
+    "body_upper_core": ("upper_body",),
     "body_upper_arm_overlap": ("upper_body",),
     "body_context": ("upper_body",),
 }
@@ -84,6 +97,20 @@ LEGS_STYLE_CANDIDATE_CROP_ROUTES = {
     "legs_context": ("full",),
     "legs_boot_overlap": ("legs_boot_overlap",),
 }
+
+OCCLUDED_LEGS_STYLE_CLASSES = (
+    "plain_trousers",
+    "wide_trousers",
+    "complex_legwear",
+)
+OCCLUDED_LEGS_STYLE_PROMPTS = (
+    "plain simple straight-leg tailored trousers or suit pants with a clean narrow silhouette",
+    "wide or baggy trousers, culottes, bloomers, hakama, or heavily draped pants",
+    "a skirt, robe, layered panels, armored, or highly ornate complex legwear",
+)
+LONG_BODY_OCCLUSION_MIN_PROBABILITY = 0.75
+OCCLUDED_LEGS_PLAIN_MIN_PROBABILITY = 0.45
+OCCLUDED_LEGS_RERANK_BLEND = 0.65
 
 # Kept here as an optional dependency-free source for future index builders.
 STYLE_CANDIDATE_CROP_BOXES_NORMALIZED = {
@@ -229,17 +256,28 @@ def style_policy(
             candidate_crop_routes={},
             reason="target_probability_below_threshold",
         )
-    if prediction.slot == "BODY":
+    if (
+        prediction.slot == "BODY"
+        and prediction.probabilities[
+            prediction.classes.index("long_top")
+        ] >= minimum_confidence
+    ):
+        multipliers = LONG_BODY_STYLE_CROP_MULTIPLIERS
+        routes = LONG_BODY_STYLE_CANDIDATE_CROP_ROUTES
+        reason = "high_confidence_long_top"
+    elif prediction.slot == "BODY":
         multipliers = BODY_STYLE_CROP_MULTIPLIERS
         routes = BODY_STYLE_CANDIDATE_CROP_ROUTES
+        reason = "high_confidence_target_style"
     else:
         multipliers = LEGS_STYLE_CROP_MULTIPLIERS
         routes = LEGS_STYLE_CANDIDATE_CROP_ROUTES
+        reason = "high_confidence_target_style"
     return StylePolicy(
         active=True,
         crop_multipliers=dict(multipliers),
         candidate_crop_routes=dict(routes),
-        reason="high_confidence_target_style",
+        reason=reason,
     )
 
 
@@ -390,6 +428,115 @@ def rerank_candidates_with_style(
         row["score"] = (
             (1.0 - blend) * retrieval_percentile
             + blend * normalized_style_score
+        )
+
+    leading.sort(
+        key=lambda row: (
+            -float(row["score"]),
+            -float(row["retrieval_score"]),
+            original_positions[id(row)],
+        )
+    )
+    output[:pool_size] = leading
+    for rank, row in enumerate(output, start=1):
+        row["rank"] = rank
+    return output
+
+
+def long_top_probability(
+    style_diagnostic: Mapping[str, Any] | None,
+) -> float:
+    if not style_diagnostic:
+        return 0.0
+    probabilities = style_diagnostic.get("probabilities")
+    if not isinstance(probabilities, Mapping):
+        return 0.0
+    try:
+        probability = float(probabilities.get("long_top", 0.0))
+    except (TypeError, ValueError):
+        return 0.0
+    if not math.isfinite(probability):
+        return 0.0
+    return min(1.0, max(0.0, probability))
+
+
+def rerank_candidates_with_plain_trouser_prior(
+    candidates: Sequence[Mapping[str, Any]],
+    candidate_probabilities_by_piece: Mapping[int, Sequence[float]],
+    *,
+    rerank_k: int,
+    blend: float = OCCLUDED_LEGS_RERANK_BLEND,
+    minimum_plain_probability: float = OCCLUDED_LEGS_PLAIN_MIN_PROBABILITY,
+) -> list[dict[str, Any]]:
+    """Prefer simple trousers when a long BODY garment hides the leg slot.
+
+    In this case the visible leg crops primarily contain coat or robe panels,
+    so query-conditioned legwear morphology is misleading.  Retrieval still
+    defines the candidate pool, while a conservative candidate-only prior
+    promotes plain tailored trousers within that pool.
+    """
+
+    if rerank_k < 1:
+        raise ValueError("rerank_k must be positive")
+    if not 0.0 <= blend <= 1.0:
+        raise ValueError("blend must be between zero and one")
+    if not 0.0 <= minimum_plain_probability <= 1.0:
+        raise ValueError("minimum_plain_probability must be between zero and one")
+
+    output = [dict(row) for row in candidates]
+    pool_size = min(rerank_k, len(output))
+    if pool_size < 2:
+        return output
+    leading = output[:pool_size]
+    plain_index = OCCLUDED_LEGS_STYLE_CLASSES.index("plain_trousers")
+    profiles: list[tuple[float, ...]] = []
+    for row in leading:
+        piece_id = int(row["piece_id"])
+        raw_profile = candidate_probabilities_by_piece.get(piece_id)
+        if raw_profile is None:
+            return output
+        profile = _validated_probability_vector(raw_profile)
+        if len(profile) != len(OCCLUDED_LEGS_STYLE_CLASSES):
+            raise ValueError(
+                f"candidate occluded-leg style profile for piece {piece_id} has "
+                f"{len(profile)} classes; expected {len(OCCLUDED_LEGS_STYLE_CLASSES)}"
+            )
+        profiles.append(profile)
+
+    plain_scores = [profile[plain_index] for profile in profiles]
+    maximum_plain_score = max(plain_scores)
+    if maximum_plain_score < minimum_plain_probability:
+        return output
+    normalized_plain_scores = [
+        score / maximum_plain_score for score in plain_scores
+    ]
+    retrieval_scores = [float(row["score"]) for row in leading]
+    if any(not math.isfinite(score) for score in retrieval_scores):
+        raise ValueError("candidate retrieval scores must be finite")
+    retrieval_percentiles = _percentiles(retrieval_scores)
+
+    original_positions = {id(row): index for index, row in enumerate(leading)}
+    for (
+        row,
+        retrieval_score,
+        retrieval_percentile,
+        plain_score,
+        normalized_plain_score,
+    ) in zip(
+        leading,
+        retrieval_scores,
+        retrieval_percentiles,
+        plain_scores,
+        normalized_plain_scores,
+        strict=True,
+    ):
+        row["retrieval_score"] = retrieval_score
+        row["retrieval_percentile"] = retrieval_percentile
+        row["plain_trouser_score"] = plain_score
+        row["plain_trouser_normalized_score"] = normalized_plain_score
+        row["score"] = (
+            (1.0 - blend) * retrieval_percentile
+            + blend * normalized_plain_score
         )
 
     leading.sort(

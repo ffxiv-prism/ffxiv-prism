@@ -183,7 +183,7 @@ class GlamourInferenceTests(unittest.TestCase):
             config.style_model_id,
             "google/siglip2-base-patch16-224",
         )
-        self.assertEqual(config.style_query_crop_name, "body_upper_core")
+        self.assertEqual(config.style_query_crop_name, "body_context")
         self.assertEqual(config.style_rerank_k, 100)
         self.assertAlmostEqual(config.style_blend, 0.70)
         self.assertAlmostEqual(config.benchmark_top1 or 0.0, 0.6353)

@@ -31,6 +31,7 @@ MAX_JSON_BYTES = 1024 * 1024
 SLOTS = ("HEAD", "BODY", "HANDS", "LEGS", "FEET")
 EXECUTION_DEVICES = {"cpu", "cuda"}
 RUNNING_STATES = {"queued", "running"}
+LOADING_WEIGHTS_PROGRESS = re.compile(r"\bLoading weights:\s*(\d{1,3})%")
 DATASET_MODES: dict[str, list[str]] = {
     "standard": [],
     "full": ["--all"],
@@ -188,9 +189,7 @@ class JobRegistry:
                     continue
                 with self._lock:
                     job = self._jobs[job_id]
-                    job.logs.append(line)
-                    if len(job.logs) > 1000:
-                        del job.logs[:-600]
+                    _append_job_log(job, line)
                     job.stage = _stage_from_log(line, job.kind)
 
             return_code = process.wait()
@@ -217,6 +216,31 @@ class JobRegistry:
                 process.stdout.close()
             with self._lock:
                 self._processes.pop(job_id, None)
+
+
+def _loading_weights_percent(line: str) -> int | None:
+    match = LOADING_WEIGHTS_PROGRESS.search(line)
+    if match is None:
+        return None
+    percent = int(match.group(1))
+    return percent if 0 <= percent <= 100 else None
+
+
+def _append_job_log(job: Job, line: str) -> None:
+    current_percent = _loading_weights_percent(line)
+    previous_percent = (
+        _loading_weights_percent(job.logs[-1]) if job.logs else None
+    )
+    if (
+        current_percent is not None
+        and previous_percent is not None
+        and current_percent >= previous_percent
+    ):
+        job.logs[-1] = line
+    else:
+        job.logs.append(line)
+    if len(job.logs) > 1000:
+        del job.logs[:-600]
 
 
 def _stage_from_log(line: str, kind: str) -> str:

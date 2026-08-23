@@ -125,7 +125,7 @@ def current_best_configs() -> dict[str, SlotInferenceConfig]:
             ensemble_top1_gate_max_base_last_branch_rank=10,
             ensemble_top1_gate_min_last_branch_rank_ratio=1.0,
             style_model_id="google/siglip2-base-patch16-224",
-            style_query_crop_name="body_upper_core",
+            style_query_crop_name="body_context",
             style_rerank_k=100,
             style_blend=0.70,
             style_min_confidence=0.45,

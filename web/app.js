@@ -182,14 +182,14 @@ function renderDatasetStatus(dataset) {
 }
 
 function selectImage(file) {
-  if (!file) return;
+  if (!file) return false;
   if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
     showToast("请选择 PNG、JPG/JPEG 或 WebP 图片。");
-    return;
+    return false;
   }
   if (file.size > 25 * 1024 * 1024) {
     showToast("图片不能超过 25 MB。");
-    return;
+    return false;
   }
   selectedImage = file;
   if (previewUrl) URL.revokeObjectURL(previewUrl);
@@ -200,6 +200,16 @@ function selectImage(file) {
   elements.dropZone.hidden = true;
   elements.selectedFile.hidden = false;
   updateRecognizeAvailability();
+  return true;
+}
+
+function clipboardImage(clipboardData) {
+  const imageItem = Array.from(clipboardData?.items || []).find(
+    (item) => item.kind === "file" && item.type.startsWith("image/"),
+  );
+  return imageItem?.getAsFile()
+    || Array.from(clipboardData?.files || []).find((file) => file.type.startsWith("image/"))
+    || null;
 }
 
 for (const dropTarget of [elements.dropZone, elements.selectedFile]) {
@@ -231,6 +241,12 @@ elements.dropZone.addEventListener("keydown", (event) => {
 
 elements.input.addEventListener("change", () => selectImage(elements.input.files[0]));
 elements.changeImage.addEventListener("click", () => elements.input.click());
+document.addEventListener("paste", (event) => {
+  const file = clipboardImage(event.clipboardData);
+  if (!file) return;
+  event.preventDefault();
+  if (selectImage(file)) showToast("已从剪贴板粘贴图片。");
+});
 for (const input of elements.deviceInputs) {
   input.addEventListener("change", () => {
     updateDeviceNote();

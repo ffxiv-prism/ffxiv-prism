@@ -72,7 +72,7 @@ python scripts\recognize_glamour.py reference.png `
 python scripts\web_app.py
 ```
 
-默认地址为 `http://127.0.0.1:8765`。网页支持拖拽上传、五部位选择、Top-k 设置、CPU/GPU 运行环境选择、结果查看和本地数据更新。服务只监听回环地址；如不希望自动打开浏览器，添加 `--no-open`。
+默认地址为 `http://127.0.0.1:8765`。网页支持点击选择、拖拽或按 `Ctrl+V` 从剪贴板粘贴图片，并提供五部位选择、Top-k 设置、CPU/GPU 运行环境选择、结果查看和本地数据更新。服务只监听回环地址；如不希望自动打开浏览器，添加 `--no-open`。
 
 WebUI 会检测启动它的 Python/PyTorch 环境：GPU 环境可在每次任务前手动选择 GPU 或 CPU；CPU-only 环境会禁用 GPU 选项并显示原因。选择 CPU 时，推断子进程会显式使用 `--device cpu` 并隐藏 CUDA；选择 GPU 时，后端会先确认 CUDA 可用，再使用 `--device cuda`，不会静默回退到 CPU。
 

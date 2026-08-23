@@ -7,6 +7,8 @@ from ffxiv_prism.matching.garment_morphology import (
     LEGS_STYLE_CLASSES,
     StylePrediction,
     apply_style_crop_multipliers,
+    long_top_probability,
+    rerank_candidates_with_plain_trouser_prior,
     rerank_candidates_with_style,
     style_policy,
 )
@@ -67,6 +69,75 @@ class GarmentMorphologyTests(unittest.TestCase):
         self.assertGreater(reranked[0]["style_score"], reranked[1]["style_score"])
         self.assertEqual(reranked[0]["retrieval_score"], 0.90)
         self.assertEqual([row["rank"] for row in reranked], [1, 2, 3])
+
+    def test_long_body_style_prioritizes_context_and_long_candidate(self) -> None:
+        prediction = StylePrediction.from_probabilities(
+            "BODY",
+            (0.02, 0.01, 0.02, 0.95),
+        )
+        policy = style_policy(prediction, minimum_confidence=0.75)
+        records = [
+            {"name": "body_torso"},
+            {"name": "body_upper_core"},
+            {"name": "body_context"},
+        ]
+
+        adjusted = apply_style_crop_multipliers(records, policy)
+        reranked = rerank_candidates_with_style(
+            [
+                {"rank": 1, "piece_id": 1, "score": 0.95},
+                {"rank": 2, "piece_id": 2, "score": 0.80},
+            ],
+            prediction,
+            {
+                1: (0.80, 0.02, 0.16, 0.02),
+                2: (0.02, 0.01, 0.02, 0.95),
+            },
+            rerank_k=2,
+            blend=0.70,
+            minimum_confidence=0.75,
+        )
+
+        self.assertTrue(policy.active)
+        self.assertEqual(policy.reason, "high_confidence_long_top")
+        self.assertGreater(
+            adjusted[2]["style_weight_multiplier"],
+            adjusted[0]["style_weight_multiplier"],
+        )
+        self.assertEqual(reranked[0]["piece_id"], 2)
+
+    def test_occluded_legs_prior_promotes_plain_trousers(self) -> None:
+        candidates = [
+            {"rank": 1, "piece_id": 1, "score": 0.95},
+            {"rank": 2, "piece_id": 2, "score": 0.80},
+            {"rank": 3, "piece_id": 3, "score": 0.70},
+        ]
+
+        reranked = rerank_candidates_with_plain_trouser_prior(
+            candidates,
+            {
+                1: (0.05, 0.15, 0.80),
+                2: (0.90, 0.08, 0.02),
+                3: (0.10, 0.80, 0.10),
+            },
+            rerank_k=3,
+            blend=0.65,
+            minimum_plain_probability=0.45,
+        )
+
+        self.assertEqual(reranked[0]["piece_id"], 2)
+        self.assertGreater(
+            reranked[0]["plain_trouser_score"],
+            reranked[1]["plain_trouser_score"],
+        )
+
+    def test_long_top_probability_is_safe_for_missing_diagnostics(self) -> None:
+        self.assertEqual(long_top_probability(None), 0.0)
+        self.assertEqual(long_top_probability({"probabilities": {}}), 0.0)
+        self.assertAlmostEqual(
+            long_top_probability({"probabilities": {"long_top": 0.91}}),
+            0.91,
+        )
 
     def test_legs_style_can_outweigh_unmatched_lower_leg_coverage(self) -> None:
         prediction = StylePrediction.from_probabilities(

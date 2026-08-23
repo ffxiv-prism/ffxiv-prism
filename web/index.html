@@ -7,7 +7,7 @@
   <meta name="description" content="FFXIV Prism 本地装备外观识别工作台">
   <title>FFXIV Prism · 本地识别工作台</title>
   <link rel="stylesheet" href="/static/styles.css?v=3">
-  <script src="/static/app.js?v=3" defer></script>
+  <script src="/static/app.js?v=4" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -34,18 +34,18 @@
           <label class="drop-zone" id="drop-zone" for="image-input" tabindex="0">
             <input id="image-input" name="image" type="file" accept="image/png,image/jpeg,image/webp" hidden>
             <span class="upload-glyph" aria-hidden="true">⌁</span>
-            <span class="drop-title">拖拽角色截图到这里</span>
-            <span class="drop-subtitle">或点击选择图片 · PNG、JPG、WebP · 最大 25 MB</span>
+            <span class="drop-title">拖拽或粘贴角色截图到这里</span>
+            <span class="drop-subtitle">点击选择，或按 Ctrl+V 粘贴 · PNG、JPG、WebP · 最大 25 MB</span>
           </label>
 
-          <div class="selected-file" id="selected-file" aria-label="已选择图片，可拖入新图片替换" hidden>
+          <div class="selected-file" id="selected-file" aria-label="已选择图片，可拖入或粘贴新图片替换" hidden>
             <div class="preview-wrap">
               <img id="image-preview" alt="待识别图片预览">
             </div>
             <div class="file-copy">
               <strong id="file-name"></strong>
               <span id="file-meta"></span>
-              <span class="replace-hint">可继续拖入新图片直接替换</span>
+              <span class="replace-hint">可继续拖入或按 Ctrl+V 粘贴新图片直接替换</span>
               <button class="text-button" id="change-image" type="button">更换图片</button>
             </div>
           </div>
