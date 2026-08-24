@@ -247,6 +247,11 @@ def validate_record(record: dict) -> None:
     invalid_images = [url for url in record.get("image_urls", []) if not url.startswith(expected_prefix)]
     if invalid_images:
         raise ValueError(f"Image URLs outside glamour {glamour_id}: {invalid_images}")
+    if not record.get("image_urls"):
+        raise ValueError("No player glamour screenshots found")
+    slots = [item.get("slot") for item in record.get("equipment", [])]
+    if slots != list(CORE_SLOTS):
+        raise ValueError(f"Expected exactly five core slots, got {slots}")
 
 
 def model_scope_skip_reason(
@@ -262,11 +267,6 @@ def model_scope_skip_reason(
     if required_gender and model_gender != required_gender.strip().lower():
         return f"model_gender={model_gender!r} does not match {required_gender!r}"
     return None
-    if not record.get("image_urls"):
-        raise ValueError("No player glamour screenshots found")
-    slots = [item.get("slot") for item in record.get("equipment", [])]
-    if slots != list(CORE_SLOTS):
-        raise ValueError(f"Expected exactly five core slots, got {slots}")
 
 
 def is_exact_piece_match(item: dict) -> bool:
