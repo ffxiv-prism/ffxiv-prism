@@ -1,18 +1,20 @@
 {
-  "columns": [
-    "ID",
-    "Name",
-    "Name_en",
-    "EquipSlotCategoryTargetID",
-    "ItemUICategory.Name_en"
+  "duplicate_rows_removed": 0,
+  "empty_name_en": 2028,
+  "fields": [
+    "Name@lang(chs)",
+    "Name@lang(en)",
+    "EquipSlotCategory@as(raw)",
+    "ItemUICategory@lang(en).Name"
   ],
-  "duplicate_rows_removed": 2000,
-  "empty_name_en": 2931,
-  "finished_at": "2026-06-22T08:06:58Z",
-  "output": "data\\raw\\game_data\\cafemaker_item_names_raw.jsonl",
+  "finished_at": "2026-08-24T07:39:24Z",
+  "game_version": "2026071600010000",
+  "last_row_id": 52800,
+  "output": "data/raw/game_data/cafemaker_item_names_raw.jsonl",
   "page_size": 1000,
-  "pages_fetched": 49,
-  "results_total": 48800,
-  "rows_written": 48800,
-  "source": "https://cafemaker.wakingsands.com/Item"
+  "pages_fetched": 106,
+  "results_total": 52801,
+  "rows_written": 52801,
+  "schema": "exdschema@2:rev:83e965d091116f895d5b17573cc5d12909a5f407",
+  "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"
 }

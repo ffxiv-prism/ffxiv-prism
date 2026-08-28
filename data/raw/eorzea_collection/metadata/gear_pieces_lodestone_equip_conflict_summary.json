@@ -1,11 +1,11 @@
 {
-  "cache": "data\\raw\\game_data\\lodestone_equip_conflicts_raw.jsonl",
-  "fallback_candidate_rows": 15,
-  "finished_at": "2026-06-22T08:12:59Z",
-  "input": "data\\raw\\eorzea_collection\\metadata\\gear_pieces_raw.jsonl",
-  "looked_up_this_run": 15,
-  "output": "data\\raw\\eorzea_collection\\metadata\\gear_pieces_raw.jsonl",
-  "rows_cleared": 15,
+  "cache": "data/raw/game_data/lodestone_equip_conflicts_raw.jsonl",
+  "fallback_candidate_rows": 1,
+  "finished_at": "2026-08-24T07:39:39Z",
+  "input": "data/raw/eorzea_collection/metadata/gear_pieces_raw.jsonl",
+  "looked_up_this_run": 0,
+  "output": "data/raw/eorzea_collection/metadata/gear_pieces_raw.jsonl",
+  "rows_cleared": 1,
   "rows_confirmed": 0,
   "rows_failed": 0
 }

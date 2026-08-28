@@ -1,6 +1,5 @@
 {
-  "columns": [
-    "ID",
+  "fields": [
     "MainHand",
     "OffHand",
     "Head",
@@ -16,8 +15,12 @@
     "SoulCrystal",
     "Waist"
   ],
-  "finished_at": "2026-06-22T07:33:11Z",
-  "output": "data\\raw\\game_data\\cafemaker_equip_slot_categories_raw.jsonl",
-  "rows_written": 23,
-  "source": "https://cafemaker.wakingsands.com/EquipSlotCategory"
+  "finished_at": "2026-08-24T07:39:25Z",
+  "game_version": "2026071600010000",
+  "last_row_id": 24,
+  "output": "data/raw/game_data/cafemaker_equip_slot_categories_raw.jsonl",
+  "pages_fetched": 1,
+  "rows_written": 25,
+  "schema": "exdschema@2:rev:83e965d091116f895d5b17573cc5d12909a5f407",
+  "source": "https://xivapi-v2.xivcdn.com/api/sheet/EquipSlotCategory"
 }
