@@ -10,6 +10,7 @@ import numpy as np
 from PIL import Image, UnidentifiedImageError
 
 from ffxiv_prism.paths import (
+    APPEARANCE_EQUIVALENCE_PATH,
     INDEXES_DIR,
     PROJECT_ROOT,
     portable_path,
@@ -318,6 +319,9 @@ def inspect_assets(
     downloadable_models: set[str] = set()
     cached_models: set[str] = set()
     slot_details: dict[str, Any] = {}
+
+    if not APPEARANCE_EQUIVALENCE_PATH.is_file():
+        missing.append(str(APPEARANCE_EQUIVALENCE_PATH))
 
     def inspect_model(model_id: str) -> None:
         if model_weight_files(model_id):
@@ -687,44 +691,58 @@ def attach_appearance_equivalent_candidates(
     candidates: Sequence[Mapping[str, Any]],
     direct_equivalents: Mapping[int, Sequence[int]],
     *,
-    max_equivalents_per_anchor: int = 1,
+    piece_catalog: Mapping[int, Mapping[str, Any]] | None = None,
+    max_equivalents_per_anchor: int | None = 1,
 ) -> list[dict[str, Any]]:
-    """Attach lower-ranked same-model alternatives without reducing diversity."""
+    """Attach same-model alternatives without changing candidate order."""
 
-    if max_equivalents_per_anchor < 0:
+    if (
+        max_equivalents_per_anchor is not None
+        and max_equivalents_per_anchor < 0
+    ):
         raise ValueError("max_equivalents_per_anchor must be non-negative")
     source = [dict(row) for row in candidates]
     by_piece = {int(row["piece_id"]): row for row in source}
-    position_by_piece = {
-        int(row["piece_id"]): position
-        for position, row in enumerate(source)
-    }
-    for anchor_position, anchor in enumerate(source):
+    catalog = piece_catalog or {}
+    for anchor in source:
         anchor_id = int(anchor["piece_id"])
         if max_equivalents_per_anchor == 0:
             continue
         alternatives = []
+        attached_ids: set[int] = set()
         for equivalent_id in direct_equivalents.get(anchor_id, ()):
             parsed_id = int(equivalent_id)
-            equivalent = by_piece.get(parsed_id)
-            if (
-                equivalent is None
-                or position_by_piece[parsed_id] <= anchor_position
-            ):
+            if parsed_id == anchor_id or parsed_id in attached_ids:
                 continue
-            alternatives.append(
-                {
-                    "piece_id": parsed_id,
-                    "name_en": equivalent.get("name_en"),
-                    "name_zh": equivalent.get("name_zh"),
-                    "original_rank": int(equivalent.get("rank", 0)),
-                    "score": float(equivalent.get("score", 0.0)),
-                    "source_image_url": equivalent.get("source_image_url"),
-                    "local_preview": equivalent.get("local_preview"),
-                    "relation": "same_model",
-                }
-            )
-            if len(alternatives) >= max_equivalents_per_anchor:
+            ranked_equivalent = by_piece.get(parsed_id)
+            equivalent = ranked_equivalent or catalog.get(parsed_id)
+            if equivalent is None:
+                continue
+            name_en = equivalent.get("name_en") or equivalent.get("name")
+            name_zh = equivalent.get("name_zh")
+            if not name_en and not name_zh:
+                continue
+            alternative = {
+                "piece_id": parsed_id,
+                "name_en": name_en,
+                "name_zh": name_zh,
+                "relation": "same_model",
+            }
+            if ranked_equivalent is not None:
+                alternative.update(
+                    {
+                        "original_rank": int(ranked_equivalent.get("rank", 0)),
+                        "score": float(ranked_equivalent.get("score", 0.0)),
+                        "source_image_url": ranked_equivalent.get("source_image_url"),
+                        "local_preview": ranked_equivalent.get("local_preview"),
+                    }
+                )
+            alternatives.append(alternative)
+            attached_ids.add(parsed_id)
+            if (
+                max_equivalents_per_anchor is not None
+                and len(alternatives) >= max_equivalents_per_anchor
+            ):
                 break
         if alternatives:
             anchor["appearance_alternatives"] = alternatives
@@ -1602,6 +1620,7 @@ def write_html_report(path: Path, payload: Mapping[str, Any]) -> None:
     .reference-note {{ background:#153327; border:1px solid #2f8f64; padding:12px 16px; border-radius:10px; }}
     .visuals img {{ width:100%; max-height:480px; object-fit:contain; background:#0b0e13; border-radius:8px; }}
     .card img {{ width:100%; height:220px; object-fit:contain; background:#0b0e13; border-radius:8px; }}
+    .same-models {{ margin:-.35em 0 .8em; color:#c8d2de; }}
     .rank {{ color:var(--accent); font-weight:700; }} .muted {{ color:var(--muted); }}
     a {{ color:#8dc6ff; }} code {{ overflow-wrap:anywhere; }}
   </style>
@@ -1680,12 +1699,20 @@ def _candidate_html(candidate: Mapping[str, Any]) -> str:
     source_link = (
         f'<a href="{html.escape(source, quote=True)}">来源图片</a>' if source else "无来源链接"
     )
-    alternatives = ", ".join(
-        html.escape(str(row.get("name_zh") or row.get("name_en") or ""))
-        for row in candidate.get("appearance_alternatives", [])
-    )
+    alternative_names = []
+    for row in candidate.get("appearance_alternatives", []):
+        alternative_name_zh = html.escape(str(row.get("name_zh") or ""))
+        alternative_name_en = html.escape(str(row.get("name_en") or ""))
+        if alternative_name_zh and alternative_name_en:
+            alternative_names.append(
+                f'{alternative_name_zh} <span class="muted">'
+                f'({alternative_name_en})</span>'
+            )
+        elif alternative_name_zh or alternative_name_en:
+            alternative_names.append(alternative_name_zh or alternative_name_en)
+    alternatives = "、".join(alternative_names)
     alternatives_note = (
-        f'<p class="muted">Same-model alternatives: {alternatives}</p>'
+        f'<p class="same-models"><strong>同模装备：</strong>{alternatives}</p>'
         if alternatives
         else ""
     )
@@ -1711,9 +1738,9 @@ def _candidate_html(candidate: Mapping[str, Any]) -> str:
     return f"""<article class="card{reference_class}">
   {f'<img src="{html.escape(preview, quote=True)}" alt="{name_en}">' if preview else ''}
   <h3><span class="rank">#{int(candidate.get('rank', 0))}</span> {name}{reference_badge}</h3>
+  {alternatives_note}
   {no_equipment_badge}
   <p>{identifier} · {score_label}</p>
-  {alternatives_note}
   <p>{source_link}</p>
 </article>"""
 

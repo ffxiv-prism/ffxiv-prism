@@ -11,6 +11,9 @@ RAW_DIR = DATA_DIR / "raw"
 GAME_DATA_RAW_DIR = RAW_DIR / "game_data"
 INTERIM_DIR = DATA_DIR / "interim"
 PROCESSED_DIR = DATA_DIR / "processed"
+APPEARANCE_EQUIVALENCE_PATH = (
+    PROCESSED_DIR / "piece_appearance_equivalence_huiji_exact_models.json"
+)
 INDEXES_DIR = DATA_DIR / "indexes"
 SAMPLES_DIR = DATA_DIR / "samples"
 VAR_DIR = PROJECT_ROOT / "var"

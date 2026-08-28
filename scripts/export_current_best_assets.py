@@ -14,7 +14,10 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from ffxiv_prism.matching.inference import current_best_configs  # noqa: E402
-from ffxiv_prism.paths import portable_path  # noqa: E402
+from ffxiv_prism.paths import (  # noqa: E402
+    APPEARANCE_EQUIVALENCE_PATH,
+    portable_path,
+)
 
 
 SOURCE_MODEL_DIR = PROJECT_ROOT / "data" / "models"
@@ -143,6 +146,7 @@ def runtime_asset_paths() -> list[Path]:
     ]
     paths.extend(RUNTIME_MODEL_DIR / name for name in CHECKPOINT_NAMES)
     paths.extend(RUNTIME_MODEL_DIR / name for name in MORPHOLOGY_NAMES)
+    paths.append(APPEARANCE_EQUIVALENCE_PATH)
     dinov3 = PROJECT_ROOT / "var" / "models" / "dinov3-vitb16-pretrain-lvd1689m"
     paths.extend(dinov3 / name for name in LOCAL_DINOV3_FILES)
     return paths

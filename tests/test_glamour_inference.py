@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 from PIL import Image
@@ -563,23 +564,74 @@ class GlamourInferenceTests(unittest.TestCase):
         candidates = [
             self.candidate(1, 1.0, 1),
             self.candidate(2, 0.9, 2),
-            self.candidate(3, 0.2, 40),
         ]
 
         result = attach_appearance_equivalent_candidates(
             candidates,
-            {1: (3,), 3: (1,)},
+            {1: (3, 4), 3: (1,), 4: (1,)},
+            piece_catalog={
+                3: {
+                    "piece_id": 3,
+                    "name_en": "Equivalent Piece",
+                    "name_zh": "同模装备",
+                },
+                4: {
+                    "piece_id": 4,
+                    "name_en": "Another Equivalent Piece",
+                    "name_zh": "另一件同模装备",
+                },
+            },
+            max_equivalents_per_anchor=None,
         )
 
-        self.assertEqual([row["piece_id"] for row in result], [1, 2, 3])
+        self.assertEqual([row["piece_id"] for row in result], [1, 2])
+        self.assertEqual(
+            [
+                row["piece_id"]
+                for row in result[0]["appearance_alternatives"]
+            ],
+            [3, 4],
+        )
         self.assertEqual(
             result[0]["appearance_alternatives"][0]["piece_id"],
             3,
         )
         self.assertEqual(
+            result[0]["appearance_alternatives"][0]["name_zh"],
+            "同模装备",
+        )
+        self.assertEqual(
             result[0]["appearance_alternatives"][0]["relation"],
             "same_model",
         )
+
+    def test_versioned_same_model_equivalence_is_loadable(self) -> None:
+        from ffxiv_prism.cli import match as match_cli
+
+        with patch.object(match_cli, "_APPEARANCE_EQUIVALENCE", None):
+            equivalents = match_cli._load_appearance_equivalence()
+
+        self.assertIn(247, equivalents[236])
+        self.assertIn(4079, equivalents[4064])
+
+    def test_missing_same_model_equivalence_fails_closed(self) -> None:
+        from ffxiv_prism.cli import match as match_cli
+
+        with tempfile.TemporaryDirectory() as directory:
+            missing = Path(directory) / "missing-equivalence.json"
+            with (
+                patch.object(
+                    match_cli,
+                    "APPEARANCE_EQUIVALENCE_PATH",
+                    missing,
+                ),
+                patch.object(match_cli, "_APPEARANCE_EQUIVALENCE", None),
+                self.assertRaisesRegex(
+                    FileNotFoundError,
+                    "Required same-model equivalence asset is missing",
+                ),
+            ):
+                match_cli._load_appearance_equivalence()
 
     def test_spatial_profile_can_correct_adjacent_retrieval_order(self) -> None:
         candidates = [
@@ -708,6 +760,51 @@ class GlamourInferenceTests(unittest.TestCase):
             self.assertIn("未检测到可见装备", content)
             self.assertIn("game_item_id=10032", content)
             self.assertNotIn("piece_id=-10032", content)
+
+    def test_html_report_displays_same_model_names_below_candidate_name(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "report.html"
+            write_html_report(
+                path,
+                {
+                    "input": {},
+                    "artifacts": {},
+                    "warnings": [],
+                    "slots": [
+                        {
+                            "slot": "BODY",
+                            "benchmark": {},
+                            "candidates": [
+                                {
+                                    "rank": 1,
+                                    "piece_id": 1,
+                                    "name_en": "Current Piece",
+                                    "name_zh": "当前装备",
+                                    "score": 0.88,
+                                    "appearance_alternatives": [
+                                        {
+                                            "piece_id": 2,
+                                            "name_en": "Equivalent <Coat>",
+                                            "name_zh": "同模<外套>",
+                                        }
+                                    ],
+                                }
+                            ],
+                        }
+                    ],
+                },
+            )
+
+            content = path.read_text(encoding="utf-8")
+            name_position = content.index("当前装备")
+            same_model_position = content.index("同模装备：")
+            identifier_position = content.index("piece_id=1")
+            self.assertLess(name_position, same_model_position)
+            self.assertLess(same_model_position, identifier_position)
+            self.assertIn("同模&lt;外套&gt;", content)
+            self.assertIn("Equivalent &lt;Coat&gt;", content)
 
     @staticmethod
     def record(path: str, confidence: float = 1.0) -> dict[str, object]:

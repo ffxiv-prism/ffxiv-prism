@@ -88,7 +88,8 @@ def build_piece_equivalence_from_models(
         "schema_version": 1,
         "source": {
             "relation_rule": (
-                "https://ff14.huijiwiki.com/wiki/模块:Item/Page"
+                "https://ff14.huijiwiki.com/wiki/"
+                "%E6%A8%A1%E5%9D%97:Item/Page"
             ),
             "model_fields": "https://cafemaker.wakingsands.com/Item",
         },

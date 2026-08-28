@@ -64,6 +64,10 @@ python scripts\recognize_glamour.py reference.png `
 - `overlay.jpg`：姿态点与部位包络；
 - `crops.jpg` 和 `crops/`：实际查询裁剪。
 
+候选装备存在同模装备时，HTML 和 JSON 报告会列出其名称。同模关系快照位于
+`data/processed/piece_appearance_equivalence_huiji_exact_models.json`，属于随仓库
+发布并校验的运行资产，无需克隆用户另行生成。
+
 ## 本地网页
 
 项目自带无需前端构建工具的本地工作台：
@@ -136,9 +140,9 @@ python scripts\run_data_pipeline.py --refresh-source
 ```
 
 装备图片、远端页面、公共模型缓存、训练缓存、调试图与运行输出均属于本地可再
-生成资产，不进入 Git。已发布 `current-best` 所需的候选向量索引、推理检查点和
-DINOv3 权重属于版本化运行资产，通过 Git LFS 随仓库提供；文件清单和哈希位于
-`data/current_best_assets.json`。
+生成资产，不进入 Git。已发布 `current-best` 所需的候选向量索引、推理检查点、
+DINOv3 权重及同模装备关系属于版本化运行资产；文件清单和哈希位于
+`data/current_best_assets.json`，其中大型二进制文件通过 Git LFS 提供。
 
 ## 项目结构
 

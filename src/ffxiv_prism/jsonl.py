@@ -61,6 +61,7 @@ def write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(
         json.dumps(portable_payload(payload), ensure_ascii=False, indent=2, sort_keys=True),
         encoding="utf-8",
+        newline="\n",
     )
 
 

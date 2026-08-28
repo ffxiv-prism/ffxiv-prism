@@ -56,6 +56,7 @@ data/processed/glamour_exemplar_*.json
 data/processed/glamour_pair_reranker_*.json
 data/processed/glamour_query_encoder_v*.json
 data/processed/piece_appearance_equivalence_*.json
+!data/processed/piece_appearance_equivalence_huiji_exact_models.json
 data/processed/retrieval_eval_cross_view_results.latest.json
 data/samples/retrieval_eval_images/**
 data/processed/retrieval_eval_mild_results.json

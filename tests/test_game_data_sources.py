@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from ffxiv_prism.boilmaster import fetch_sheet_page, next_after
-from ffxiv_prism.jsonl import write_jsonl_atomic
+from ffxiv_prism.jsonl import write_json, write_jsonl_atomic
 from scripts import build_eorzea_image_url_manifest_from_list_cache as image_manifest
 from scripts import download_cafemaker_equip_slot_categories as equip_slots
 from scripts import download_cafemaker_item_names as item_names
@@ -100,6 +100,14 @@ class GameDataSourceTests(unittest.TestCase):
                 write_jsonl_atomic(output, broken_rows())
 
             self.assertEqual(output.read_text(encoding="utf-8"), "original\n")
+
+    def test_json_write_uses_stable_lf_newlines(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "payload.json"
+
+            write_json(output, {"rows": [1, 2]})
+
+            self.assertNotIn(b"\r\n", output.read_bytes())
 
     def test_item_download_preserves_existing_output_on_empty_response(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

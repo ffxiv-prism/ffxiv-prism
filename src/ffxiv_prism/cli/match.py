@@ -67,6 +67,7 @@ from ffxiv_prism.matching.garment_morphology import (
     style_policy,
 )
 from ffxiv_prism.paths import (
+    APPEARANCE_EQUIVALENCE_PATH,
     PROCESSED_DIR,
     PROJECT_ROOT,
     portable_path,
@@ -107,6 +108,7 @@ EMPEROR_NO_EQUIPMENT_GAME_ITEM_IDS_BY_SLOT = {
     "FEET": 10036,
 }
 _APPEARANCE_EQUIVALENCE: dict[int, tuple[int, ...]] | None = None
+_APPEARANCE_EQUIVALENCE_CATALOG: dict[int, dict[str, Any]] | None = None
 _EMPEROR_NO_EQUIPMENT_CATALOG: dict[str, dict[str, Any]] | None = None
 
 
@@ -382,22 +384,67 @@ def _load_emperor_no_equipment_catalog() -> dict[str, dict[str, Any]]:
 def _load_appearance_equivalence() -> dict[int, tuple[int, ...]]:
     global _APPEARANCE_EQUIVALENCE
     if _APPEARANCE_EQUIVALENCE is None:
-        path = (
-            PROCESSED_DIR
-            / "piece_appearance_equivalence_huiji_exact_models.json"
+        if not APPEARANCE_EQUIVALENCE_PATH.is_file():
+            raise FileNotFoundError(
+                "Required same-model equivalence asset is missing: "
+                f"{APPEARANCE_EQUIVALENCE_PATH}. Restore tracked files with "
+                "`git pull` before generating a report."
+            )
+        payload = json.loads(
+            APPEARANCE_EQUIVALENCE_PATH.read_text(encoding="utf-8")
         )
-        if not path.is_file():
-            _APPEARANCE_EQUIVALENCE = {}
-        else:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-            _APPEARANCE_EQUIVALENCE = {
-                int(piece_id): tuple(int(value) for value in equivalents)
-                for piece_id, equivalents in payload.get(
-                    "same_model_equivalents",
-                    {},
-                ).items()
-            }
+        equivalents_by_piece = payload.get("same_model_equivalents")
+        if not isinstance(equivalents_by_piece, dict) or not equivalents_by_piece:
+            raise ValueError(
+                "Same-model equivalence asset has no usable "
+                "same_model_equivalents mapping: "
+                f"{APPEARANCE_EQUIVALENCE_PATH}"
+            )
+        _APPEARANCE_EQUIVALENCE = {
+            int(piece_id): tuple(int(value) for value in equivalents)
+            for piece_id, equivalents in equivalents_by_piece.items()
+        }
     return _APPEARANCE_EQUIVALENCE
+
+
+def _load_appearance_equivalence_catalog() -> dict[int, dict[str, Any]]:
+    global _APPEARANCE_EQUIVALENCE_CATALOG
+    if _APPEARANCE_EQUIVALENCE_CATALOG is None:
+        direct_equivalents = _load_appearance_equivalence()
+        wanted_ids = set(direct_equivalents)
+        wanted_ids.update(
+            equivalent_id
+            for equivalents in direct_equivalents.values()
+            for equivalent_id in equivalents
+        )
+        sorted_wanted_ids = sorted(wanted_ids)
+        database_path = PROCESSED_DIR / "eorzea.sqlite"
+        catalog: dict[int, dict[str, Any]] = {}
+        if sorted_wanted_ids and database_path.is_file():
+            connection = sqlite3.connect(database_path)
+            connection.row_factory = sqlite3.Row
+            try:
+                for offset in range(0, len(sorted_wanted_ids), 900):
+                    piece_ids = sorted_wanted_ids[offset : offset + 900]
+                    placeholders = ",".join("?" for _ in piece_ids)
+                    rows = connection.execute(
+                        (
+                            "SELECT piece_id, name, name_en, name_zh, "
+                            "source_item_url FROM gear_pieces "
+                            f"WHERE piece_id IN ({placeholders})"
+                        ),
+                        piece_ids,
+                    ).fetchall()
+                    catalog.update(
+                        {
+                            int(row["piece_id"]): dict(row)
+                            for row in rows
+                        }
+                    )
+            finally:
+                connection.close()
+        _APPEARANCE_EQUIVALENCE_CATALOG = catalog
+    return _APPEARANCE_EQUIVALENCE_CATALOG
 
 
 def _run_slot(
@@ -1233,7 +1280,8 @@ def _run_slot(
     candidates = attach_appearance_equivalent_candidates(
         candidates,
         _load_appearance_equivalence(),
-        max_equivalents_per_anchor=1,
+        piece_catalog=_load_appearance_equivalence_catalog(),
+        max_equivalents_per_anchor=None,
     )
     morphology_diagnostic = None
     if config.morphology_checkpoint is not None and candidates:
