@@ -23,6 +23,7 @@ from ffxiv_prism.matching.inference import (
     inspect_assets,
     no_visible_equipment_decision,
     attach_appearance_equivalent_candidates,
+    collapse_appearance_equivalent_candidates,
     prepend_no_equipment_candidate,
     rerank_occupied_slot_search_results,
     restore_body_supported_occupied_hands_top1,
@@ -50,6 +51,46 @@ class GlamourInferenceTests(unittest.TestCase):
         record = self.record("legs-context.jpg")
         record["style_weight_multiplier"] = 0.25
         self.assertAlmostEqual(crop_weight(record), 0.25)
+
+    def test_short_legwear_policy_activates_waist_thigh_retrieval_crop(
+        self,
+    ) -> None:
+        from ffxiv_prism.matching.garment_morphology import (
+            StylePrediction,
+            apply_style_crop_multipliers,
+            style_policy,
+        )
+
+        prediction = StylePrediction.from_probabilities(
+            "LEGS",
+            (0.80, 0.05, 0.05, 0.05, 0.05),
+        )
+        record = {
+            "name": "legs_waist_thighs",
+            "role": "diagnostic",
+            "visibility": "visible",
+            "confidence": 0.9,
+        }
+
+        adjusted = apply_style_crop_multipliers(
+            [record],
+            style_policy(prediction, minimum_confidence=0.5),
+        )[0]
+
+        self.assertEqual(adjusted["role"], "auxiliary")
+        self.assertGreater(crop_weight(adjusted), 0.0)
+        self.assertEqual(record["role"], "diagnostic")
+
+        long_prediction = StylePrediction.from_probabilities(
+            "LEGS",
+            (0.02, 0.02, 0.02, 0.02, 0.92),
+        )
+        unchanged = apply_style_crop_multipliers(
+            [record],
+            style_policy(long_prediction, minimum_confidence=0.5),
+        )[0]
+        self.assertEqual(unchanged["role"], "diagnostic")
+        self.assertEqual(crop_weight(unchanged), 0.0)
 
     def test_source_edge_risk_is_reported_as_low_ranking_quality(self) -> None:
         record = self.record("shoe.jpg")
@@ -262,6 +303,17 @@ class GlamourInferenceTests(unittest.TestCase):
             with self.subTest(slot=slot):
                 self.assertEqual(configs[slot].fusion, "rrf")
                 self.assertEqual(configs[slot].rrf_k, 1)
+
+    def test_feet_uses_confidence_gated_height_reranker(self) -> None:
+        config = current_best_configs()["FEET"]
+        self.assertEqual(
+            config.style_model_id,
+            "google/siglip2-base-patch16-224",
+        )
+        self.assertEqual(config.style_query_crop_name, "feet_height_context")
+        self.assertEqual(config.style_rerank_k, 50)
+        self.assertAlmostEqual(config.style_blend, 0.70)
+        self.assertAlmostEqual(config.style_min_confidence, 0.70)
 
     def test_hands_uses_frozen_occupied_slot_top1_gate(self) -> None:
         config = current_best_configs()["HANDS"]
@@ -603,6 +655,40 @@ class GlamourInferenceTests(unittest.TestCase):
         self.assertEqual(
             result[0]["appearance_alternatives"][0]["relation"],
             "same_model",
+        )
+
+    def test_same_model_candidates_collapse_to_highest_ranked_anchor(self) -> None:
+        candidates = [
+            self.candidate(10, 0.95, 1),
+            self.candidate(20, 0.90, 2),
+            self.candidate(30, 0.85, 3),
+            self.candidate(40, 0.80, 4),
+        ]
+        equivalence = {
+            10: (20,),
+            # Deliberately one-way and transitive to exercise normalization.
+            20: (30,),
+        }
+        attached = attach_appearance_equivalent_candidates(
+            candidates,
+            equivalence,
+            max_equivalents_per_anchor=None,
+        )
+
+        result = collapse_appearance_equivalent_candidates(
+            attached,
+            equivalence,
+        )
+
+        self.assertEqual([row["piece_id"] for row in result], [10, 40])
+        self.assertEqual([row["rank"] for row in result], [1, 2])
+        self.assertEqual(
+            result[0]["appearance_alternatives"][0]["piece_id"],
+            20,
+        )
+        self.assertEqual(
+            result[0]["appearance_alternatives"][0]["original_rank"],
+            2,
         )
 
     def test_versioned_same_model_equivalence_is_loadable(self) -> None:

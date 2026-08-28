@@ -116,7 +116,7 @@ class OutfitRegionTests(unittest.TestCase):
         self.assertEqual(len(by_slot["BODY"]), 4)
         self.assertEqual(len(by_slot["HANDS"]), 5)
         self.assertEqual(len(by_slot["LEGS"]), 6)
-        self.assertEqual(len(by_slot["FEET"]), 8)
+        self.assertEqual(len(by_slot["FEET"]), 9)
         self.assertTrue(all(region.visibility == "visible" for region in regions))
 
     def test_overlap_aware_regions_are_tagged_for_retrieval_weighting(self) -> None:
@@ -143,6 +143,11 @@ class OutfitRegionTests(unittest.TestCase):
             by_name["feet_full_left"].tags,
         )
         self.assertEqual(by_name["feet_full_left"].role, "diagnostic")
+        self.assertEqual(by_name["feet_height_context"].role, "diagnostic")
+        self.assertIn(
+            "footwear_height_style_focus",
+            by_name["feet_height_context"].tags,
+        )
         self.assertIn("may_include_face_hair", by_name["head_tight"].tags)
         self.assertEqual(by_name["head_full_accessory"].role, "diagnostic")
         self.assertIn(
@@ -245,6 +250,22 @@ class OutfitRegionTests(unittest.TestCase):
         self.assertGreaterEqual(
             by_name["feet_full_context"].box[3],
             round(left_ankle_y + shin * 0.50),
+        )
+
+    def test_footwear_height_crop_includes_lower_thigh_and_full_shoe(self) -> None:
+        regions = build_outfit_regions(self.keypoints, (400, 500))
+        by_name = {region.name: region for region in regions}
+        height_crop = by_name["feet_height_context"]
+        knee_y = min(self.keypoints[13].y, self.keypoints[14].y)
+
+        self.assertLess(height_crop.box[1], knee_y)
+        self.assertLessEqual(
+            height_crop.box[1],
+            by_name["feet_full_context"].box[1],
+        )
+        self.assertEqual(
+            height_crop.box[3],
+            by_name["feet_full_context"].box[3],
         )
 
     def test_feet_crops_flag_probable_source_edge_truncation(self) -> None:

@@ -3,11 +3,6 @@
   "profile": "current-best",
   "files": [
     {
-      "path": "data/processed/piece_appearance_equivalence_huiji_exact_models.json",
-      "size": 1449162,
-      "sha256": "5cc5082dbcb76190934eef18f8b15132e25d1c24d872491f6ed8320b83ba7fa8"
-    },
-    {
       "path": "data/indexes/facebook-dinov2-base-feet-multiscale-v7-clean-20260730/embeddings.npy",
       "size": 59412608,
       "sha256": "e825607d9cd0af1ee252008d0df20143316d32d447cdf449c02125450aa44c4f"
@@ -206,6 +201,11 @@
       "path": "data/models/current-best/head_morphology_v73_fold01_qv65_upper_binary_ridge.npz",
       "size": 8186,
       "sha256": "f5875a6311bf2b6ee8f69fc94b38cdfcbc1d1f21d54a6f7d224f9f2bbcce2ffe"
+    },
+    {
+      "path": "data/processed/piece_appearance_equivalence_huiji_exact_models.json",
+      "size": 1451916,
+      "sha256": "6e8cb7f6e67c9d2736b6f236d7a206320f6f9bbaa2fce14d910b08ca3ad5e0e6"
     },
     {
       "path": "var/models/dinov3-vitb16-pretrain-lvd1689m/config.json",

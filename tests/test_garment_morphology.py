@@ -4,7 +4,9 @@ import unittest
 
 from ffxiv_prism.matching.garment_morphology import (
     BODY_STYLE_CLASSES,
+    FEET_STYLE_CLASSES,
     LEGS_STYLE_CLASSES,
+    LEGS_STYLE_PROMPTS,
     StylePrediction,
     apply_style_crop_multipliers,
     long_body_legwear_decision,
@@ -16,6 +18,47 @@ from ffxiv_prism.matching.garment_morphology import (
 
 
 class GarmentMorphologyTests(unittest.TestCase):
+    def test_legwear_prompts_distinguish_shorts_from_continuous_skirt(self) -> None:
+        hot_shorts_prompt = LEGS_STYLE_PROMPTS[
+            LEGS_STYLE_CLASSES.index("hot_shorts")
+        ]
+        skirt_prompt = LEGS_STYLE_PROMPTS[
+            LEGS_STYLE_CLASSES.index("short_skirt")
+        ]
+
+        self.assertIn("divided crotch", hot_shorts_prompt)
+        self.assertIn("separate leg openings", hot_shorts_prompt)
+        self.assertIn("continuous", skirt_prompt)
+        self.assertIn("without a divided crotch", skirt_prompt)
+
+    def test_feet_height_reranker_promotes_tall_boot_candidate(self) -> None:
+        prediction = StylePrediction.from_probabilities(
+            "FEET",
+            dict(zip(FEET_STYLE_CLASSES, (0.08, 0.92), strict=True)),
+        )
+        policy = style_policy(prediction, minimum_confidence=0.70)
+        candidates = [
+            {"rank": 1, "piece_id": 1, "score": 0.95, "name_en": "Ankle boots"},
+            {"rank": 2, "piece_id": 2, "score": 0.80, "name_en": "Thighboots"},
+        ]
+
+        reranked = rerank_candidates_with_style(
+            candidates,
+            prediction,
+            {
+                1: (0.88, 0.12),
+                2: (0.06, 0.94),
+            },
+            rerank_k=2,
+            blend=0.70,
+            minimum_confidence=0.70,
+        )
+
+        self.assertTrue(policy.active)
+        self.assertEqual(policy.reason, "high_confidence_tall_footwear")
+        self.assertEqual(policy.crop_multipliers, {})
+        self.assertEqual(reranked[0]["piece_id"], 2)
+
     def test_body_policy_prioritizes_waist_and_shoulder_style_crops(self) -> None:
         prediction = StylePrediction.from_probabilities(
             "BODY",
@@ -192,6 +235,7 @@ class GarmentMorphologyTests(unittest.TestCase):
         ]
         adjusted = apply_style_crop_multipliers(records, policy)
 
+        self.assertEqual(adjusted[0]["role"], "auxiliary")
         self.assertEqual(
             [row["style_weight_multiplier"] for row in adjusted],
             [1.25, 0.60, 0.60, 0.40, 0.20],

@@ -26,6 +26,11 @@ STAGES: dict[str, list[list[str]]] = {
         ["scripts/enrich_gear_pieces_with_zh_names.py"],
         ["scripts/enrich_gear_pieces_with_lodestone_equip_notes.py"],
     ],
+    "cafemaker-enrich-local": [
+        ["scripts/filter_cafemaker_item_names_for_gear_pieces.py"],
+        ["scripts/enrich_gear_pieces_with_zh_names.py"],
+        ["scripts/enrich_gear_pieces_with_lodestone_equip_notes.py"],
+    ],
     "huiji-missing-zh": [["scripts/search_huiji_item_zh_name.py", "--batch-missing", "--retry-failed"]],
     "build-index": [["scripts/build_eorzea_dataset_index.py"]],
     "validate-images": [["scripts/validate_eorzea_images.py"]],
@@ -72,6 +77,25 @@ def main() -> int:
         default=None,
         help="Optional persistent Chrome profile directory for the Huiji Selenium stage.",
     )
+    parser.add_argument(
+        "--browser-verification",
+        action="store_true",
+        help=(
+            "Use a visible persistent Chrome for Eorzea discovery/details and "
+            "wait for manual Cloudflare verification."
+        ),
+    )
+    parser.add_argument(
+        "--browser-profile-dir",
+        default=None,
+        help="Persistent Chrome profile for Eorzea browser verification.",
+    )
+    parser.add_argument(
+        "--browser-wait-seconds",
+        type=float,
+        default=300.0,
+        help="Maximum manual-verification wait per Eorzea page.",
+    )
     args = parser.parse_args()
 
     stage_names = ["discover", *DEFAULT_STAGES] if args.all else (args.stage or DEFAULT_STAGES)
@@ -88,6 +112,17 @@ def commands_for_stage(stage_name: str, args: argparse.Namespace) -> list[list[s
     if stage_name == "discover" and args.refresh_source:
         for command in commands:
             command.append("--refresh")
+    if stage_name in {"discover", "collect-details", "build-image-manifest"} and args.browser_verification:
+        for command in commands:
+            command.extend(
+                [
+                    "--browser-verification",
+                    "--browser-wait-seconds",
+                    str(args.browser_wait_seconds),
+                ]
+            )
+            if args.browser_profile_dir:
+                command.extend(["--browser-profile-dir", args.browser_profile_dir])
     if stage_name == "huiji-missing-zh":
         for command in commands:
             if args.huiji_proxy:
@@ -109,7 +144,4 @@ def quote_arg(value: str) -> str:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-
-
 

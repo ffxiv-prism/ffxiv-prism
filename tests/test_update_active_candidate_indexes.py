@@ -55,6 +55,43 @@ class UpdateActiveCandidateIndexesTests(unittest.TestCase):
             },
         )
 
+    def test_build_additions_accepts_multiple_audited_gearsets(self) -> None:
+        target = Target(
+            name="body",
+            source=Path("unused"),
+            output=Path("unused-output"),
+            model_id="unused",
+            encoder_group="dinov2",
+            slots=("BODY",),
+            expected_new_rows=None,
+        )
+        base_rows = [
+            {
+                "source_image_url": f"https://example.test/{slug}.png",
+                "local_path": f"data/{slug}.png",
+                "slot": "BODY",
+                "pieces": [{"gearset_slug": slug}],
+            }
+            for slug in ("first-set", "second-set")
+        ]
+
+        import scripts.update_active_candidate_indexes as module
+
+        original_read_jsonl = module.read_jsonl
+        module.read_jsonl = lambda _path: []
+        try:
+            additions = build_additions(
+                target,
+                base_rows,
+                expected_gearset_slugs=frozenset(
+                    ("first-set", "second-set")
+                ),
+            )
+        finally:
+            module.read_jsonl = original_read_jsonl
+
+        self.assertEqual(len(additions), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

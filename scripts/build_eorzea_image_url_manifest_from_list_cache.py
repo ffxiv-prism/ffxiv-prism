@@ -29,6 +29,13 @@ from ffxiv_prism.collectors.eorzea_collection.image_url import (  # noqa: E402
 )
 from ffxiv_prism.collectors.eorzea_collection.parser import parse_html  # noqa: E402
 from ffxiv_prism.collectors.eorzea_collection.collector import timestamp  # noqa: E402
+from ffxiv_prism.collectors.eorzea_collection.visible_browser import (  # noqa: E402
+    DEFAULT_PROFILE_DIR,
+    CdpChrome,
+    close_visible_driver,
+    create_visible_driver,
+    fetch_verified_html,
+)
 from ffxiv_prism.jsonl import append_jsonl, read_jsonl, write_jsonl_atomic  # noqa: E402
 from ffxiv_prism.paths import EORZEA_HTML_DIR, EORZEA_METADATA_DIR  # noqa: E402
 
@@ -70,6 +77,18 @@ def main() -> int:
     parser.add_argument("--genders", default=",".join(GENDER_SLUGS), help="Comma-separated gender slugs to generate.")
     parser.add_argument("--parts", default=",".join(GEAR_IMAGE_PARTS), help="Comma-separated image parts to generate.")
     parser.add_argument("--dye-states", default=",".join(DYE_STATES), help="Comma-separated dye states to generate.")
+    parser.add_argument(
+        "--browser-verification",
+        action="store_true",
+        help="Verify pending static image URLs through a visible normal Chrome session.",
+    )
+    parser.add_argument(
+        "--browser-profile-dir",
+        type=Path,
+        default=DEFAULT_PROFILE_DIR,
+    )
+    parser.add_argument("--browser-wait-seconds", type=float, default=600.0)
+    parser.add_argument("--browser-batch-size", type=int, default=64)
     args = parser.parse_args()
 
     checks_path = EORZEA_METADATA_DIR / "image_url_checks_raw.jsonl"
@@ -108,13 +127,21 @@ def main() -> int:
         checks_path.write_text("", encoding="utf-8")
 
     candidate_url_set = set(candidate_urls)
-    checked_rows_by_url: dict[str, dict[str, object]] = {}
+    cached_rows_by_url: dict[str, dict[str, object]] = {}
     if use_cached_checks:
         for row in cached_check_rows:
             url = row.get("source_image_url")
-            if not url or url not in candidate_url_set:
+            if not url or not parse_gearsets_image_url(str(url)):
                 continue
-            checked_rows_by_url[str(url)] = row
+            cached_rows_by_url[str(url)] = row
+    checked_rows_by_url: dict[str, dict[str, object]] = {}
+    if use_cached_checks:
+        for url, row in cached_rows_by_url.items():
+            if url not in candidate_url_set:
+                continue
+            if args.browser_verification and browser_retryable_check(row):
+                continue
+            checked_rows_by_url[url] = row
     checked_urls = set(checked_rows_by_url)
     pending_urls = [url for url in candidate_urls if url not in checked_urls]
 
@@ -148,20 +175,32 @@ def main() -> int:
         final=False,
     )
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.workers)) as executor:
-        futures = {executor.submit(check_image_url, url, args.timeout): url for url in pending_urls}
-        for future in concurrent.futures.as_completed(futures):
-            row = image_url_row(future.result())
-            batch.append(row)
-            new_rows_by_url[str(row["source_image_url"])] = row
-            checked_count += 1
-            if row["accessible"]:
-                accessible_count += 1
-            else:
-                unavailable_count += 1
-            if len(batch) >= args.batch_size:
-                append_jsonl(checks_path, batch)
-                batch.clear()
+    def register_check(check: dict[str, object]) -> None:
+        nonlocal checked_count, accessible_count, unavailable_count, last_progress_at
+        row = image_url_row(check)
+        batch.append(row)
+        new_rows_by_url[str(row["source_image_url"])] = row
+        checked_count += 1
+        if row["accessible"]:
+            accessible_count += 1
+        else:
+            unavailable_count += 1
+        if len(batch) >= args.batch_size:
+            append_jsonl(checks_path, batch)
+            batch.clear()
+            print_progress(
+                current=already_checked_count + checked_count,
+                total=total_count,
+                newly_checked=checked_count,
+                accessible=accessible_count,
+                unavailable=unavailable_count,
+                started_at=started_at,
+                final=False,
+            )
+            last_progress_at = time.monotonic()
+        elif args.progress_interval > 0:
+            now = time.monotonic()
+            if now - last_progress_at >= args.progress_interval:
                 print_progress(
                     current=already_checked_count + checked_count,
                     total=total_count,
@@ -171,27 +210,38 @@ def main() -> int:
                     started_at=started_at,
                     final=False,
                 )
-                last_progress_at = time.monotonic()
-            elif args.progress_interval > 0:
-                now = time.monotonic()
-                if now - last_progress_at >= args.progress_interval:
-                    print_progress(
-                        current=already_checked_count + checked_count,
-                        total=total_count,
-                        newly_checked=checked_count,
-                        accessible=accessible_count,
-                        unavailable=unavailable_count,
-                        started_at=started_at,
-                        final=False,
-                    )
-                    last_progress_at = now
+                last_progress_at = now
+
+    if args.browser_verification:
+        for check in check_image_urls_browser(
+            pending_urls,
+            profile_dir=args.browser_profile_dir,
+            wait_seconds=args.browser_wait_seconds,
+            batch_size=args.browser_batch_size,
+        ):
+            register_check(check)
+    else:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.workers)) as executor:
+            futures = {executor.submit(check_image_url, url, args.timeout): url for url in pending_urls}
+            for future in concurrent.futures.as_completed(futures):
+                register_check(future.result())
 
     if batch:
         append_jsonl(checks_path, batch)
 
     elapsed_seconds = time.monotonic() - started_at
     checked_rows_by_url.update(new_rows_by_url)
-    manifest_rows = build_manifest_rows(checked_rows_by_url.values(), candidate_url_set)
+    all_checked_rows_by_url = dict(cached_rows_by_url)
+    all_checked_rows_by_url.update(checked_rows_by_url)
+    manifest_scope_urls = retained_manifest_urls(
+        candidate_url_set,
+        cached_rows_by_url.values(),
+        preserve_cached=use_cached_checks,
+    )
+    manifest_rows = build_manifest_rows(
+        all_checked_rows_by_url.values(),
+        manifest_scope_urls,
+    )
     if not manifest_rows:
         raise RuntimeError(
             "No accessible normal image URLs were found. "
@@ -256,6 +306,34 @@ def candidate_urls_from_checks(rows: Iterable[dict[str, object]]) -> list[str]:
         and parse_gearsets_image_url(str(row.get("source_image_url")))
     }
     return sorted(urls)
+
+
+def retained_manifest_urls(
+    candidate_urls: set[str],
+    cached_rows: Iterable[dict[str, object]],
+    *,
+    preserve_cached: bool,
+) -> set[str]:
+    """Keep verified history during a resumable refresh.
+
+    List pages are a discovery source, not an authoritative deletion signal. A
+    gearset can temporarily disappear from pagination while its static image is
+    still used by a published candidate index. In resume mode the manifest must
+    therefore be monotonic with respect to previously checked, parseable URLs.
+    The latest cached/new check row still decides whether each URL is accessible.
+    """
+
+    urls = set(candidate_urls)
+    if not preserve_cached:
+        return urls
+    urls.update(
+        str(row.get("source_image_url"))
+        for row in cached_rows
+        if isinstance(row, dict)
+        and row.get("source_image_url")
+        and parse_gearsets_image_url(str(row.get("source_image_url")))
+    )
+    return urls
 
 
 def generate_candidate_urls(
@@ -324,6 +402,83 @@ def check_image_url(url: str, timeout: float) -> dict[str, object]:
         "error": error,
         "checked_at": timestamp(),
     }
+
+
+def browser_retryable_check(row: dict[str, object]) -> bool:
+    return (
+        row.get("status") == 403
+        and str(row.get("content_type") or "").casefold().startswith("text/html")
+    )
+
+
+def check_image_urls_browser(
+    urls: list[str],
+    *,
+    profile_dir: Path,
+    wait_seconds: float,
+    batch_size: int,
+) -> Iterable[dict[str, object]]:
+    if not urls:
+        return
+    driver = create_visible_driver(profile_dir)
+    try:
+        fetch_verified_html(driver, urls[0], wait_seconds=wait_seconds)
+        size = max(1, batch_size)
+        for start in range(0, len(urls), size):
+            batch_urls = urls[start : start + size]
+            results = browser_check_batch(driver, batch_urls)
+            if results and all(browser_retryable_check(row) for row in results):
+                fetch_verified_html(driver, batch_urls[0], wait_seconds=wait_seconds)
+                results = browser_check_batch(driver, batch_urls)
+            for row in results:
+                yield row
+    finally:
+        close_visible_driver(driver)
+
+
+def browser_check_batch(
+    driver: CdpChrome,
+    urls: list[str],
+) -> list[dict[str, object]]:
+    encoded_urls = json.dumps(urls, ensure_ascii=True)
+    expression = f"""
+    (async () => {{
+      const urls = {encoded_urls};
+      return await Promise.all(urls.map(async (url) => {{
+        try {{
+          const response = await fetch(url, {{
+            method: 'HEAD', credentials: 'include', cache: 'no-store'
+          }});
+          const rawLength = response.headers.get('content-length');
+          return {{
+            source_image_url: url,
+            status: response.status,
+            content_type: response.headers.get('content-type'),
+            content_length: rawLength && /^\\d+$/.test(rawLength) ? Number(rawLength) : null,
+            error: null
+          }};
+        }} catch (error) {{
+          return {{
+            source_image_url: url,
+            status: null,
+            content_type: null,
+            content_length: null,
+            error: String(error)
+          }};
+        }}
+      }}));
+    }})()
+    """
+    payload = driver.evaluate(expression, await_promise=True)
+    if not isinstance(payload, list):
+        raise RuntimeError("Chrome did not return an image URL check list")
+    checked_at = timestamp()
+    rows = []
+    for row in payload:
+        if not isinstance(row, dict):
+            raise RuntimeError("Chrome returned an invalid image URL check row")
+        rows.append({**row, "checked_at": checked_at})
+    return rows
 
 
 def request_metadata(

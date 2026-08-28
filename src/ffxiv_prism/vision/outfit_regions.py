@@ -562,6 +562,7 @@ def build_outfit_regions(
     )
 
     full_feet_boxes: list[tuple[float, float, float, float]] = []
+    footwear_height_tops: list[float] = []
     feet_context_points: list[Keypoint] = []
     feet_context_edge_risk = False
     for side, knee_index, ankle_index in (("left", 13, 15), ("right", 14, 16)):
@@ -650,6 +651,10 @@ def build_outfit_regions(
             full_tags,
         ))
         full_feet_boxes.append(full_box)
+        # A knee/ankle-only crop cannot distinguish a calf boot from a boot
+        # whose opening sits above the knee.  Keep a separate morphology crop
+        # that reaches into the lower thigh while retaining the complete shoe.
+        footwear_height_tops.append(knee.y - shin * 0.72)
         feet_context_points.extend((knee, ankle))
         feet_context_edge_risk = feet_context_edge_risk or edge_risk
 
@@ -699,6 +704,27 @@ def build_outfit_regions(
         full_context_visibility,
         "diagnostic",
         full_context_tags,
+    ))
+    height_context_box = (
+        min(box[0] for box in full_feet_boxes),
+        min(footwear_height_tops),
+        max(box[2] for box in full_feet_boxes),
+        max(box[3] for box in full_feet_boxes),
+    )
+    height_context_tags = (
+        "footwear_height_style_focus",
+        "includes_lower_thigh_and_full_shoe",
+    )
+    if feet_context_edge_risk:
+        height_context_tags += ("source_edge_truncation_risk",)
+    regions.append(CropRegion(
+        "FEET",
+        "feet_height_context",
+        clamp_box(height_context_box, image_size),
+        context_confidence,
+        full_context_visibility,
+        "diagnostic",
+        height_context_tags,
     ))
     return regions
 

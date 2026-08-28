@@ -71,11 +71,20 @@ def main() -> int:
         action="store_true",
         help="Validate exported assets without rewriting them.",
     )
+    parser.add_argument(
+        "--manifest-only",
+        action="store_true",
+        help=(
+            "Rewrite hashes for the existing runtime assets without "
+            "re-exporting current-best checkpoints."
+        ),
+    )
     args = parser.parse_args()
 
     if not args.check:
-        export_inference_checkpoints()
-        copy_small_model_assets()
+        if not args.manifest_only:
+            export_inference_checkpoints()
+            copy_small_model_assets()
         write_asset_manifest()
 
     problems = validate_exported_assets()

@@ -1,10 +1,10 @@
 {
-  "filtered_mapping_rows": 11386,
-  "finished_at": "2026-08-24T07:39:26Z",
+  "filtered_mapping_rows": 11443,
+  "finished_at": "2026-08-28T15:56:55Z",
   "full_mapping": "data/raw/game_data/cafemaker_item_names_raw.jsonl",
   "full_mapping_rows": 52801,
-  "matched_unique_english_names": 11374,
-  "needed_unique_english_names": 11381,
+  "matched_unique_english_names": 11431,
+  "needed_unique_english_names": 11438,
   "output": "data/raw/game_data/cafemaker_item_names_for_gear_pieces_raw.jsonl",
   "pieces": "data/raw/eorzea_collection/metadata/gear_pieces_raw.jsonl",
   "unmatched_name_examples": [

@@ -18,9 +18,14 @@ LEGS_STYLE_CLASSES = (
     "asymmetric_thigh_cut",
     "long_bottom",
 )
+FEET_STYLE_CLASSES = (
+    "short_footwear",
+    "tall_footwear",
+)
 STYLE_CLASSES_BY_SLOT = {
     "BODY": BODY_STYLE_CLASSES,
     "LEGS": LEGS_STYLE_CLASSES,
+    "FEET": FEET_STYLE_CLASSES,
 }
 
 # The descriptions are deliberately about silhouette and skin coverage instead
@@ -33,15 +38,38 @@ BODY_STYLE_PROMPTS = (
     "a long coat, tunic, robe, coverall, or one-piece outfit",
 )
 LEGS_STYLE_PROMPTS = (
-    "very short shorts or hot pants",
-    "knee-length shorts or long shorts",
-    "a short skirt or loincloth",
-    "asymmetric bottoms or thigh-high stockings with a diagonal cut exposing one thigh",
-    "long pants, tights, or leggings",
+    (
+        "close-fitting very short shorts or hot pants with a clearly divided "
+        "crotch and two separate leg openings"
+    ),
+    (
+        "knee-length shorts with a clearly divided crotch and two separate "
+        "trouser legs"
+    ),
+    (
+        "a short skirt or loincloth forming continuous hanging fabric between "
+        "the legs without a divided crotch"
+    ),
+    (
+        "asymmetric bottoms or thigh-high stockings with a diagonal hem "
+        "exposing one thigh"
+    ),
+    "long pants, tights, or leggings covering both legs",
+)
+FEET_STYLE_PROMPTS = (
+    (
+        "short footwear ending below the knee, including shoes, ankle boots, "
+        "and calf boots"
+    ),
+    (
+        "tall footwear reaching the knee or extending above the knee, "
+        "including knee-high and thigh-high boots"
+    ),
 )
 STYLE_PROMPTS_BY_SLOT = {
     "BODY": BODY_STYLE_PROMPTS,
     "LEGS": LEGS_STYLE_PROMPTS,
+    "FEET": FEET_STYLE_PROMPTS,
 }
 
 # Convenience aliases for callers that prefer shorter names.
@@ -53,6 +81,7 @@ TARGET_STYLE_CLASSES = {
     "LEGS": frozenset(
         ("hot_shorts", "long_shorts", "short_skirt", "asymmetric_thigh_cut")
     ),
+    "FEET": frozenset(("tall_footwear",)),
 }
 
 BODY_STYLE_CROP_MULTIPLIERS = {
@@ -274,6 +303,7 @@ class StylePolicy:
     active: bool
     crop_multipliers: Mapping[str, float]
     candidate_crop_routes: Mapping[str, tuple[str, ...]]
+    retrieval_role_overrides: Mapping[str, str]
     reason: str
 
 
@@ -316,6 +346,7 @@ def style_policy(
             active=False,
             crop_multipliers={},
             candidate_crop_routes={},
+            retrieval_role_overrides={},
             reason="target_probability_below_threshold",
         )
     if (
@@ -331,14 +362,28 @@ def style_policy(
         multipliers = BODY_STYLE_CROP_MULTIPLIERS
         routes = BODY_STYLE_CANDIDATE_CROP_ROUTES
         reason = "high_confidence_target_style"
+    elif prediction.slot == "FEET":
+        # Footwear height is used only as a conservative reranking signal.
+        # The promoted identity retriever keeps its validated crop distribution
+        # and candidate pool unchanged.
+        multipliers = {}
+        routes = {}
+        reason = "high_confidence_tall_footwear"
     else:
         multipliers = LEGS_STYLE_CROP_MULTIPLIERS
         routes = LEGS_STYLE_CANDIDATE_CROP_ROUTES
+        # This waist-to-mid-thigh crop deliberately excludes most boots and
+        # lower-body occluders.  It is retrieval-active only after the style
+        # gate confirms that a short/exposed lower garment is observable.
+        role_overrides = {"legs_waist_thighs": "auxiliary"}
         reason = "high_confidence_target_style"
+    if prediction.slot != "LEGS":
+        role_overrides = {}
     return StylePolicy(
         active=True,
         crop_multipliers=dict(multipliers),
         candidate_crop_routes=dict(routes),
+        retrieval_role_overrides=role_overrides,
         reason=reason,
     )
 
@@ -353,8 +398,10 @@ def apply_style_crop_multipliers(
         if not policy_or_multipliers.active:
             return [dict(record) for record in records]
         multipliers = policy_or_multipliers.crop_multipliers
+        role_overrides = policy_or_multipliers.retrieval_role_overrides
     else:
         multipliers = policy_or_multipliers
+        role_overrides = {}
 
     parsed_multipliers: dict[str, float] = {}
     for name, raw_multiplier in multipliers.items():
@@ -370,6 +417,9 @@ def apply_style_crop_multipliers(
             str(record.get("name")),
             1.0,
         )
+        role_override = role_overrides.get(str(record.get("name")))
+        if role_override is not None:
+            copied["role"] = role_override
         output.append(copied)
     return output
 

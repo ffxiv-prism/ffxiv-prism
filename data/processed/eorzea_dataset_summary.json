@@ -1,63 +1,63 @@
 {
   "by_gender": {
-    "female": 19968,
-    "male": 19967
+    "female": 20020,
+    "male": 20028
   },
   "by_kind": {
-    "gearset_static": 39935
+    "gearset_static": 40048
   },
   "by_part": {
-    "back": 4758,
-    "body": 4042,
-    "feet": 4499,
-    "front": 12654,
-    "hands": 4619,
-    "head": 4716,
-    "legs": 4647
+    "back": 4770,
+    "body": 4071,
+    "feet": 4515,
+    "front": 12673,
+    "hands": 4629,
+    "head": 4730,
+    "legs": 4660
   },
   "by_race": {
     "hrothgar": 1974,
-    "hyur": 32039,
+    "hyur": 32152,
     "lalafell": 3948,
     "viera": 1974
   },
   "by_role": {
-    "aiming": 2593,
-    "casting": 2650,
+    "aiming": 2594,
+    "casting": 2651,
     "crafting": 508,
-    "fending": 2668,
+    "fending": 2669,
     "gathering": 454,
-    "healing": 2649,
-    "maiming": 2598,
-    "scouting": 2463,
-    "striking": 2634,
-    "unknown": 20718
+    "healing": 2650,
+    "maiming": 2599,
+    "scouting": 2464,
+    "striking": 2635,
+    "unknown": 20824
   },
   "by_slot": {
-    "BODY": 4042,
-    "FEET": 4499,
-    "HANDS": 4619,
-    "HEAD": 4716,
-    "LEGS": 4647,
-    "unknown": 17412
+    "BODY": 4071,
+    "FEET": 4515,
+    "HANDS": 4629,
+    "HEAD": 4730,
+    "LEGS": 4660,
+    "unknown": 17443
   },
   "by_slot_gender_race": {
-    "BODY|female|hyur": 2021,
-    "BODY|male|hyur": 2021,
-    "FEET|female|hyur": 2249,
-    "FEET|male|hyur": 2250,
-    "HANDS|female|hyur": 2310,
-    "HANDS|male|hyur": 2309,
-    "HEAD|female|hyur": 2358,
-    "HEAD|male|hyur": 2358,
-    "LEGS|female|hyur": 2324,
-    "LEGS|male|hyur": 2323,
-    "unknown|female|hyur": 4758,
+    "BODY|female|hyur": 2035,
+    "BODY|male|hyur": 2036,
+    "FEET|female|hyur": 2257,
+    "FEET|male|hyur": 2258,
+    "HANDS|female|hyur": 2315,
+    "HANDS|male|hyur": 2314,
+    "HEAD|female|hyur": 2365,
+    "HEAD|male|hyur": 2365,
+    "LEGS|female|hyur": 2330,
+    "LEGS|male|hyur": 2330,
+    "unknown|female|hyur": 4770,
     "unknown|female|lalafell": 1974,
     "unknown|female|viera": 1974,
     "unknown|male|hrothgar": 1974,
-    "unknown|male|hyur": 4758,
+    "unknown|male|hyur": 4777,
     "unknown|male|lalafell": 1974
   },
-  "image_count": 39935
+  "image_count": 40048
 }

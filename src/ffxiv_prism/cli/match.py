@@ -18,6 +18,7 @@ from ffxiv_prism.matching.inference import (
     apply_occupied_slot_top1_gate,
     SLOTS,
     base_configs,
+    collapse_appearance_equivalent_candidates,
     constrain_candidates_to_pool,
     crop_records,
     crop_weight,
@@ -785,6 +786,9 @@ def _run_slot(
                         style_policy_result.candidate_crop_routes.items()
                     )
                 },
+                "retrieval_role_overrides": dict(
+                    style_policy_result.retrieval_role_overrides
+                ),
                 "rerank_k": config.style_rerank_k,
                 "blend": config.style_blend,
                 "ranking_changed": False,
@@ -1073,10 +1077,13 @@ def _run_slot(
             del candidate_pool
         del branch_searches
 
+    # Retrieve a deeper display pool so collapsing same-model variants can
+    # still return the requested number of visually distinct candidates.
+    deduplication_pool_k = min(candidate_k, max(top_k, top_k * 4))
     retrieval_top_k = (
-        max(top_k, config.spatial_rerank_k)
+        max(deduplication_pool_k, config.spatial_rerank_k)
         if spatial_index is not None and spatial_query_profile is not None
-        else top_k
+        else deduplication_pool_k
     )
     if style_policy_result is not None and style_policy_result.active:
         retrieval_top_k = max(retrieval_top_k, config.style_rerank_k)
@@ -1277,11 +1284,16 @@ def _run_slot(
                 style_diagnostic["current_top1_piece_id"] = current_top1
         elif style_diagnostic is not None:
             style_diagnostic["rerank_reason"] = "candidate_preview_unavailable"
+    appearance_equivalence = _load_appearance_equivalence()
     candidates = attach_appearance_equivalent_candidates(
         candidates,
-        _load_appearance_equivalence(),
+        appearance_equivalence,
         piece_catalog=_load_appearance_equivalence_catalog(),
         max_equivalents_per_anchor=None,
+    )
+    candidates = collapse_appearance_equivalent_candidates(
+        candidates,
+        appearance_equivalence,
     )
     morphology_diagnostic = None
     if config.morphology_checkpoint is not None and candidates:

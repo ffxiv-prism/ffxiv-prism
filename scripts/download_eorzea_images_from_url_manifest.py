@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import sys
 import time
@@ -17,9 +18,18 @@ from ffxiv_prism.collectors.eorzea_collection.collector import (  # noqa: E402
     CollectionSummary,
     print_summary,
 )
-from ffxiv_prism.collectors.eorzea_collection.models import ImageCandidate  # noqa: E402
+from ffxiv_prism.collectors.eorzea_collection.models import (  # noqa: E402
+    DownloadedImageRecord,
+    ImageCandidate,
+)
+from ffxiv_prism.collectors.eorzea_collection.visible_browser import (  # noqa: E402
+    DEFAULT_PROFILE_DIR,
+    CdpChrome,
+    close_visible_driver,
+    create_visible_driver,
+    fetch_verified_html,
+)
 from ffxiv_prism.jsonl import append_jsonl, read_jsonl  # noqa: E402
-from ffxiv_prism.matching.inference import current_best_configs  # noqa: E402
 from ffxiv_prism.paths import (  # noqa: E402
     EORZEA_METADATA_DIR,
     portable_path,
@@ -68,6 +78,17 @@ def main() -> int:
         action="store_true",
         help="Respect robots.txt checks for this run.",
     )
+    parser.add_argument(
+        "--browser-verification",
+        action="store_true",
+        help="Download cache misses through a visible normal Chrome session.",
+    )
+    parser.add_argument(
+        "--browser-profile-dir",
+        type=Path,
+        default=DEFAULT_PROFILE_DIR,
+    )
+    parser.add_argument("--browser-wait-seconds", type=float, default=600.0)
     args = parser.parse_args()
 
     rows = [
@@ -133,19 +154,36 @@ def main() -> int:
     )
     progress = ImageDownloadProgress(total=len(candidates))
     progress.print(final=not candidates)
-    downloaded_images = collector.download_images(candidates, progress=progress.update)
+    if args.browser_verification:
+        downloaded_images = download_images_browser(
+            collector,
+            candidates,
+            profile_dir=args.browser_profile_dir,
+            wait_seconds=args.browser_wait_seconds,
+            progress=progress,
+        )
+    else:
+        downloaded_images = collector.download_images(candidates, progress=progress.update)
     progress.print(final=True)
-    append_jsonl(EORZEA_METADATA_DIR / "image_manifest_raw.jsonl", [image.to_dict() for image in downloaded_images])
+    image_manifest_path = EORZEA_METADATA_DIR / "image_manifest_raw.jsonl"
+    downloaded_rows = [image.to_dict() for image in downloaded_images]
+    appended_rows = select_manifest_rows_to_append(
+        read_jsonl(image_manifest_path),
+        downloaded_rows,
+    )
+    append_jsonl(image_manifest_path, appended_rows)
 
     summary = CollectionSummary(
         images_downloaded=sum(1 for image in downloaded_images if not image.from_cache),
         images_from_cache=sum(1 for image in downloaded_images if image.from_cache),
+        errors=progress.failed,
     )
     print_summary(
         summary,
         {
             "candidate_count": len(candidates),
             "image_record_count": len(downloaded_images),
+            "manifest_rows_appended": len(appended_rows),
             "manifest_path": str(args.manifest),
         },
     )
@@ -154,6 +192,145 @@ def main() -> int:
         print(json.dumps(report, ensure_ascii=False, indent=2))
         return 0 if report["ok"] else 2
     return 0
+
+
+def download_images_browser(
+    collector: EorzeaCollectionCollector,
+    candidates: list[ImageCandidate],
+    *,
+    profile_dir: Path,
+    wait_seconds: float,
+    progress: "ImageDownloadProgress",
+) -> list[DownloadedImageRecord]:
+    unique_candidates = []
+    seen = set()
+    for candidate in candidates:
+        if candidate.source_image_url in seen:
+            continue
+        seen.add(candidate.source_image_url)
+        unique_candidates.append(candidate)
+
+    records = []
+    driver = None
+    total = len(unique_candidates)
+    try:
+        for index, candidate in enumerate(unique_candidates, start=1):
+            target = collector.image_target(candidate)
+            record = None
+            try:
+                if target.is_file():
+                    record = collector.downloaded_image_record(
+                        candidate,
+                        target,
+                        True,
+                    )
+                else:
+                    if driver is None:
+                        driver = create_visible_driver(profile_dir)
+                        fetch_verified_html(
+                            driver,
+                            candidate.source_image_url,
+                            wait_seconds=wait_seconds,
+                        )
+                    payload = browser_fetch_image(driver, candidate.source_image_url)
+                    if browser_payload_needs_verification(payload):
+                        fetch_verified_html(
+                            driver,
+                            candidate.source_image_url,
+                            wait_seconds=wait_seconds,
+                        )
+                        payload = browser_fetch_image(
+                            driver,
+                            candidate.source_image_url,
+                        )
+                    content_type = str(payload.get("content_type") or "")
+                    status = payload.get("status")
+                    if not isinstance(status, int) or not 200 <= status < 400:
+                        raise RuntimeError(f"HTTP {status}: {content_type}")
+                    if not content_type.startswith("image/"):
+                        raise RuntimeError(
+                            f"Expected image content, received {content_type or 'unknown'}"
+                        )
+                    encoded = payload.get("base64")
+                    if not isinstance(encoded, str) or not encoded:
+                        raise RuntimeError("Chrome returned an empty image payload")
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    temporary = target.with_suffix(target.suffix + ".tmp")
+                    temporary.write_bytes(base64.b64decode(encoded))
+                    temporary.replace(target)
+                    record = collector.downloaded_image_record(
+                        candidate,
+                        target,
+                        False,
+                    )
+            except Exception as exc:
+                collector._log_error(
+                    "download_image_browser",
+                    candidate.source_image_url,
+                    exc,
+                )
+            if record is not None:
+                records.append(record)
+            progress.update(index, total, record)
+    finally:
+        if driver is not None:
+            close_visible_driver(driver)
+    return records
+
+
+def browser_fetch_image(driver: CdpChrome, url: str) -> dict[str, object]:
+    encoded_url = json.dumps(url, ensure_ascii=True)
+    expression = f"""
+    (async () => {{
+      try {{
+        const response = await fetch({encoded_url}, {{
+          method: 'GET', credentials: 'include', cache: 'no-store'
+        }});
+        const contentType = response.headers.get('content-type');
+        if (!response.ok) {{
+          return {{status: response.status, content_type: contentType, base64: null}};
+        }}
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        let binary = '';
+        for (let index = 0; index < bytes.length; index += 32768) {{
+          binary += String.fromCharCode(...bytes.subarray(index, index + 32768));
+        }}
+        return {{status: response.status, content_type: contentType, base64: btoa(binary)}};
+      }} catch (error) {{
+        return {{status: null, content_type: null, base64: null, error: String(error)}};
+      }}
+    }})()
+    """
+    payload = driver.evaluate(expression, await_promise=True)
+    if not isinstance(payload, dict):
+        raise RuntimeError("Chrome returned an invalid image payload")
+    return payload
+
+
+def browser_payload_needs_verification(payload: dict[str, object]) -> bool:
+    return (
+        payload.get("status") == 403
+        and str(payload.get("content_type") or "").casefold().startswith("text/html")
+    )
+
+
+def select_manifest_rows_to_append(
+    existing_rows: list[dict[str, object]],
+    downloaded_rows: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    """Avoid growing the append-only audit log with unchanged cache hits."""
+
+    known_urls = {
+        str(row.get("source_image_url"))
+        for row in existing_rows
+        if row.get("source_image_url")
+    }
+    return [
+        row
+        for row in downloaded_rows
+        if not row.get("from_cache")
+        or str(row.get("source_image_url") or "") not in known_urls
+    ]
 
 
 def required_image_paths_from_metadata(
@@ -175,6 +352,8 @@ def required_image_paths_from_metadata(
 
 
 def current_best_required_images() -> dict[str, Path]:
+    from ffxiv_prism.matching.inference import current_best_configs
+
     index_dirs = {
         path
         for config in current_best_configs().values()

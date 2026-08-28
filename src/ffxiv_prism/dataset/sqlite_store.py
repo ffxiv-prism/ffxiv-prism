@@ -5,7 +5,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from ffxiv_prism.jsonl import read_jsonl, write_json
+from ffxiv_prism.jsonl import read_jsonl, write_json_atomic
 from ffxiv_prism.paths import EORZEA_METADATA_DIR, PROCESSED_DIR, ensure_project_dirs, portable_path, resolve_project_path
 from ffxiv_prism.collectors.eorzea_collection.url_utils import sanitize_slug
 
@@ -68,7 +68,12 @@ def build_eorzea_sqlite(
     finally:
         conn.close()
 
-    write_json(summary_path, summary)
+    # The database is replaced immediately before this summary is written.
+    # On Windows, opening the existing summary in place can briefly fail with
+    # EINVAL while filesystem scanners observe the adjacent database replace.
+    # Writing a sibling temporary and atomically replacing the small summary
+    # avoids that transient lifecycle failure.
+    write_json_atomic(summary_path, summary)
     return summary
 
 

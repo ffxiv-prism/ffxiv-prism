@@ -12,6 +12,9 @@ class RunDataPipelineTests(unittest.TestCase):
             refresh_source=refresh_source,
             huiji_proxy=None,
             huiji_user_data_dir=None,
+            browser_verification=False,
+            browser_profile_dir=None,
+            browser_wait_seconds=300.0,
         )
 
     def test_discovery_uses_cache_by_default(self) -> None:
@@ -42,6 +45,21 @@ class RunDataPipelineTests(unittest.TestCase):
             command,
         )
         self.assertIn("--resume", command)
+
+    def test_browser_verification_is_forwarded_to_source_stages(self) -> None:
+        args = self.args(refresh_source=True)
+        args.browser_verification = True
+        args.browser_profile_dir = "var/cache/test-browser"
+        args.browser_wait_seconds = 45.0
+
+        discover = commands_for_stage("discover", args)[0]
+        details = commands_for_stage("collect-details", args)[0]
+        manifest = commands_for_stage("build-image-manifest", args)[0]
+
+        for command in (discover, details, manifest):
+            self.assertIn("--browser-verification", command)
+            self.assertIn("var/cache/test-browser", command)
+            self.assertIn("45.0", command)
 
 
 if __name__ == "__main__":

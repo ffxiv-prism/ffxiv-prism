@@ -201,7 +201,24 @@ def main() -> int:
     )
     parser.add_argument("--source-suffix", default="20260730")
     parser.add_argument("--suffix", required=True)
-    parser.add_argument("--expected-gearset-slug", required=True)
+    expected_group = parser.add_mutually_exclusive_group(required=True)
+    expected_group.add_argument(
+        "--expected-gearset-slug",
+        action="append",
+        dest="expected_gearset_slugs",
+        help=(
+            "Expected new gearset slug. May be repeated when one release adds "
+            "multiple gearsets."
+        ),
+    )
+    expected_group.add_argument(
+        "--allow-any-new-gearsets",
+        action="store_true",
+        help=(
+            "Accept every gearset newly present in SQLite. Intended for the "
+            "audited sample-library lifecycle pipeline."
+        ),
+    )
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--device", default="cuda")
     parser.add_argument(
@@ -217,6 +234,11 @@ def main() -> int:
             "Optional target names to build. Use this to resume after completed "
             "versioned targets have already been written."
         ),
+    )
+    parser.add_argument(
+        "--skip-empty",
+        action="store_true",
+        help="Do not create a versioned copy for targets with no new rows.",
     )
     args = parser.parse_args()
 
@@ -235,12 +257,16 @@ def main() -> int:
         targets = [
             target for target in targets if target.name in selected_names
         ]
-    validate_output_dirs(targets)
+    expected_gearset_slugs = (
+        None
+        if args.allow_any_new_gearsets
+        else frozenset(args.expected_gearset_slugs or [])
+    )
     additions = {
         target.name: build_additions(
             target,
             base_rows,
-            expected_gearset_slug=args.expected_gearset_slug,
+            expected_gearset_slugs=expected_gearset_slugs,
         )
         for target in targets
     }
@@ -262,9 +288,37 @@ def main() -> int:
         )
         return 0
 
+    writable_targets = [
+        target
+        for target in targets
+        if additions[target.name] or not args.skip_empty
+    ]
+    validate_output_dirs(writable_targets)
+
     encoders: dict[str, Any] = {}
     results = []
     for target in targets:
+        rows = additions[target.name]
+        if not rows and args.skip_empty:
+            result = {
+                "target": target.name,
+                "source_candidate_count": len(
+                    read_jsonl(target.source / "metadata.jsonl")
+                ),
+                "new_candidate_count": 0,
+                "candidate_count": len(
+                    read_jsonl(target.source / "metadata.jsonl")
+                ),
+                "output": portable_path(target.source),
+                "skipped": True,
+                "reason": "no_new_candidates",
+            }
+            results.append(result)
+            print(
+                f"skipped target={target.name} reason=no_new_candidates",
+                flush=True,
+            )
+            continue
         if target.encoder_group not in encoders:
             print(
                 f"loading encoder={target.encoder_group} model={target.model_id}",
@@ -284,8 +338,6 @@ def main() -> int:
                     "color",
                     target.pooling,
                 )
-
-        rows = additions[target.name]
         encoder = encoders[target.encoder_group]
         if target.encoder_group in {"dinov2", "dinov3"}:
             new_embeddings = encoder.encode_rows(
@@ -386,8 +438,18 @@ def build_additions(
     target: Target,
     base_rows: list[dict[str, Any]],
     *,
-    expected_gearset_slug: str,
+    expected_gearset_slugs: frozenset[str] | None = None,
+    expected_gearset_slug: str | None = None,
 ) -> list[dict[str, Any]]:
+    # ``expected_gearset_slug`` remains as a compatibility shim for callers
+    # outside the CLI while the lifecycle pipeline supports multi-gearset
+    # releases.
+    if expected_gearset_slug is not None:
+        if expected_gearset_slugs is not None:
+            raise ValueError(
+                "Use expected_gearset_slug or expected_gearset_slugs, not both"
+            )
+        expected_gearset_slugs = frozenset((expected_gearset_slug,))
     source_rows = read_jsonl(target.source / "metadata.jsonl")
     known_images = {canonical_image_key(row) for row in source_rows}
     new_base_rows = [
@@ -396,13 +458,16 @@ def build_additions(
         if str(row.get("slot")) in set(target.slots)
         and canonical_image_key(row) not in known_images
     ]
+    new_gearset_slugs = {
+        str(piece.get("gearset_slug"))
+        for row in new_base_rows
+        for piece in row.get("pieces") or []
+        if piece.get("gearset_slug")
+    }
     unexpected_slugs = sorted(
-        {
-            str(piece.get("gearset_slug"))
-            for row in new_base_rows
-            for piece in row.get("pieces") or []
-            if piece.get("gearset_slug") != expected_gearset_slug
-        }
+        new_gearset_slugs - expected_gearset_slugs
+        if expected_gearset_slugs is not None
+        else ()
     )
     if unexpected_slugs:
         raise ValueError(

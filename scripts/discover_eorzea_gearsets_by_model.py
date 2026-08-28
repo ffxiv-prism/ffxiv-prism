@@ -18,8 +18,14 @@ from ffxiv_prism.collectors.eorzea_collection.collector import (  # noqa: E402
     timestamp,
 )
 from ffxiv_prism.collectors.eorzea_collection.parser import extract_gearset_links  # noqa: E402
+from ffxiv_prism.collectors.eorzea_collection.visible_browser import (  # noqa: E402
+    DEFAULT_PROFILE_DIR,
+    close_visible_driver,
+    create_visible_driver,
+    fetch_verified_html,
+)
 from ffxiv_prism.jsonl import append_jsonl  # noqa: E402
-from ffxiv_prism.paths import INTERIM_DIR  # noqa: E402
+from ffxiv_prism.paths import EORZEA_HTML_DIR, INTERIM_DIR  # noqa: E402
 
 
 def main() -> int:
@@ -43,6 +49,26 @@ def main() -> int:
         action="store_true",
         help="Respect robots.txt. This project defaults to ignoring it after user approval.",
     )
+    parser.add_argument(
+        "--browser-verification",
+        action="store_true",
+        help=(
+            "Use a visible persistent Chrome for uncached/refreshed pages and "
+            "wait for the user to complete Cloudflare verification."
+        ),
+    )
+    parser.add_argument(
+        "--browser-profile-dir",
+        type=Path,
+        default=DEFAULT_PROFILE_DIR,
+        help="Persistent Chrome profile used by --browser-verification.",
+    )
+    parser.add_argument(
+        "--browser-wait-seconds",
+        type=float,
+        default=300.0,
+        help="Maximum time to wait for manual browser verification per page.",
+    )
     args = parser.parse_args()
 
     collector = EorzeaCollectionCollector(
@@ -56,38 +82,69 @@ def main() -> int:
     page_count = 0
     empty_pages = 0
     models = [model.strip() for model in args.models.split(",") if model.strip()]
-    for model in models:
-        model_empty_pages = 0
-        for page in range(1, args.max_pages + 1):
-            url = f"https://ffxiv.eorzeacollection.com/gearsets?page={page}&model={model}"
-            html, from_cache = collector._fetch_html(
-                url,
-                "gearset-list-by-model",
-                f"{model}-{page}",
-                force_refresh=args.refresh,
-            )
-            page_count += 1
-            links = extract_gearset_links(html, url)
-            if not links:
-                model_empty_pages += 1
-                empty_pages += 1
-                if model_empty_pages >= args.empty_stop:
-                    break
-                continue
+    driver = None
+    try:
+        for model in models:
             model_empty_pages = 0
-            for link in links:
-                if link in seen:
-                    continue
-                seen.add(link)
-                rows.append(
-                    {
-                        "source_page_url": link,
-                        "discovered_at": timestamp(),
-                        "source_list_url": url,
-                        "source_model_filter": model,
-                        "source_from_cache": str(from_cache).lower(),
-                    }
+            model_seen: set[str] = set()
+            for page in range(1, args.max_pages + 1):
+                url = f"https://ffxiv.eorzeacollection.com/gearsets?page={page}&model={model}"
+                cache_path = (
+                    EORZEA_HTML_DIR
+                    / "gearset-list-by-model"
+                    / f"{model}-{page}.html"
                 )
+                use_browser = args.browser_verification and (
+                    args.refresh or not cache_path.is_file()
+                )
+                if use_browser:
+                    if driver is None:
+                        driver = create_visible_driver(
+                            args.browser_profile_dir,
+                            manual_handoff_url=url,
+                        )
+                    html, _resolved_url = fetch_verified_html(
+                        driver,
+                        url,
+                        wait_seconds=args.browser_wait_seconds,
+                    )
+                    cache_path.parent.mkdir(parents=True, exist_ok=True)
+                    cache_path.write_text(html, encoding="utf-8")
+                    from_cache = False
+                else:
+                    html, from_cache = collector._fetch_html(
+                        url,
+                        "gearset-list-by-model",
+                        f"{model}-{page}",
+                        force_refresh=args.refresh,
+                    )
+                page_count += 1
+                links = extract_gearset_links(html, url)
+                new_model_links = unseen_links(links, model_seen)
+                if not new_model_links:
+                    model_empty_pages += 1
+                    empty_pages += 1
+                    if model_empty_pages >= args.empty_stop:
+                        break
+                    continue
+                model_empty_pages = 0
+                model_seen.update(new_model_links)
+                for link in new_model_links:
+                    if link in seen:
+                        continue
+                    seen.add(link)
+                    rows.append(
+                        {
+                            "source_page_url": link,
+                            "discovered_at": timestamp(),
+                            "source_list_url": url,
+                            "source_model_filter": model,
+                            "source_from_cache": str(from_cache).lower(),
+                        }
+                    )
+    finally:
+        if driver is not None:
+            close_visible_driver(driver)
 
     INTERIM_DIR.mkdir(parents=True, exist_ok=True)
     queue_path = INTERIM_DIR / "gearset_detail_queue.jsonl"
@@ -111,6 +168,12 @@ def main() -> int:
         },
     )
     return 0
+
+
+def unseen_links(links: list[str], seen: set[str]) -> list[str]:
+    """Return page links not observed earlier in the same model stream."""
+
+    return [link for link in links if link not in seen]
 
 
 if __name__ == "__main__":

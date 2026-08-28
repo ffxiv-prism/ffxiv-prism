@@ -256,12 +256,18 @@ def current_best_configs() -> dict[str, SlotInferenceConfig]:
             ensemble_rrf_k=1,
             fusion="rrf",
             rrf_k=1,
+            style_model_id="google/siglip2-base-patch16-224",
+            style_query_crop_name="feet_height_context",
+            style_rerank_k=50,
+            style_blend=0.70,
+            style_min_confidence=0.70,
             benchmark_top1=0.1934,
             benchmark_top10=0.4116,
             benchmark_scope=(
                 "strict three-fold pooled DINOv2+SigLIP2 rank ensemble "
                 "with query-crop RRF(k=1), after primary visual-piece "
-                "metadata cleanup (967 images)"
+                "metadata cleanup (967 images); the confidence-gated "
+                "footwear-height reranker is reported separately"
             ),
         ),
     }
@@ -752,6 +758,58 @@ def attach_appearance_equivalent_candidates(
                 "relation": "same_model",
             }
     return source
+
+
+def collapse_appearance_equivalent_candidates(
+    candidates: Sequence[Mapping[str, Any]],
+    direct_equivalents: Mapping[int, Sequence[int]],
+) -> list[dict[str, Any]]:
+    """Keep only the highest-ranked candidate from each same-model group.
+
+    Equivalence data is treated as an undirected, transitive relationship so
+    incomplete one-way links cannot leave duplicate appearances in the final
+    Top-K.  Candidate order is otherwise stable, and ranks are compacted after
+    duplicate rows are removed.
+    """
+
+    parent: dict[int, int] = {}
+
+    def find(piece_id: int) -> int:
+        parent.setdefault(piece_id, piece_id)
+        root = piece_id
+        while parent[root] != root:
+            root = parent[root]
+        while parent[piece_id] != piece_id:
+            next_piece = parent[piece_id]
+            parent[piece_id] = root
+            piece_id = next_piece
+        return root
+
+    def union(left: int, right: int) -> None:
+        left_root = find(left)
+        right_root = find(right)
+        if left_root != right_root:
+            parent[right_root] = left_root
+
+    for raw_piece_id, raw_equivalents in direct_equivalents.items():
+        piece_id = int(raw_piece_id)
+        find(piece_id)
+        for raw_equivalent_id in raw_equivalents:
+            union(piece_id, int(raw_equivalent_id))
+
+    output: list[dict[str, Any]] = []
+    seen_groups: set[int] = set()
+    for candidate in candidates:
+        copied = dict(candidate)
+        group = find(int(copied["piece_id"]))
+        if group in seen_groups:
+            continue
+        seen_groups.add(group)
+        output.append(copied)
+
+    for rank, row in enumerate(output, start=1):
+        row["rank"] = rank
+    return output
 
 
 def select_slot_candidate_index_rows(

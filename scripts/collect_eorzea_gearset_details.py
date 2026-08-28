@@ -16,8 +16,14 @@ if str(SRC_DIR) not in sys.path:
 from ffxiv_prism.collectors.eorzea_collection.collector import EorzeaCollectionCollector, timestamp  # noqa: E402
 from ffxiv_prism.collectors.eorzea_collection.parser import parse_gearset_detail  # noqa: E402
 from ffxiv_prism.collectors.eorzea_collection.url_utils import absolute_url, extract_slug  # noqa: E402
+from ffxiv_prism.collectors.eorzea_collection.visible_browser import (  # noqa: E402
+    DEFAULT_PROFILE_DIR,
+    close_visible_driver,
+    create_visible_driver,
+    fetch_verified_html,
+)
 from ffxiv_prism.jsonl import append_jsonl, read_jsonl  # noqa: E402
-from ffxiv_prism.paths import EORZEA_METADATA_DIR, INTERIM_DIR  # noqa: E402
+from ffxiv_prism.paths import EORZEA_HTML_DIR, EORZEA_METADATA_DIR, INTERIM_DIR  # noqa: E402
 
 
 def main() -> int:
@@ -50,6 +56,26 @@ def main() -> int:
         action="store_true",
         help="Respect robots.txt. This project defaults to ignoring it after user approval.",
     )
+    parser.add_argument(
+        "--browser-verification",
+        action="store_true",
+        help=(
+            "Use a visible persistent Chrome for pending detail pages and wait "
+            "for the user to complete Cloudflare verification."
+        ),
+    )
+    parser.add_argument(
+        "--browser-profile-dir",
+        type=Path,
+        default=DEFAULT_PROFILE_DIR,
+        help="Persistent Chrome profile used by --browser-verification.",
+    )
+    parser.add_argument(
+        "--browser-wait-seconds",
+        type=float,
+        default=300.0,
+        help="Maximum time to wait for manual browser verification per page.",
+    )
     args = parser.parse_args()
 
     queue_rows = read_jsonl(args.queue)
@@ -81,7 +107,33 @@ def main() -> int:
     )
     print_progress(len(existing_slugs), len(urls), parsed_count, error_count, started_at, final=False)
 
-    if args.workers <= 1:
+    if args.browser_verification:
+        driver = None
+        try:
+            if pending_urls:
+                driver = create_visible_driver(args.browser_profile_dir)
+            for url in pending_urls:
+                result = collect_one_browser(
+                    driver,
+                    url,
+                    args.browser_wait_seconds,
+                    args.include_images,
+                )
+                parsed_count, error_count = write_result(
+                    result,
+                    details_path,
+                    pieces_path,
+                    parsed_count,
+                    error_count,
+                )
+                now = time.monotonic()
+                if args.progress_interval > 0 and now - last_progress_at >= args.progress_interval:
+                    print_progress(len(existing_slugs) + parsed_count, len(urls), parsed_count, error_count, started_at, final=False)
+                    last_progress_at = now
+        finally:
+            if driver is not None:
+                close_visible_driver(driver)
+    elif args.workers <= 1:
         for url in pending_urls:
             result = collect_one(url, args.timeout, args.respect_robots, args.include_images)
             parsed_count, error_count = write_result(result, details_path, pieces_path, parsed_count, error_count)
@@ -147,6 +199,36 @@ def collect_one(
         if not include_images:
             gearset_payload["images"] = []
         return {"ok": True, "gearset": gearset_payload, "url": url}
+    except Exception as exc:
+        return {
+            "ok": False,
+            "url": url,
+            "error": str(exc),
+            "error_type": type(exc).__name__,
+        }
+
+
+def collect_one_browser(
+    driver: object,
+    url: str,
+    wait_seconds: float,
+    include_images: bool,
+) -> dict[str, object]:
+    slug = extract_slug(url, "gearset")
+    try:
+        html, resolved_url = fetch_verified_html(
+            driver,
+            url,
+            wait_seconds=wait_seconds,
+        )
+        cache_path = EORZEA_HTML_DIR / "gearset" / f"{slug}.html"
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(html, encoding="utf-8")
+        gearset = parse_gearset_detail(html, resolved_url)
+        gearset_payload = gearset.to_dict()
+        if not include_images:
+            gearset_payload["images"] = []
+        return {"ok": True, "gearset": gearset_payload, "url": resolved_url}
     except Exception as exc:
         return {
             "ok": False,

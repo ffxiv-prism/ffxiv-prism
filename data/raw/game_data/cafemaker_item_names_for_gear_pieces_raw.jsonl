@@ -2352,6 +2352,11 @@
 {"equip_slot_category_id": 3, "game_item_id": 2920, "item_ui_category_en": "Head", "name_en": "Carpenter's Hood", "name_zh": "木匠头巾帽", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
 {"equip_slot_category_id": 7, "game_item_id": 3481, "item_ui_category_en": "Legs", "name_en": "Carpenter's Slops", "name_zh": "木匠工作裤", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
 {"equip_slot_category_id": 8, "game_item_id": 3927, "item_ui_category_en": "Feet", "name_en": "Carpenter's Workboots", "name_zh": "木匠工作靴", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 5, "game_item_id": 51963, "item_ui_category_en": "Hands", "name_en": "Carwen Armlets", "name_zh": "卡文护臂", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 3, "game_item_id": 51961, "item_ui_category_en": "Head", "name_en": "Carwen Bandana", "name_zh": "卡文头巾", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 8, "game_item_id": 51965, "item_ui_category_en": "Feet", "name_en": "Carwen Boots", "name_zh": "卡文矮靴", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 7, "game_item_id": 51964, "item_ui_category_en": "Legs", "name_en": "Carwen Tights", "name_zh": "卡文紧身裤", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 4, "game_item_id": 51962, "item_ui_category_en": "Body", "name_en": "Carwen Tunic", "name_zh": "卡文束腰衣", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
 {"equip_slot_category_id": 7, "game_item_id": 7513, "item_ui_category_en": "Legs", "name_en": "Cashmere Breeches of Casting", "name_zh": "羊绒咏咒马裤", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
 {"equip_slot_category_id": 3, "game_item_id": 7498, "item_ui_category_en": "Head", "name_en": "Cashmere Hat of Aiming", "name_zh": "羊绒精准狩猎帽", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
 {"equip_slot_category_id": 3, "game_item_id": 7510, "item_ui_category_en": "Head", "name_en": "Cashmere Hat of Casting", "name_zh": "羊绒咏咒宽边帽", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
@@ -4343,6 +4348,7 @@
 {"equip_slot_category_id": 4, "game_item_id": 49007, "item_ui_category_en": "Body", "name_en": "Form-fitting Cactuar Neotunic", "name_zh": "紧身仙人刺文化衫", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
 {"equip_slot_category_id": 4, "game_item_id": 49006, "item_ui_category_en": "Body", "name_en": "Form-fitting Chocobo Neotunic", "name_zh": "紧身陆行鸟文化衫", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
 {"equip_slot_category_id": 4, "game_item_id": 52620, "item_ui_category_en": "Body", "name_en": "Form-fitting Festival Hooded Tunic", "name_zh": "紧身欢庆卫衣", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 4, "game_item_id": 52435, "item_ui_category_en": "Body", "name_en": "Form-fitting Graffiti Neotunic", "name_zh": "紧身涂鸦新式文化衫", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
 {"equip_slot_category_id": 4, "game_item_id": 49008, "item_ui_category_en": "Body", "name_en": "Form-fitting Mica Neotunic", "name_zh": "紧身亩鼠米卡文化衫", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
 {"equip_slot_category_id": 4, "game_item_id": 49005, "item_ui_category_en": "Body", "name_en": "Form-fitting Moogle Neotunic", "name_zh": "紧身莫古力文化衫", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
 {"equip_slot_category_id": 4, "game_item_id": 52614, "item_ui_category_en": "Body", "name_en": "Form-fitting Plain Hooded Tunic", "name_zh": "紧身素色卫衣", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
@@ -4711,6 +4717,7 @@
 {"equip_slot_category_id": 8, "game_item_id": 11559, "item_ui_category_en": "Feet", "name_en": "Gordian Sollerets of Fending", "name_zh": "戈耳狄御敌锁甲靴", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
 {"equip_slot_category_id": 4, "game_item_id": 8686, "item_ui_category_en": "Body", "name_en": "Gown of Eternal Devotion", "name_zh": "钟情典礼纱裙", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
 {"equip_slot_category_id": 4, "game_item_id": 24999, "item_ui_category_en": "Body", "name_en": "Gown of Light", "name_zh": "纯白礼服", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 4, "game_item_id": 52433, "item_ui_category_en": "Body", "name_en": "Graffiti Neotunic", "name_zh": "涂鸦新式文化衫", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
 {"equip_slot_category_id": 13, "game_item_id": 49670, "item_ui_category_en": "Astrologian's Arm", "name_en": "Grand Champion's Astrometer", "name_zh": "总冠军量天仪", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
 {"equip_slot_category_id": 13, "game_item_id": 49659, "item_ui_category_en": "Pugilist's Arm", "name_en": "Grand Champion's Baghnakhs", "name_zh": "总冠军虎爪", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
 {"equip_slot_category_id": 13, "game_item_id": 49671, "item_ui_category_en": "Samurai's Arm", "name_en": "Grand Champion's Blade", "name_zh": "总冠军武士刀", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
@@ -7006,6 +7013,9 @@
 {"equip_slot_category_id": 5, "game_item_id": 39853, "item_ui_category_en": "Hands", "name_en": "Natural Afflatus Halfgloves", "name_zh": "灵感大地半指手套", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
 {"equip_slot_category_id": 4, "game_item_id": 39852, "item_ui_category_en": "Body", "name_en": "Natural Afflatus Jacket", "name_zh": "灵感大地外套", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
 {"equip_slot_category_id": 3, "game_item_id": 39851, "item_ui_category_en": "Head", "name_en": "Natural Afflatus Trapper's Hat", "name_zh": "灵感大地狩猎帽", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 4, "game_item_id": 52406, "item_ui_category_en": "Body", "name_en": "Neo Citizen's Hooded Tunic", "name_zh": "新生国民卫衣", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 8, "game_item_id": 52408, "item_ui_category_en": "Feet", "name_en": "Neo Citizen's Shoes", "name_zh": "新生国民鞋", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 7, "game_item_id": 52407, "item_ui_category_en": "Legs", "name_en": "Neo Citizen's Shorts", "name_zh": "新生国民短裤", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
 {"equip_slot_category_id": 5, "game_item_id": 42750, "item_ui_category_en": "Hands", "name_en": "Neo Kingdom Armlets of Casting", "name_zh": "新生王国咏咒护臂", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
 {"equip_slot_category_id": 5, "game_item_id": 42745, "item_ui_category_en": "Hands", "name_en": "Neo Kingdom Armlets of Healing", "name_zh": "新生王国治愈护臂", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
 {"equip_slot_category_id": 11, "game_item_id": 42765, "item_ui_category_en": "Bracelets", "name_en": "Neo Kingdom Bangles of Aiming", "name_zh": "新生王国精准手镯", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
@@ -7415,6 +7425,7 @@
 {"equip_slot_category_id": 4, "game_item_id": 49002, "item_ui_category_en": "Body", "name_en": "Oversized Cactuar Neotunic", "name_zh": "大码仙人刺文化衫", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
 {"equip_slot_category_id": 4, "game_item_id": 49001, "item_ui_category_en": "Body", "name_en": "Oversized Chocobo Neotunic", "name_zh": "大码陆行鸟文化衫", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
 {"equip_slot_category_id": 4, "game_item_id": 52619, "item_ui_category_en": "Body", "name_en": "Oversized Festival Hooded Tunic", "name_zh": "大码欢庆卫衣", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 4, "game_item_id": 52434, "item_ui_category_en": "Body", "name_en": "Oversized Graffiti Neotunic", "name_zh": "大码涂鸦新式文化衫", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
 {"equip_slot_category_id": 4, "game_item_id": 50849, "item_ui_category_en": "Body", "name_en": "Oversized Masha Neotunic", "name_zh": "大码马夏文化衫", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
 {"equip_slot_category_id": 4, "game_item_id": 49003, "item_ui_category_en": "Body", "name_en": "Oversized Mica Neotunic", "name_zh": "大码亩鼠米卡文化衫", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
 {"equip_slot_category_id": 4, "game_item_id": 49000, "item_ui_category_en": "Body", "name_en": "Oversized Moogle Neotunic", "name_zh": "大码莫古力文化衫", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
@@ -7665,6 +7676,41 @@
 {"equip_slot_category_id": 4, "game_item_id": 40347, "item_ui_category_en": "Body", "name_en": "Phantasmal Robe", "name_zh": "幻影长袍", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
 {"equip_slot_category_id": 8, "game_item_id": 40350, "item_ui_category_en": "Feet", "name_en": "Phantasmal Shoes", "name_zh": "幻影皮鞋", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
 {"equip_slot_category_id": 7, "game_item_id": 40349, "item_ui_category_en": "Legs", "name_en": "Phantasmal Slacks", "name_zh": "幻影长裤", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 4, "game_item_id": 51932, "item_ui_category_en": "Body", "name_en": "Phantom Vision Acton of Casting", "name_zh": "幻境意象咏咒棉甲", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 4, "game_item_id": 51912, "item_ui_category_en": "Body", "name_en": "Phantom Vision Acton of Healing", "name_zh": "幻境意象治愈棉甲", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 8, "game_item_id": 51875, "item_ui_category_en": "Feet", "name_en": "Phantom Vision Boots of Aiming", "name_zh": "幻境意象精准矮靴", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 8, "game_item_id": 51895, "item_ui_category_en": "Feet", "name_en": "Phantom Vision Boots of Scouting", "name_zh": "幻境意象游击矮靴", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 8, "game_item_id": 51855, "item_ui_category_en": "Feet", "name_en": "Phantom Vision Boots of Striking", "name_zh": "幻境意象强袭矮靴", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 7, "game_item_id": 51814, "item_ui_category_en": "Legs", "name_en": "Phantom Vision Bottoms of Fending", "name_zh": "幻境意象御敌打底裤", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 7, "game_item_id": 51834, "item_ui_category_en": "Legs", "name_en": "Phantom Vision Bottoms of Maiming", "name_zh": "幻境意象制敌打底裤", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 4, "game_item_id": 51812, "item_ui_category_en": "Body", "name_en": "Phantom Vision Corselet of Fending", "name_zh": "幻境意象御敌护甲", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 4, "game_item_id": 51832, "item_ui_category_en": "Body", "name_en": "Phantom Vision Corselet of Maiming", "name_zh": "幻境意象制敌护甲", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 8, "game_item_id": 51935, "item_ui_category_en": "Feet", "name_en": "Phantom Vision Crakows of Casting", "name_zh": "幻境意象咏咒法靴", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 8, "game_item_id": 51915, "item_ui_category_en": "Feet", "name_en": "Phantom Vision Crakows of Healing", "name_zh": "幻境意象治愈法靴", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 3, "game_item_id": 51811, "item_ui_category_en": "Head", "name_en": "Phantom Vision Mask of Fending", "name_zh": "幻境意象御敌面具", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 3, "game_item_id": 51831, "item_ui_category_en": "Head", "name_en": "Phantom Vision Mask of Maiming", "name_zh": "幻境意象制敌面具", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 3, "game_item_id": 51931, "item_ui_category_en": "Head", "name_en": "Phantom Vision Nightcap of Casting", "name_zh": "幻境意象咏咒睡帽", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 3, "game_item_id": 51911, "item_ui_category_en": "Head", "name_en": "Phantom Vision Nightcap of Healing", "name_zh": "幻境意象治愈睡帽", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 4, "game_item_id": 51872, "item_ui_category_en": "Body", "name_en": "Phantom Vision Robe of Aiming", "name_zh": "幻境意象精准长袍", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 4, "game_item_id": 51892, "item_ui_category_en": "Body", "name_en": "Phantom Vision Robe of Scouting", "name_zh": "幻境意象游击长袍", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 4, "game_item_id": 51852, "item_ui_category_en": "Body", "name_en": "Phantom Vision Robe of Striking", "name_zh": "幻境意象强袭长袍", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 7, "game_item_id": 51874, "item_ui_category_en": "Legs", "name_en": "Phantom Vision Sarouel of Aiming", "name_zh": "幻境意象精准垮裤", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 7, "game_item_id": 51934, "item_ui_category_en": "Legs", "name_en": "Phantom Vision Sarouel of Casting", "name_zh": "幻境意象咏咒垮裤", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 7, "game_item_id": 51914, "item_ui_category_en": "Legs", "name_en": "Phantom Vision Sarouel of Healing", "name_zh": "幻境意象治愈垮裤", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 7, "game_item_id": 51894, "item_ui_category_en": "Legs", "name_en": "Phantom Vision Sarouel of Scouting", "name_zh": "幻境意象游击垮裤", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 7, "game_item_id": 51854, "item_ui_category_en": "Legs", "name_en": "Phantom Vision Sarouel of Striking", "name_zh": "幻境意象强袭垮裤", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 8, "game_item_id": 51815, "item_ui_category_en": "Feet", "name_en": "Phantom Vision Sollerets of Fending", "name_zh": "幻境意象御敌锁甲靴", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 8, "game_item_id": 51835, "item_ui_category_en": "Feet", "name_en": "Phantom Vision Sollerets of Maiming", "name_zh": "幻境意象制敌锁甲靴", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 3, "game_item_id": 51871, "item_ui_category_en": "Head", "name_en": "Phantom Vision Turban of Aiming", "name_zh": "幻境意象精准包头巾", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 3, "game_item_id": 51891, "item_ui_category_en": "Head", "name_en": "Phantom Vision Turban of Scouting", "name_zh": "幻境意象游击包头巾", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 3, "game_item_id": 51851, "item_ui_category_en": "Head", "name_en": "Phantom Vision Turban of Striking", "name_zh": "幻境意象强袭包头巾", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 5, "game_item_id": 51813, "item_ui_category_en": "Hands", "name_en": "Phantom Vision Vambraces of Fending", "name_zh": "幻境意象御敌臂甲", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 5, "game_item_id": 51833, "item_ui_category_en": "Hands", "name_en": "Phantom Vision Vambraces of Maiming", "name_zh": "幻境意象制敌臂甲", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 5, "game_item_id": 51873, "item_ui_category_en": "Hands", "name_en": "Phantom Vision Wristwraps of Aiming", "name_zh": "幻境意象精准护腕", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 5, "game_item_id": 51933, "item_ui_category_en": "Hands", "name_en": "Phantom Vision Wristwraps of Casting", "name_zh": "幻境意象咏咒护腕", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 5, "game_item_id": 51913, "item_ui_category_en": "Hands", "name_en": "Phantom Vision Wristwraps of Healing", "name_zh": "幻境意象治愈护腕", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 5, "game_item_id": 51893, "item_ui_category_en": "Hands", "name_en": "Phantom Vision Wristwraps of Scouting", "name_zh": "幻境意象游击护腕", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 5, "game_item_id": 51853, "item_ui_category_en": "Hands", "name_en": "Phantom Vision Wristwraps of Striking", "name_zh": "幻境意象强袭护腕", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
 {"equip_slot_category_id": 4, "game_item_id": 8305, "item_ui_category_en": "Body", "name_en": "Phlegethon's Cuirass", "name_zh": "提坦胸甲", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
 {"equip_slot_category_id": 5, "game_item_id": 8306, "item_ui_category_en": "Hands", "name_en": "Phlegethon's Gauntlets", "name_zh": "提坦手铠", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
 {"equip_slot_category_id": 7, "game_item_id": 8307, "item_ui_category_en": "Legs", "name_en": "Phlegethon's Loincloth", "name_zh": "提坦腰布裙", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
@@ -9959,6 +10005,9 @@
 {"equip_slot_category_id": 4, "game_item_id": 21030, "item_ui_category_en": "Body", "name_en": "Topaz Carbuncle Jacket", "name_zh": "黄宝石兽外套", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
 {"equip_slot_category_id": 8, "game_item_id": 22499, "item_ui_category_en": "Feet", "name_en": "Topaz Carbuncle Slippers", "name_zh": "黄宝石兽拖鞋", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
 {"equip_slot_category_id": 4, "game_item_id": 22453, "item_ui_category_en": "Body", "name_en": "Torn Manderville Coatee", "name_zh": "破损的绅士短上衣", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 8, "game_item_id": 51960, "item_ui_category_en": "Feet", "name_en": "Torna Boots", "name_zh": "托纳矮靴", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 23, "game_item_id": 51957, "item_ui_category_en": "Body", "name_en": "Torna Tunic", "name_zh": "托纳束腰衣", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 5, "game_item_id": 51958, "item_ui_category_en": "Hands", "name_en": "Torna Wristlets", "name_zh": "托纳护腕", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
 {"equip_slot_category_id": 8, "game_item_id": 3824, "item_ui_category_en": "Feet", "name_en": "Torturer's Duckbills", "name_zh": "酷刑官鸭嘴靴", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
 {"equip_slot_category_id": 3, "game_item_id": 2748, "item_ui_category_en": "Head", "name_en": "Torturer's Monocle", "name_zh": "酷刑单眼镜", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
 {"equip_slot_category_id": 3, "game_item_id": 6299, "item_ui_category_en": "Head", "name_en": "Toxotes Bandana", "name_zh": "射兵头巾", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
@@ -10061,6 +10110,10 @@
 {"equip_slot_category_id": 8, "game_item_id": 22025, "item_ui_category_en": "Feet", "name_en": "Trueblood Greaves", "name_zh": "真血胫甲", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
 {"equip_slot_category_id": 4, "game_item_id": 22022, "item_ui_category_en": "Body", "name_en": "Trueblood Mail", "name_zh": "真血战铠", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
 {"equip_slot_category_id": 7, "game_item_id": 21015, "item_ui_category_en": "Legs", "name_en": "Tsutsu-hakama of the Blue", "name_zh": "碧甲筒袴", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 5, "game_item_id": 51953, "item_ui_category_en": "Hands", "name_en": "Tule Halfgloves", "name_zh": "图尔半指手套", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 8, "game_item_id": 51955, "item_ui_category_en": "Feet", "name_en": "Tule Longboots", "name_zh": "图尔长靴", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 7, "game_item_id": 51954, "item_ui_category_en": "Legs", "name_en": "Tule Trousers", "name_zh": "图尔软甲裤", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 4, "game_item_id": 51952, "item_ui_category_en": "Body", "name_en": "Tule Tunic", "name_zh": "图尔束腰衣", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
 {"equip_slot_category_id": 7, "game_item_id": 44247, "item_ui_category_en": "Legs", "name_en": "Turali Trader's Culottes", "name_zh": "图拉尔商人及膝裤", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
 {"equip_slot_category_id": 4, "game_item_id": 44246, "item_ui_category_en": "Body", "name_en": "Turali Trader's Shirt", "name_zh": "图拉尔商人衬衫", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
 {"equip_slot_category_id": 8, "game_item_id": 44248, "item_ui_category_en": "Feet", "name_en": "Turali Trader's Shoes", "name_zh": "图拉尔商人皮鞋", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
@@ -11277,6 +11330,10 @@
 {"equip_slot_category_id": 12, "game_item_id": 44601, "item_ui_category_en": "Ring", "name_en": "Yuweyawata Ring of Slaying", "name_zh": "玉韦亚瓦塔强攻指环", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
 {"equip_slot_category_id": 4, "game_item_id": 44581, "item_ui_category_en": "Body", "name_en": "Yuweyawata Robe of Casting", "name_zh": "玉韦亚瓦塔咏咒长袍", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
 {"equip_slot_category_id": 4, "game_item_id": 44576, "item_ui_category_en": "Body", "name_en": "Yuweyawata Robe of Healing", "name_zh": "玉韦亚瓦塔治愈长袍", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 7, "game_item_id": 52658, "item_ui_category_en": "Legs", "name_en": "Zero's Luminary Breeches", "name_zh": "零点打底裤", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 5, "game_item_id": 52657, "item_ui_category_en": "Hands", "name_en": "Zero's Luminary Gauntlets", "name_zh": "零点手铠", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 4, "game_item_id": 52656, "item_ui_category_en": "Body", "name_en": "Zero's Luminary Mail", "name_zh": "零点铠甲", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
+{"equip_slot_category_id": 8, "game_item_id": 52659, "item_ui_category_en": "Feet", "name_en": "Zero's Luminary Sollerets", "name_zh": "零点锁甲靴", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
 {"equip_slot_category_id": 3, "game_item_id": 44680, "item_ui_category_en": "Head", "name_en": "Zero's Order Chapeau", "name_zh": "零风礼帽", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
 {"equip_slot_category_id": 22, "game_item_id": 44681, "item_ui_category_en": "Body", "name_en": "Zero's Order Cuirass", "name_zh": "零风胸甲", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}
 {"equip_slot_category_id": 13, "game_item_id": 44975, "item_ui_category_en": "Reaper's Arm", "name_en": "Zero's Order Death Scythe", "name_zh": "零风死镰", "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"}

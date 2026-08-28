@@ -136,8 +136,50 @@ python scripts\run_data_pipeline.py
 强制刷新远端目录发现：
 
 ```powershell
-python scripts\run_data_pipeline.py --refresh-source
+python scripts\run_data_pipeline.py --all --refresh-source
 ```
+
+## 样本库更新与模型发布闭环
+
+`run_data_pipeline.py` 保留为单阶段维护入口。生产更新统一由
+`run_lifecycle_pipeline.py` 编排，并在结束时打印简要报告、同时写入一份 JSON
+审计记录。
+
+完整刷新样本库并版本化扩展有新增样本的视觉候选索引：
+
+```powershell
+python scripts\run_lifecycle_pipeline.py `
+  --workflow sample-library `
+  --source-mode refresh `
+  --candidate-mode extend `
+  --device cuda
+```
+
+该流程依次执行远端套装发现、详情采集、图片 URL 验证、图片下载、中文名与
+槽位补全、图片索引和 QA、SQLite、精准同模关系，以及 DINOv2、DINOv3、
+SigLIP2 活动候选索引的版本化增量扩展。没有新增候选的分支不会复制旧索引。
+
+校验当前选定的新模型发布候选：
+
+```powershell
+python scripts\run_lifecycle_pipeline.py `
+  --workflow model-release `
+  --release-mode check
+```
+
+真正导出 `current-best` 时使用 `--release-mode publish`。发布门禁要求全量测试、
+推理配置、预览图片和运行资产完整性通过，并要求
+`data/processed/current_recognition_metrics.json` 是当前有效评估；指标过期时会
+阻止覆盖发布资产。完整串联可使用 `--workflow all`。默认的 `local` 来源模式只
+重建已有本地资料的派生资产，避免普通检查意外触发大规模网络采集；生产更新应
+显式选择 `--source-mode refresh`。
+
+`--source-mode cached` 会刷新由当前网页缓存派生的清单并下载缺失图片，但复用
+已有 CafeMaker 名称、槽位和模型原始表，只执行本地筛选与装备富化；只有
+`refresh` 模式才会全量重拉这些游戏资料表。
+
+命令结束时会输出套装、部件、图片、同模关系、发布资产和门禁状态，完整报告位于
+`data/outputs/lifecycle-reports/<运行时间>.json`。
 
 装备图片、远端页面、公共模型缓存、训练缓存、调试图与运行输出均属于本地可再
 生成资产，不进入 Git。已发布 `current-best` 所需的候选向量索引、推理检查点、
@@ -176,3 +218,10 @@ python scripts\recognize_glamour.py --check
 - 染色、遮挡、动作、宽檐头饰、小型饰品和多槽占用会显著影响排序；
 - 排名分数是相对检索信号，不是校准概率；
 - 装备图片、训练数据、训练检查点、调试输出和公共模型缓存不进入 Git；仅发布清单中登记的 `current-best` 推理资产通过 Git LFS 提供。
+当 Eorzea Collection 出现 Cloudflare 验证时，可启用可见浏览器。流程会先用
+普通 Chrome 打开验证页；手工验证成功后回到命令行按 Enter，程序才会接管同一
+会话。后续的页面缓存、图片下载、QA、SQLite、候选索引和发布门禁会自动继续：
+
+```powershell
+python scripts/run_lifecycle_pipeline.py --workflow all --source-mode refresh --browser-verification --candidate-mode extend --release-mode publish --device cuda
+```

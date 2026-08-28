@@ -12,6 +12,7 @@ from ffxiv_prism.jsonl import write_json, write_jsonl_atomic
 from scripts import build_eorzea_image_url_manifest_from_list_cache as image_manifest
 from scripts import download_cafemaker_equip_slot_categories as equip_slots
 from scripts import download_cafemaker_item_names as item_names
+from scripts import download_cafemaker_item_models as item_models
 
 
 class FakeResponse:
@@ -86,6 +87,31 @@ class GameDataSourceTests(unittest.TestCase):
         self.assertEqual(normalized["Body"], 1)
         self.assertEqual(normalized["Head"], 0)
         self.assertEqual(normalized["source"], "https://example.test/EquipSlotCategory")
+
+    def test_item_model_normalization_unpacks_xivapi_uint64_fields(self) -> None:
+        row = {
+            "row_id": 42589,
+            "fields": {
+                "Name@lang(chs)": "天使画笔",
+                "Name@lang(en)": "Angel Brush",
+                "ModelMain": 4295035733,
+                "ModelSub": 4295035783,
+                "EquipSlotCategory@as(raw)": 1,
+                "ItemUICategory@as(raw)": 110,
+            },
+        }
+
+        normalized = item_models.normalize_item_row(
+            row,
+            source="https://example.test/Item",
+        )
+
+        self.assertEqual(normalized["game_item_id"], 42589)
+        self.assertEqual(normalized["model_main"], [2901, 1, 1, 0])
+        self.assertEqual(normalized["model_sub"], [2951, 1, 1, 0])
+        self.assertEqual(normalized["equip_slot_category_id"], 1)
+        self.assertEqual(normalized["item_ui_category_id"], 110)
+        self.assertEqual(normalized["source"], "https://example.test/Item")
 
     def test_atomic_jsonl_write_preserves_existing_file_on_failure(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
