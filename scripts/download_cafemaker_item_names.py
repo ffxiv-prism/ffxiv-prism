@@ -6,38 +6,47 @@ import sys
 import time
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlencode
-from urllib.request import Request, urlopen
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from ffxiv_prism.jsonl import append_jsonl, read_jsonl, write_json  # noqa: E402
+from ffxiv_prism.boilmaster import (  # noqa: E402
+    DEFAULT_API_ROOT,
+    fetch_sheet_page,
+    next_after,
+    row_fields,
+    row_id,
+)
+from ffxiv_prism.jsonl import (  # noqa: E402
+    append_jsonl,
+    read_jsonl,
+    write_json_atomic,
+    write_jsonl_atomic,
+)
 from ffxiv_prism.paths import GAME_DATA_RAW_DIR  # noqa: E402
 
 
-DEFAULT_BASE_URL = "https://cafemaker.wakingsands.com/Item"
+DEFAULT_BASE_URL = f"{DEFAULT_API_ROOT}/Item"
 DEFAULT_OUTPUT = GAME_DATA_RAW_DIR / "cafemaker_item_names_raw.jsonl"
 DEFAULT_SUMMARY = GAME_DATA_RAW_DIR / "cafemaker_item_names_summary.json"
-ITEM_COLUMNS = [
-    "ID",
-    "Name",
-    "Name_en",
-    "EquipSlotCategoryTargetID",
-    "ItemUICategory.Name_en",
-]
+ITEM_FIELDS = (
+    "Name@lang(chs)",
+    "Name@lang(en)",
+    "EquipSlotCategory@as(raw)",
+    "ItemUICategory@lang(en).Name",
+)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Cache CafeMaker/WakingSands Item names for English-to-Chinese item name mapping."
+        description="Cache Boilmaster Item names for English-to-Chinese item name mapping."
     )
-    parser.add_argument("--base-url", default=DEFAULT_BASE_URL, help="CafeMaker Item endpoint.")
+    parser.add_argument("--base-url", default=DEFAULT_BASE_URL, help="Boilmaster Item sheet endpoint.")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT, help="Output JSONL path.")
     parser.add_argument("--summary", type=Path, default=DEFAULT_SUMMARY, help="Output summary JSON path.")
-    parser.add_argument("--page-size", type=int, default=1000, help="Rows per request.")
+    parser.add_argument("--page-size", type=int, default=1000, help="Rows requested per page.")
     parser.add_argument("--limit-pages", type=int, default=None, help="Optional page limit for debugging.")
     parser.add_argument("--timeout", type=float, default=45.0, help="Network timeout per request.")
     parser.add_argument("--delay", type=float, default=0.0, help="Delay between requests.")
@@ -45,138 +54,102 @@ def main() -> int:
     parser.add_argument("--resume", action="store_true", help="Resume from an existing .tmp output file.")
     parser.add_argument("--progress-interval", type=float, default=5.0, help="Seconds between progress updates.")
     args = parser.parse_args()
+    if args.page_size <= 0:
+        raise ValueError("--page-size must be positive")
 
     started_at = time.monotonic()
     args.output.parent.mkdir(parents=True, exist_ok=True)
     tmp_output = args.output.with_suffix(args.output.suffix + ".tmp")
     if args.resume and tmp_output.exists():
-        written = count_lines(tmp_output)
-        pages_fetched = written // args.page_size
-        if written % args.page_size:
-            raise ValueError(
-                f"Cannot resume partial page in {tmp_output}: {written} rows is not divisible by {args.page_size}."
-            )
-        page = pages_fetched + 1
-        print(f"Resuming from page {page} after {written} cached rows.", file=sys.stderr, flush=True)
+        existing_rows = read_jsonl(tmp_output)
+        written = len(existing_rows)
+        after = resume_after(existing_rows)
+        pages_fetched = 0
+        print(
+            f"Resuming after row_id={after} with {written} cached rows.",
+            file=sys.stderr,
+            flush=True,
+        )
     else:
         tmp_output.write_text("", encoding="utf-8")
-        page = 1
+        after = None
         pages_fetched = 0
         written = 0
 
-    page_total: int | None = None
-    total_rows: int | None = None
-    empty_name_en = 0
     last_progress_at = 0.0
+    schema: str | None = None
+    game_version: str | None = None
 
     while True:
-        if args.limit_pages is not None and page > args.limit_pages:
-            break
-        payload = fetch_page(
+        payload = fetch_sheet_page(
             args.base_url,
-            page=page,
-            page_size=args.page_size,
+            fields=ITEM_FIELDS,
+            after=after,
+            limit=args.page_size,
             timeout=args.timeout,
             retries=args.retries,
         )
-        pagination = payload.get("Pagination") or {}
-        rows = payload.get("Results") or []
-        if not isinstance(rows, list):
-            raise TypeError("CafeMaker response Results must be a list")
+        rows = payload["rows"]
+        if not rows:
+            break
         pages_fetched += 1
+        schema = str(payload.get("schema") or "") or schema
+        game_version = str(payload.get("version") or "") or game_version
 
-        if page_total is None:
-            page_total = int(pagination.get("PageTotal") or 0) or None
-            total_rows = int(pagination.get("ResultsTotal") or 0) or None
-
-        normalized_rows = []
-        for row in rows:
-            if not isinstance(row, dict):
-                continue
-            normalized = normalize_item_row(row)
-            if not normalized.get("name_en"):
-                empty_name_en += 1
-            normalized_rows.append(normalized)
+        normalized_rows = [normalize_item_row(row, source=args.base_url) for row in rows]
         written += append_jsonl(tmp_output, normalized_rows)
+        after = next_after(rows, after)
 
         now = time.monotonic()
         if args.progress_interval > 0 and now - last_progress_at >= args.progress_interval:
-            print_progress(pages_fetched, page_total, written, total_rows, started_at, final=False)
+            print_progress(pages_fetched, written, started_at, final=False)
             last_progress_at = now
 
-        if not pagination.get("PageNext"):
-            break
         if args.limit_pages is not None and pages_fetched >= args.limit_pages:
             break
-        page += 1
         if args.delay > 0:
             time.sleep(args.delay)
 
     deduped_rows, duplicate_rows_removed = dedupe_rows(read_jsonl(tmp_output))
-    args.output.write_text("", encoding="utf-8")
-    append_jsonl(args.output, deduped_rows)
+    if not deduped_rows:
+        raise RuntimeError(
+            f"Boilmaster returned no Item rows; refusing to replace existing output: {args.output}"
+        )
+    write_jsonl_atomic(args.output, deduped_rows)
     tmp_output.unlink(missing_ok=True)
     final_counts = inspect_output(args.output)
     written = final_counts["rows"]
-    empty_name_en = final_counts["empty_name_en"]
     summary = {
         "source": args.base_url,
-        "columns": ITEM_COLUMNS,
+        "fields": list(ITEM_FIELDS),
         "output": str(args.output),
         "rows_written": written,
         "duplicate_rows_removed": duplicate_rows_removed,
-        "empty_name_en": empty_name_en,
+        "empty_name_en": final_counts["empty_name_en"],
         "pages_fetched": pages_fetched,
         "page_size": args.page_size,
-        "results_total": total_rows,
+        "results_total": written,
+        "last_row_id": after,
+        "schema": schema,
+        "game_version": game_version,
         "finished_at": timestamp(),
     }
-    write_json(args.summary, summary)
-    print_progress(pages_fetched, page_total, written, total_rows, started_at, final=True)
+    write_json_atomic(args.summary, summary)
+    print_progress(pages_fetched, written, started_at, final=True)
     print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
     return 0
 
 
-def fetch_page(base_url: str, page: int, page_size: int, timeout: float, retries: int) -> dict[str, Any]:
-    query = urlencode(
-        {
-            "columns": ",".join(ITEM_COLUMNS),
-            "limit": str(page_size),
-            "page": str(page),
-        }
-    )
-    url = f"{base_url}?{query}"
-    last_error: Exception | None = None
-    for attempt in range(1, max(retries, 1) + 1):
-        try:
-            request = Request(url, headers={"User-Agent": "ffxiv-prism/0.1 item-name-cache"})
-            with urlopen(request, timeout=timeout) as response:
-                data = response.read()
-            payload = json.loads(data.decode("utf-8"))
-            if not isinstance(payload, dict):
-                raise TypeError("CafeMaker response must be a JSON object")
-            return payload
-        except Exception as exc:
-            last_error = exc
-            if attempt < retries:
-                time.sleep(min(2**attempt, 10))
-    assert last_error is not None
-    raise last_error
-
-
-def normalize_item_row(row: dict[str, Any]) -> dict[str, Any]:
-    item_id = row.get("ID")
-    try:
-        item_id = int(item_id) if item_id not in (None, "") else None
-    except (TypeError, ValueError):
-        item_id = None
+def normalize_item_row(row: object, source: str = DEFAULT_BASE_URL) -> dict[str, Any]:
+    item_id = row_id(row)
+    fields = row_fields(row)
     return {
         "game_item_id": item_id,
-        "name_zh": str(row.get("Name") or "").strip() or None,
-        "name_en": str(row.get("Name_en") or "").strip() or None,
-        "equip_slot_category_id": normalize_int(row.get("EquipSlotCategoryTargetID")),
-        "item_ui_category_en": normalize_nested_name(row.get("ItemUICategory")),
-        "source": DEFAULT_BASE_URL,
+        "name_zh": str(fields.get("Name@lang(chs)") or "").strip() or None,
+        "name_en": str(fields.get("Name@lang(en)") or "").strip() or None,
+        "equip_slot_category_id": normalize_int(fields.get("EquipSlotCategory@as(raw)")),
+        "item_ui_category_en": normalize_nested_name(fields.get("ItemUICategory@lang(en)")),
+        "source": source,
     }
 
 
@@ -190,15 +163,19 @@ def normalize_int(value: object) -> int | None:
 def normalize_nested_name(value: object) -> str | None:
     if not isinstance(value, dict):
         return None
-    return str(value.get("Name_en") or "").strip() or None
+    fields = value.get("fields")
+    if not isinstance(fields, dict):
+        return None
+    return str(fields.get("Name") or "").strip() or None
 
 
-def count_lines(path: Path) -> int:
-    count = 0
-    with path.open("r", encoding="utf-8") as handle:
-        for _line in handle:
-            count += 1
-    return count
+def resume_after(rows: list[dict[str, Any]]) -> int | None:
+    if not rows:
+        return None
+    item_ids = [normalize_int(row.get("game_item_id")) for row in rows]
+    if any(item_id is None for item_id in item_ids):
+        raise ValueError("Cannot resume Item download with a missing game_item_id")
+    return max(item_id for item_id in item_ids if item_id is not None)
 
 
 def inspect_output(path: Path) -> dict[str, int]:
@@ -231,23 +208,10 @@ def dedupe_rows(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
     return deduped, duplicate_rows_removed
 
 
-def print_progress(
-    page: int,
-    page_total: int | None,
-    written: int,
-    total_rows: int | None,
-    started_at: float,
-    final: bool,
-) -> None:
+def print_progress(page: int, written: int, started_at: float, final: bool) -> None:
     elapsed = max(time.monotonic() - started_at, 0.001)
     rate = written / elapsed if written else 0.0
-    if page_total:
-        percent = min(page / page_total * 100.0, 100.0)
-        page_text = f"{page}/{page_total} ({percent:5.1f}%)"
-    else:
-        page_text = str(page)
-    total_text = str(total_rows) if total_rows is not None else "unknown"
-    line = f"Progress: pages={page_text} rows={written}/{total_text} rate={rate:5.1f}/s"
+    line = f"Progress: pages={page} rows={written} rate={rate:5.1f}/s"
     if final:
         print(f"\r{line}", file=sys.stderr, flush=True)
     else:

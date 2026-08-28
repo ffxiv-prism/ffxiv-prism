@@ -29,7 +29,7 @@ from ffxiv_prism.collectors.eorzea_collection.image_url import (  # noqa: E402
 )
 from ffxiv_prism.collectors.eorzea_collection.parser import parse_html  # noqa: E402
 from ffxiv_prism.collectors.eorzea_collection.collector import timestamp  # noqa: E402
-from ffxiv_prism.jsonl import append_jsonl, read_jsonl  # noqa: E402
+from ffxiv_prism.jsonl import append_jsonl, read_jsonl, write_jsonl_atomic  # noqa: E402
 from ffxiv_prism.paths import EORZEA_HTML_DIR, EORZEA_METADATA_DIR  # noqa: E402
 
 
@@ -72,6 +72,11 @@ def main() -> int:
     parser.add_argument("--dye-states", default=",".join(DYE_STATES), help="Comma-separated dye states to generate.")
     args = parser.parse_args()
 
+    checks_path = EORZEA_METADATA_DIR / "image_url_checks_raw.jsonl"
+    manifest_path = EORZEA_METADATA_DIR / "image_url_manifest_raw.jsonl"
+    EORZEA_METADATA_DIR.mkdir(parents=True, exist_ok=True)
+    use_cached_checks = args.resume and not args.reset_output
+    cached_check_rows = read_jsonl(checks_path) if use_cached_checks else []
     seed_urls = discover_seed_urls(args.list_cache_dir)
     candidate_urls = generate_candidate_urls(
         seed_urls,
@@ -81,20 +86,31 @@ def main() -> int:
         parts=split_csv(args.parts),
         dye_states=split_csv(args.dye_states),
     )
+    if not candidate_urls and cached_check_rows:
+        candidate_urls = candidate_urls_from_checks(cached_check_rows)
+        if candidate_urls:
+            print(
+                "No list-page image seeds were available; rebuilding the manifest "
+                f"from {len(candidate_urls)} cached URL checks.",
+                file=sys.stderr,
+                flush=True,
+            )
     if args.limit is not None:
         candidate_urls = candidate_urls[: args.limit]
+    if not candidate_urls:
+        raise RuntimeError(
+            "No image URL candidates were found. Refusing to replace the existing manifest. "
+            f"list_cache_dir={args.list_cache_dir}, seed_urls={len(seed_urls)}, "
+            f"cached_checks={len(cached_check_rows)}"
+        )
 
-    checks_path = EORZEA_METADATA_DIR / "image_url_checks_raw.jsonl"
-    manifest_path = EORZEA_METADATA_DIR / "image_url_manifest_raw.jsonl"
-    EORZEA_METADATA_DIR.mkdir(parents=True, exist_ok=True)
     if args.reset_output or not args.resume:
         checks_path.write_text("", encoding="utf-8")
-        manifest_path.write_text("", encoding="utf-8")
 
     candidate_url_set = set(candidate_urls)
     checked_rows_by_url: dict[str, dict[str, object]] = {}
-    if args.resume:
-        for row in read_jsonl(checks_path):
+    if use_cached_checks:
+        for row in cached_check_rows:
             url = row.get("source_image_url")
             if not url or url not in candidate_url_set:
                 continue
@@ -176,8 +192,12 @@ def main() -> int:
     elapsed_seconds = time.monotonic() - started_at
     checked_rows_by_url.update(new_rows_by_url)
     manifest_rows = build_manifest_rows(checked_rows_by_url.values(), candidate_url_set)
-    manifest_path.write_text("", encoding="utf-8")
-    append_jsonl(manifest_path, manifest_rows)
+    if not manifest_rows:
+        raise RuntimeError(
+            "No accessible normal image URLs were found. "
+            f"Refusing to replace the existing manifest: {manifest_path}"
+        )
+    write_jsonl_atomic(manifest_path, manifest_rows)
     print_progress(
         current=already_checked_count + checked_count,
         total=total_count,
@@ -225,6 +245,17 @@ def discover_seed_urls(cache_dir: Path) -> list[str]:
                 seed_urls.append(url)
                 seen.add(url)
     return seed_urls
+
+
+def candidate_urls_from_checks(rows: Iterable[dict[str, object]]) -> list[str]:
+    urls = {
+        str(row.get("source_image_url"))
+        for row in rows
+        if isinstance(row, dict)
+        and row.get("source_image_url")
+        and parse_gearsets_image_url(str(row.get("source_image_url")))
+    }
+    return sorted(urls)
 
 
 def generate_candidate_urls(
