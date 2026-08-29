@@ -63,6 +63,7 @@ class LifecyclePipelineTests(unittest.TestCase):
         self.assertIn("--refresh-source", stages[0].command)
         self.assertNotIn("--dry-run", stages[-1].command)
         self.assertIn("--skip-empty", stages[-1].command)
+        self.assertIn("--resume", stages[-1].command)
 
     def test_cached_plan_reuses_cafemaker_raw_tables(self) -> None:
         args = lifecycle.parse_args(
@@ -154,6 +155,38 @@ class LifecyclePipelineTests(unittest.TestCase):
             ),
             2,
         )
+
+    def test_passed_stage_can_be_reused_when_only_resume_flag_is_added(self) -> None:
+        stage = lifecycle.Stage(
+            "candidate-indexes",
+            "candidate",
+            ("python", "script.py", "--resume"),
+            "sample-library",
+        )
+        previous = {
+            "status": "passed",
+            "command": ["python", "script.py"],
+        }
+
+        result = lifecycle.reused_stage_result(stage, previous)
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result.status, "reused")
+
+    def test_legacy_report_candidate_suffix_is_read_from_command(self) -> None:
+        suffix = lifecycle.candidate_suffix_from_report(
+            {
+                "run_id": "fallback",
+                "stages": [
+                    {
+                        "name": "candidate-indexes",
+                        "command": ["python", "script.py", "--suffix", "versioned"],
+                    }
+                ],
+            }
+        )
+
+        self.assertEqual(suffix, "versioned")
 
 
 if __name__ == "__main__":

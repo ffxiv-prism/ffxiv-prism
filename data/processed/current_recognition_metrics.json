@@ -1,76 +1,276 @@
 {
-  "version": 1,
-  "registered_at": "2026-07-30",
-  "metric": "appearance_recall",
-  "protocol": "strict item-disjoint three-fold pooled",
-  "metric_status": "refresh_required_after_candidate_coverage_repair",
-  "candidate_snapshot_date": "2026-07-25",
-  "active_candidate_snapshot_date": "2026-07-30",
-  "active_denominators": {
-    "BODY": 988,
-    "HEAD": 900,
-    "HANDS": 949,
-    "LEGS": 965,
-    "FEET": 976
-  },
-  "refresh_policy": {
-    "training_gate": "do_not_train",
-    "audit": "data/outputs/training-readiness-audit-20260730/audit.json",
-    "fold_specific_checkpoints_required": true,
-    "reuse_production_fold01_checkpoint_for_fold02_or_fold03": false,
-    "reason": "Only production fold-01 checkpoints remain after workspace consolidation; a strict three-fold refresh requires separately trained fold-01/02/03 models after the data gate passes."
-  },
-  "target_top10": 0.8,
-  "target_achieved_all_slots": false,
-  "slots": [
-    {
-      "slot": "BODY",
-      "eligible": 987,
-      "top1": 0.6353,
-      "top10": 0.8288,
-      "method": "DINOv2 adapted query plus zero-shot/adapted DINOv3 with frozen Top-1 agreement gate"
-    },
-    {
-      "slot": "HEAD",
-      "eligible": 899,
-      "top1": 0.2736,
-      "top10": 0.475,
-      "method": "DINOv2, SigLIP2 and adapted DINOv3 rank ensemble with upper-to-face routing"
-    },
-    {
-      "slot": "HANDS",
-      "eligible": 945,
-      "top1": 0.0307,
-      "top10": 0.0878,
-      "method": "DINOv2 adapted query, multi-crop/gender routing and occupied-slot Top-1 gate"
-    },
-    {
-      "slot": "LEGS",
-      "eligible": 955,
-      "top1": 0.1393,
-      "top10": 0.3194,
-      "method": "DINOv2 plus DINOv3 rank ensemble inside a frozen DINOv2 Top-1000 pool"
-    },
-    {
-      "slot": "FEET",
-      "eligible": 967,
-      "top1": 0.1934,
-      "top10": 0.4116,
-      "method": "clean primary-family candidate index with DINOv2 and SigLIP2 rank ensemble"
-    }
-  ],
-  "equipment_library": {
-    "snapshot_date": "2026-07-30",
-    "gearsets": 2443,
-    "pieces": 11739,
-    "linked_slot_images": 19810,
-    "active_candidate_source_images": 19741,
-    "active_index_missing_images": 0
-  },
+  "candidate_snapshot": "20260829-024239",
   "canonical_training_assets": {
     "examples": "data/processed/glamour_examples_huiji_models_closed.jsonl",
-    "quality": "data/processed/front_fullbody_quality_final_v46.jsonl",
-    "body_folds": "data/interim/appearance-disjoint-cv-v52-huiji-closed",
-    "slot_folds": "data/interim/appearance-disjoint-cv-v54-{slot}-huiji-closed"
-  }
+    "folds": "data/interim/appearance-disjoint-cv-v55-slot-recovery-{slot}",
+    "regions": "data/debug/outfit-regions/slot-quality-20260801",
+    "slot_eligibility": "data/processed/slot_quality_eligibility_20260801.jsonl",
+    "visibility_reviews": "data/processed/training_visibility_reviews_20260801.jsonl"
+  },
+  "fold_audit": "data/outputs/slot-quality-fold-audit-20260801/summary.json",
+  "fold_audit_status": "ready_for_training",
+  "metric": "appearance_recall",
+  "metric_status": "release_ready",
+  "protocol": "strict item-disjoint three-fold pooled",
+  "registered_at": "2026-08-29T13:39:29.174363+00:00",
+  "release_id": "20260829-v110",
+  "release_policies": {
+    "BODY": "baseline",
+    "HANDS": "occupied-slot-top1-gate"
+  },
+  "slots": [
+    {
+      "eligible": 1013,
+      "fold_reports": [
+        {
+          "eligible": 337,
+          "fold": 1,
+          "hits": {
+            "1": 203,
+            "10": 283,
+            "100": 328,
+            "1000": 337
+          },
+          "path": "data/outputs/current-best-refresh-20260829/final-body-fold01.json"
+        },
+        {
+          "eligible": 338,
+          "fold": 2,
+          "hits": {
+            "1": 194,
+            "10": 274,
+            "100": 329,
+            "1000": 338
+          },
+          "path": "data/outputs/current-best-refresh-20260829/final-body-fold02.json"
+        },
+        {
+          "eligible": 338,
+          "fold": 3,
+          "hits": {
+            "1": 208,
+            "10": 274,
+            "100": 325,
+            "1000": 338
+          },
+          "path": "data/outputs/current-best-refresh-20260829/final-body-fold03.json"
+        }
+      ],
+      "hits": {
+        "1": 605,
+        "10": 831,
+        "100": 982,
+        "1000": 1013
+      },
+      "method": "DINOv2 adapted query plus zero-shot DINOv3 inside the frozen DINOv2 Top-1000 pool; unsafe adapted DINOv3 candidate excluded",
+      "slot": "BODY",
+      "top1": 0.5972359328726555,
+      "top10": 0.8203356367226061,
+      "top100": 0.9693978282329714,
+      "top1000": 1.0
+    },
+    {
+      "eligible": 927,
+      "fold_reports": [
+        {
+          "eligible": 309,
+          "fold": 1,
+          "hits": {
+            "1": 76,
+            "10": 140,
+            "100": 200,
+            "1000": 287
+          },
+          "path": "data/outputs/current-best-refresh-20260829/final-head-fold01.json"
+        },
+        {
+          "eligible": 309,
+          "fold": 2,
+          "hits": {
+            "1": 105,
+            "10": 175,
+            "100": 247,
+            "1000": 298
+          },
+          "path": "data/outputs/current-best-refresh-20260829/final-head-fold02.json"
+        },
+        {
+          "eligible": 309,
+          "fold": 3,
+          "hits": {
+            "1": 85,
+            "10": 143,
+            "100": 225,
+            "1000": 296
+          },
+          "path": "data/outputs/current-best-refresh-20260829/final-head-fold03.json"
+        }
+      ],
+      "hits": {
+        "1": 266,
+        "10": 458,
+        "100": 672,
+        "1000": 881
+      },
+      "method": "DINOv2, SigLIP2 and adapted DINOv3 rank ensemble with upper-to-face routing",
+      "slot": "HEAD",
+      "top1": 0.28694714131607335,
+      "top10": 0.49406688241639696,
+      "top100": 0.7249190938511327,
+      "top1000": 0.9503775620280475
+    },
+    {
+      "eligible": 959,
+      "fold_reports": [
+        {
+          "eligible": 319,
+          "fold": 1,
+          "hits": {
+            "1": 10,
+            "10": 28,
+            "100": 109,
+            "1000": 290
+          },
+          "path": "data/outputs/current-best-refresh-20260829/final-hands-fold01.json"
+        },
+        {
+          "eligible": 320,
+          "fold": 2,
+          "hits": {
+            "1": 4,
+            "10": 15,
+            "100": 90,
+            "1000": 292
+          },
+          "path": "data/outputs/current-best-refresh-20260829/final-hands-fold02.json"
+        },
+        {
+          "eligible": 320,
+          "fold": 3,
+          "hits": {
+            "1": 15,
+            "10": 43,
+            "100": 128,
+            "1000": 299
+          },
+          "path": "data/outputs/current-best-refresh-20260829/final-hands-fold03.json"
+        }
+      ],
+      "hits": {
+        "1": 29,
+        "10": 86,
+        "100": 327,
+        "1000": 881
+      },
+      "method": "DINOv2 adapted query, multi-crop/gender routing and occupied-slot Top-1 gate",
+      "slot": "HANDS",
+      "top1": 0.03023983315954119,
+      "top10": 0.08967674661105318,
+      "top100": 0.3409801876955162,
+      "top1000": 0.9186652763295099
+    },
+    {
+      "eligible": 970,
+      "fold_reports": [
+        {
+          "eligible": 323,
+          "fold": 1,
+          "hits": {
+            "1": 57,
+            "10": 116,
+            "100": 191,
+            "1000": 298
+          },
+          "path": "data/outputs/current-best-refresh-20260829/final-legs-fold01.json"
+        },
+        {
+          "eligible": 323,
+          "fold": 2,
+          "hits": {
+            "1": 25,
+            "10": 77,
+            "100": 166,
+            "1000": 298
+          },
+          "path": "data/outputs/current-best-refresh-20260829/final-legs-fold02.json"
+        },
+        {
+          "eligible": 324,
+          "fold": 3,
+          "hits": {
+            "1": 43,
+            "10": 111,
+            "100": 204,
+            "1000": 315
+          },
+          "path": "data/outputs/current-best-refresh-20260829/final-legs-fold03.json"
+        }
+      ],
+      "hits": {
+        "1": 125,
+        "10": 304,
+        "100": 561,
+        "1000": 911
+      },
+      "method": "DINOv2 plus DINOv3 rank ensemble inside a frozen DINOv2 Top-1000 pool",
+      "slot": "LEGS",
+      "top1": 0.12886597938144329,
+      "top10": 0.3134020618556701,
+      "top100": 0.5783505154639176,
+      "top1000": 0.9391752577319588
+    },
+    {
+      "eligible": 930,
+      "fold_reports": [
+        {
+          "eligible": 310,
+          "fold": 1,
+          "hits": {
+            "1": 64,
+            "10": 132,
+            "100": 234,
+            "1000": 300
+          },
+          "path": "data/outputs/current-best-refresh-20260829/final-feet-fold01.json"
+        },
+        {
+          "eligible": 310,
+          "fold": 2,
+          "hits": {
+            "1": 43,
+            "10": 112,
+            "100": 212,
+            "1000": 306
+          },
+          "path": "data/outputs/current-best-refresh-20260829/final-feet-fold02.json"
+        },
+        {
+          "eligible": 310,
+          "fold": 3,
+          "hits": {
+            "1": 79,
+            "10": 152,
+            "100": 236,
+            "1000": 307
+          },
+          "path": "data/outputs/current-best-refresh-20260829/final-feet-fold03.json"
+        }
+      ],
+      "hits": {
+        "1": 186,
+        "10": 396,
+        "100": 682,
+        "1000": 913
+      },
+      "method": "clean primary-family candidate index with DINOv2 and SigLIP2 rank ensemble",
+      "slot": "FEET",
+      "top1": 0.2,
+      "top10": 0.4258064516129032,
+      "top100": 0.7333333333333333,
+      "top1000": 0.9817204301075269
+    }
+  ],
+  "target_achieved_all_slots": false,
+  "target_top10": 0.8,
+  "version": 2
 }

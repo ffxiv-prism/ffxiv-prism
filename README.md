@@ -86,22 +86,26 @@ WebUI 会检测启动它的 Python/PyTorch 环境：GPU 环境可在每次任务
 
 | 部位 | 样本数 | Top-1 | Top-10 | 状态 |
 | --- | ---: | ---: | ---: | --- |
-| BODY | 987 | 63.53% | 82.88% | Top-10 达标 |
-| HEAD | 899 | 27.36% | 47.50% | 未达标 |
-| HANDS | 945 | 3.07% | 8.78% | 最差、优先处理 |
-| LEGS | 955 | 13.93% | 31.94% | 未达标 |
-| FEET | 967 | 19.34% | 41.16% | 未达标 |
+| BODY | 1,013 | 59.72% | 82.03% | Top-10 达标；适配 DINOv3 因折内域回退未发布 |
+| HEAD | 927 | 28.69% | 49.41% | 未达标 |
+| HANDS | 959 | 3.02% | 8.97% | 最差、优先处理 |
+| LEGS | 970 | 12.89% | 31.34% | 未达标 |
+| FEET | 930 | 20.00% | 42.58% | 未达标 |
 
-机器可读快照位于 `data/processed/current_recognition_metrics.json`，并已标记为 `refresh_required_after_candidate_coverage_repair`。目标是所有部位 Top-10 ≥ 80%，不是用 Top-1000 候选覆盖代替 Top-10 成绩。
+机器可读快照位于 `data/processed/current_recognition_metrics.json`，已登记为
+`release_ready`，对应候选快照 `20260829-024239`。目标仍是所有部位 Top-10 ≥ 80%；
+本次经明确的 `--allow-below-target` 发布现有最佳模型，不用 Top-1000 候选覆盖代替
+Top-10 成绩。
 
 ## 训练数据准入
 
 新的训练不得直接读取任意历史中间文件。规范本地输入固定为：
 
 - 标签：`data/processed/glamour_examples_huiji_models_closed.jsonl`
-- 最终质量清单：`data/processed/front_fullbody_quality_final_v46.jsonl`
-- BODY 严格三折：`data/interim/appearance-disjoint-cv-v52-huiji-closed`
-- 其他部位严格三折：`data/interim/appearance-disjoint-cv-v54-{slot}-huiji-closed`
+- 逐槽准入清单：`data/processed/slot_quality_eligibility_20260801.jsonl`
+- 可见性复核：`data/processed/training_visibility_reviews_20260801.jsonl`
+- 裁剪：`data/debug/outfit-regions/slot-quality-20260801`
+- 五槽严格三折：`data/interim/appearance-disjoint-cv-v55-slot-recovery-{slot}`
 
 这些玩家派生资产只保留在获授权的本机环境，不随代码仓库上传。
 
@@ -118,14 +122,19 @@ WebUI 会检测启动它的 Python/PyTorch 环境：GPU 环境可在每次任务
 运行当前训练准入审计：
 
 ```powershell
-python scripts\audit_glamour_training_readiness.py
+python scripts\audit_slot_quality_folds.py
 ```
 
-该命令在未通过时返回非零退出码，并把本地证据写到 `data/outputs/training-readiness-audit-20260730`。当前仍因逐槽可见性复核不完整和候选修复后的评估分母尚未重跑而阻塞训练。
+该命令在未通过时返回非零退出码，并把本地证据写到
+`data/outputs/slot-quality-fold-audit-20260801/summary.json`。当前审计状态为
+`ready_for_training`：五槽三折无身份或内容泄漏，裁剪与候选覆盖完整。
 
 ## 数据库与候选索引
 
-规范装备库为 `data/processed/eorzea.sqlite`。2026-07-30 快照包含 2,443 个套装、11,739 个装备部件和 19,810 张已关联槽位图；活动索引引用缺图为 0。玩家最终质量集的五部位标签均已达到 100% 活动候选覆盖。
+规范装备库为 `data/processed/eorzea.sqlite`。2026-08-29 生命周期快照包含
+2,456 个套装、11,796 个装备部件和 40,048 张图片，其中 39,947 张通过 QA；
+发布预览所需的 19,807 张图片全部可用。玩家逐槽准入集的五部位标签均已达到
+100% 活动候选覆盖。
 
 更新本地数据：
 
@@ -158,6 +167,24 @@ python scripts\run_lifecycle_pipeline.py `
 该流程依次执行远端套装发现、详情采集、图片 URL 验证、图片下载、中文名与
 槽位补全、图片索引和 QA、SQLite、精准同模关系，以及 DINOv2、DINOv3、
 SigLIP2 活动候选索引的版本化增量扩展。没有新增候选的分支不会复制旧索引。
+候选索引扩展现在按分支写入完成标记；某个分支失败后用同一命令重试时，已完成且
+结构校验通过的分支会直接复用，不再重新加载对应编码器或重复生成向量。
+
+长流程中断后，可直接从上一份生命周期报告恢复：
+
+```powershell
+python scripts\run_lifecycle_pipeline.py `
+  --workflow all `
+  --source-mode refresh `
+  --candidate-mode extend `
+  --release-mode publish `
+  --resume-report data\outputs\lifecycle-reports\<上次运行时间>.json `
+  --device cuda
+```
+
+恢复时会沿用原候选索引后缀，并复用命令参数一致、已通过的样本库阶段；测试和发布
+门禁仍会重新执行。如果需要从某一阶段主动重做，可加
+`--restart-stage <阶段名>`，该阶段及其后的样本库阶段都会重跑。
 
 校验当前选定的新模型发布候选：
 
@@ -167,12 +194,21 @@ python scripts\run_lifecycle_pipeline.py `
   --release-mode check
 ```
 
-真正导出 `current-best` 时使用 `--release-mode publish`。发布门禁要求全量测试、
+真正导出 `current-best` 时使用 `--release-mode publish`。如果已登记指标有效但尚未
+达到全部槽位目标，需要同时显式传入 `--allow-below-target`。发布门禁要求全量测试、
 推理配置、预览图片和运行资产完整性通过，并要求
 `data/processed/current_recognition_metrics.json` 是当前有效评估；指标过期时会
 阻止覆盖发布资产。完整串联可使用 `--workflow all`。默认的 `local` 来源模式只
 重建已有本地资料的派生资产，避免普通检查意外触发大规模网络采集；生产更新应
 显式选择 `--source-mode refresh`。
+
+模型评估的 `--query-cache` / `--crop-cache` 会在加载大模型前验证路径、模型、折次、
+检查点和预处理信息。缓存有效时直接进入检索；只有传入
+`--rebuild-query-cache` 或 `--rebuild-crop-cache` 才会强制重编码。严格三折报告完成后，
+`register_current_recognition_metrics.py` 会同时写入指标快照和
+`data/current_best_selection.json`；后者统一决定候选索引版本、推理检查点、BODY
+安全策略和基准值。`export_current_best_assets.py` 从该清单自动发现要导出的模型，
+因此晋升不再需要手改 `inference.py` 或资产文件名。
 
 `--source-mode cached` 会刷新由当前网页缓存派生的清单并下载缺失图片，但复用
 已有 CafeMaker 名称、槽位和模型原始表，只执行本地筛选与装备富化；只有

@@ -121,6 +121,24 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--skip-tests", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--report-root", type=Path, default=DEFAULT_REPORT_ROOT)
+    parser.add_argument(
+        "--resume-report",
+        type=Path,
+        help=(
+            "Resume a prior lifecycle report. Passed sample-library stages "
+            "with matching commands are reused and the original candidate "
+            "suffix is preserved."
+        ),
+    )
+    parser.add_argument(
+        "--restart-stage",
+        action="append",
+        default=[],
+        help=(
+            "Force this sample-library stage and every following sample stage "
+            "to rerun. May be repeated."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -314,6 +332,8 @@ def sample_stages(args: argparse.Namespace, run_id: str) -> list[Stage]:
         ]
         if args.candidate_mode == "check":
             candidate_args.append("--dry-run")
+        else:
+            candidate_args.append("--resume")
         stages.append(
             Stage(
                 "candidate-indexes",
@@ -415,6 +435,58 @@ def run_stage(stage: Stage, *, dry_run: bool) -> StageResult:
         round(duration, 3),
         command,
         lines,
+    )
+
+
+def load_resume_report(path: Path) -> tuple[Path, dict[str, Any]]:
+    resolved = path if path.is_absolute() else PROJECT_ROOT / path
+    payload = json.loads(resolved.read_text(encoding="utf-8"))
+    if not isinstance(payload.get("stages"), list):
+        raise ValueError(f"Lifecycle resume report has no stages: {resolved}")
+    return resolved, payload
+
+
+def normalized_resume_command(command: Sequence[str]) -> list[str]:
+    return [part for part in command if part != "--resume"]
+
+
+def candidate_suffix_from_report(payload: dict[str, Any]) -> str:
+    explicit = str(payload.get("candidate_suffix") or "")
+    if explicit:
+        return explicit
+    for row in payload.get("stages") or []:
+        if not isinstance(row, dict) or row.get("name") != "candidate-indexes":
+            continue
+        command = [str(part) for part in row.get("command") or []]
+        if "--suffix" in command:
+            index = command.index("--suffix")
+            if index + 1 < len(command):
+                return command[index + 1]
+    return str(payload.get("run_id") or "")
+
+
+def reused_stage_result(
+    stage: Stage,
+    previous: dict[str, Any] | None,
+) -> StageResult | None:
+    if not previous or previous.get("status") not in {"passed", "reused"}:
+        return None
+    previous_command = [str(part) for part in previous.get("command") or []]
+    if normalized_resume_command(previous_command) != normalized_resume_command(
+        stage.command
+    ):
+        return None
+    print(f"\n[{stage.phase}] {stage.label}", flush=True)
+    print("reused from passed lifecycle report", flush=True)
+    return StageResult(
+        stage.name,
+        stage.label,
+        stage.phase,
+        "reused",
+        0,
+        0.0,
+        list(stage.command),
+        ["reused from passed lifecycle report"],
     )
 
 
@@ -536,6 +608,7 @@ def write_report(
     results: list[StageResult],
     *,
     release_gate: dict[str, Any] | None,
+    resumed_from: Path | None = None,
 ) -> tuple[Path, dict[str, Any]]:
     report_root = args.report_root
     if not report_root.is_absolute():
@@ -554,12 +627,18 @@ def write_report(
         else "passed"
     )
     payload = {
-        "version": 1,
+        "version": 2,
         "run_id": run_id,
         "workflow": args.workflow,
         "source_mode": args.source_mode,
         "candidate_mode": args.candidate_mode,
+        "candidate_suffix": args.candidate_suffix or run_id,
         "release_mode": args.release_mode,
+        "resumed_from": (
+            str(resumed_from.relative_to(PROJECT_ROOT)).replace("\\", "/")
+            if resumed_from is not None and resumed_from.is_relative_to(PROJECT_ROOT)
+            else str(resumed_from) if resumed_from is not None else None
+        ),
         "status": status,
         "started_at": started_at,
         "finished_at": datetime.now(UTC).isoformat(timespec="seconds"),
@@ -583,12 +662,14 @@ def print_report(report_path: Path, payload: dict[str, Any]) -> None:
     assets = summary.get("release_assets") or {}
     stages = payload.get("stages") or []
     passed = sum(row.get("status") == "passed" for row in stages)
+    reused = sum(row.get("status") == "reused" for row in stages)
     planned = sum(row.get("status") == "planned" for row in stages)
     failed = sum(row.get("status") == "failed" for row in stages)
     print("\n=== FFXIV Prism 生命周期报告 ===")
     print(f"状态: {str(payload['status']).upper()}")
     print(
-        f"阶段: 通过 {passed} / 计划 {planned} / 失败 {failed} / 总计 {len(stages)}"
+        f"阶段: 通过 {passed} / 复用 {reused} / 计划 {planned} / "
+        f"失败 {failed} / 总计 {len(stages)}"
     )
     if samples:
         print(
@@ -647,10 +728,32 @@ def main(argv: Sequence[str] | None = None) -> int:
     results: list[StageResult] = []
     release_gate: dict[str, Any] | None = None
     hard_failure = False
+    resume_path: Path | None = None
+    previous_by_name: dict[str, dict[str, Any]] = {}
+    if args.resume_report is not None:
+        resume_path, previous_report = load_resume_report(args.resume_report)
+        if args.candidate_suffix is None:
+            args.candidate_suffix = candidate_suffix_from_report(previous_report)
+            if not args.candidate_suffix:
+                raise ValueError("Resume report has no candidate suffix or run ID")
+        previous_by_name = {
+            str(row.get("name")): row
+            for row in previous_report.get("stages") or []
+            if isinstance(row, dict) and row.get("name")
+        }
 
     if args.workflow in {"sample-library", "all"}:
+        reuse_invalidated = False
         for stage in sample_stages(args, run_id):
-            result = run_stage(stage, dry_run=args.dry_run)
+            if stage.name in set(args.restart_stage):
+                reuse_invalidated = True
+            result = None
+            if args.resume_report is not None and not reuse_invalidated:
+                result = reused_stage_result(stage, previous_by_name.get(stage.name))
+                if result is None:
+                    reuse_invalidated = True
+            if result is None:
+                result = run_stage(stage, dry_run=args.dry_run)
             results.append(result)
             if result.status == "failed":
                 hard_failure = True
@@ -700,6 +803,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         started_at,
         results,
         release_gate=release_gate,
+        resumed_from=resume_path,
     )
     print_report(report_path, payload)
     return 0 if payload["status"] in {"passed", "planned"} else 2

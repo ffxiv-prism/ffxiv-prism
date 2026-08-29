@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gc
 import json
 import tempfile
 import unittest
@@ -10,6 +11,8 @@ import torch
 
 from scripts.evaluate_glamour_fusion import parse_weights
 from scripts.evaluate_glamour_embedding_model import (
+    load_crop_embedding_cache,
+    load_existing_candidate_embeddings,
     load_or_build_candidate_embeddings,
     parse_split_roles,
     pool_dino_tokens,
@@ -73,6 +76,48 @@ class GlamourFusionTests(unittest.TestCase):
         pooled = pool_dino_tokens(tokens, "mean")
 
         self.assertTrue(torch.equal(pooled, torch.tensor([[2.0, 4.0]])))
+
+    def test_crop_cache_can_be_validated_without_loading_an_encoder(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            cache = Path(temporary) / "query.npz"
+            np.savez_compressed(
+                cache,
+                paths=np.asarray(["crop.png"]),
+                embeddings=np.asarray([[1.0, 2.0]], dtype=np.float32),
+                model_id=np.asarray("model"),
+                preprocess=np.asarray("color"),
+                pooling=np.asarray("cls"),
+            )
+
+            loaded = load_crop_embedding_cache(
+                {"example": [{"path": "crop.png"}]},
+                cache,
+                model_id="model",
+                preprocess="color",
+                pooling="cls",
+            )
+
+            self.assertIsNotNone(loaded)
+            self.assertTrue(np.array_equal(loaded["crop.png"], [1.0, 2.0]))
+
+    def test_existing_candidate_index_loads_without_encoder(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            index_dir = Path(temporary)
+            metadata = [{"local_path": "candidate.png", "slot": "BODY"}]
+            (index_dir / "metadata.jsonl").write_text(
+                json.dumps(metadata[0]) + "\n",
+                encoding="utf-8",
+            )
+            np.save(
+                index_dir / "embeddings.npy",
+                np.asarray([[1.0, 0.0]], dtype=np.float32),
+            )
+
+            loaded = load_existing_candidate_embeddings(metadata, index_dir)
+
+            self.assertEqual(loaded.shape, (1, 2))
+            del loaded
+            gc.collect()
 
     def test_split_role_parser_rejects_unknown_role(self) -> None:
         self.assertEqual(

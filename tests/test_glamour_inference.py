@@ -196,31 +196,17 @@ class GlamourInferenceTests(unittest.TestCase):
         )
         self.assertEqual([row["piece_id"] for row in fused], [2, 1])
 
-    def test_body_uses_validated_crop_then_branch_dinov3_gate(self) -> None:
+    def test_body_uses_validated_crop_then_branch_safe_baseline(self) -> None:
         config = current_best_configs()["BODY"]
         self.assertEqual(config.ensemble_fusion_order, "crop_then_branch")
         self.assertEqual(config.ensemble_final_pool_branches, 1)
         self.assertEqual(config.ensemble_model_ids, (
             "var/models/dinov3-vitb16-pretrain-lvd1689m",
-            "var/models/dinov3-vitb16-pretrain-lvd1689m",
         ))
-        self.assertEqual(config.ensemble_query_checkpoints[0], None)
-        self.assertEqual(
-            config.ensemble_query_checkpoints[1],
-            PROJECT_ROOT
-            / "data"
-            / "models"
-            / "current-best"
-            / "appearance_disjoint_cv_v97_body_fold01_dinov3_e10.pt",
-        )
-        self.assertEqual(config.ensemble_branch_weights, (1.0, 0.0, 1.25))
-        self.assertEqual(
-            config.ensemble_gate_baseline_branch_weights,
-            (1.0, 1.0, 0.0),
-        )
-        self.assertEqual(config.ensemble_top1_gate_max_base_rank, 10)
-        self.assertEqual(config.ensemble_top1_gate_max_last_branch_rank, 1)
-        self.assertEqual(config.ensemble_top1_gate_max_base_last_branch_rank, 10)
+        self.assertEqual(config.ensemble_query_checkpoints, (None,))
+        self.assertEqual(config.ensemble_branch_weights, (1.0, 1.0))
+        self.assertEqual(config.ensemble_gate_baseline_branch_weights, ())
+        self.assertIsNone(config.ensemble_top1_gate_max_base_rank)
         self.assertEqual(
             config.style_model_id,
             "google/siglip2-base-patch16-224",
@@ -228,7 +214,7 @@ class GlamourInferenceTests(unittest.TestCase):
         self.assertEqual(config.style_query_crop_name, "body_context")
         self.assertEqual(config.style_rerank_k, 100)
         self.assertAlmostEqual(config.style_blend, 0.70)
-        self.assertAlmostEqual(config.benchmark_top1 or 0.0, 0.6353)
+        self.assertAlmostEqual(config.benchmark_top1 or 0.0, 0.5972359328726555)
 
     def test_ensemble_top1_gate_promotes_supported_candidate_only(self) -> None:
         baseline = [
@@ -320,7 +306,7 @@ class GlamourInferenceTests(unittest.TestCase):
         self.assertEqual(config.occupied_slot_multiplier, 0.25)
         self.assertEqual(config.occupied_slot_gate_max_base_rank, 3)
         self.assertEqual(config.occupied_slot_body_support_top_k, 3)
-        self.assertAlmostEqual(config.benchmark_top1 or 0.0, 0.0307)
+        self.assertAlmostEqual(config.benchmark_top1 or 0.0, 0.03023983315954119)
 
     def test_occupied_slot_gate_promotes_nearby_exact_hands_piece(self) -> None:
         occupied = {
@@ -562,7 +548,7 @@ class GlamourInferenceTests(unittest.TestCase):
                 / "data"
                 / "models"
                 / "current-best"
-                / "appearance_disjoint_cv_v71_head_fold01_dinov3_e3.pt",
+                / "refresh_v110_head_fold01_dinov3_e3.pt",
             ),
         )
         self.assertEqual(configs["HEAD"].ensemble_rrf_k, 10)

@@ -21,6 +21,9 @@ from ffxiv_prism.vision.outfit_regions import CropRegion
 
 
 SLOTS = ("HEAD", "BODY", "HANDS", "LEGS", "FEET")
+CURRENT_BEST_SELECTION_PATH = (
+    PROJECT_ROOT / "data" / "current_best_selection.json"
+)
 VISIBLE_WEIGHTS = {
     "visible": 1.0,
     "partially_visible": 0.72,
@@ -93,60 +96,115 @@ class SlotInferenceConfig:
     benchmark_scope: str = ""
 
 
+def load_current_best_selection(
+    path: Path = CURRENT_BEST_SELECTION_PATH,
+) -> dict[str, Any]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if int(payload.get("version", 0)) != 1:
+        raise ValueError("Unsupported current-best selection version")
+    suffix = str(payload.get("candidate_suffix") or "")
+    if not suffix or any(char not in "0123456789-" for char in suffix):
+        raise ValueError("Invalid current-best candidate suffix")
+    checkpoints = payload.get("checkpoints")
+    benchmarks = payload.get("benchmarks")
+    if not isinstance(checkpoints, dict) or not isinstance(benchmarks, dict):
+        raise ValueError("Current-best selection is missing checkpoints or benchmarks")
+    missing_slots = sorted(set(SLOTS) - set(benchmarks))
+    if missing_slots:
+        raise ValueError(
+            "Current-best selection is missing benchmark slots: "
+            + ", ".join(missing_slots)
+        )
+    return payload
+
+
 def current_best_configs() -> dict[str, SlotInferenceConfig]:
     models = PROJECT_ROOT / "data" / "models" / "current-best"
+    selection = load_current_best_selection()
+    suffix = str(selection["candidate_suffix"])
+    checkpoints = selection["checkpoints"]
+    benchmarks = selection["benchmarks"]
+    body_policy = str(selection.get("body_policy") or "baseline")
+    if body_policy not in {"baseline", "safe-gate"}:
+        raise ValueError(f"Unsupported BODY current-best policy: {body_policy}")
+
+    def index(name: str) -> Path:
+        return INDEXES_DIR / f"{name}-{suffix}"
+
+    def checkpoint(name: str) -> Path:
+        value = checkpoints.get(name)
+        if not value:
+            raise ValueError(f"Current-best checkpoint is missing: {name}")
+        return models / str(value)
+
+    def benchmark(slot: str, metric: str) -> float:
+        return float(benchmarks[slot][metric])
+
+    def eligible(slot: str) -> int:
+        return int(benchmarks[slot]["eligible"])
+
+    body_ensemble_model_ids = ("var/models/dinov3-vitb16-pretrain-lvd1689m",)
+    body_ensemble_indexes = (
+        index("facebook-dinov3-vitb16-body-multiscale-v3"),
+    )
+    body_ensemble_checkpoints: tuple[Path | None, ...] = (None,)
+    body_weights = (1.0, 1.0)
+    body_baseline_weights: tuple[float, ...] = ()
+    body_gate: tuple[int | None, int | None, int | None, float | None] = (
+        None,
+        None,
+        None,
+        None,
+    )
+    if body_policy == "safe-gate":
+        body_ensemble_model_ids += (
+            "var/models/dinov3-vitb16-pretrain-lvd1689m",
+        )
+        body_ensemble_indexes += (
+            index("facebook-dinov3-vitb16-body-multiscale-v3"),
+        )
+        body_ensemble_checkpoints = (None, checkpoint("body_dinov3"))
+        body_weights = (1.0, 0.0, 1.25)
+        body_baseline_weights = (1.0, 1.0, 0.0)
+        body_gate = (10, 1, 10, 1.0)
     return {
         "BODY": SlotInferenceConfig(
             slot="BODY",
-            index_dir=INDEXES_DIR
-            / "facebook-dinov2-base-slot-aligned-v3-body-multiscale-20260730",
-            query_checkpoint=models
-            / "appearance_disjoint_cv_v52_fold01_qv64_closed_e10.pt",
-            ensemble_model_ids=(
-                "var/models/dinov3-vitb16-pretrain-lvd1689m",
-                "var/models/dinov3-vitb16-pretrain-lvd1689m",
+            index_dir=index(
+                "facebook-dinov2-base-slot-aligned-v3-body-multiscale"
             ),
-            ensemble_index_dirs=(
-                INDEXES_DIR
-                / "facebook-dinov3-vitb16-body-multiscale-v3-20260730",
-                INDEXES_DIR
-                / "facebook-dinov3-vitb16-body-multiscale-v3-20260730",
-            ),
-            ensemble_query_checkpoints=(
-                None,
-                models / "appearance_disjoint_cv_v97_body_fold01_dinov3_e10.pt",
-            ),
+            query_checkpoint=checkpoint("body_dinov2"),
+            ensemble_model_ids=body_ensemble_model_ids,
+            ensemble_index_dirs=body_ensemble_indexes,
+            ensemble_query_checkpoints=body_ensemble_checkpoints,
             ensemble_rrf_k=1,
             ensemble_final_pool_branches=1,
             ensemble_fusion_order="crop_then_branch",
-            ensemble_branch_weights=(1.0, 0.0, 1.25),
-            ensemble_gate_baseline_branch_weights=(1.0, 1.0, 0.0),
-            ensemble_top1_gate_max_base_rank=10,
-            ensemble_top1_gate_max_last_branch_rank=1,
-            ensemble_top1_gate_max_base_last_branch_rank=10,
-            ensemble_top1_gate_min_last_branch_rank_ratio=1.0,
+            ensemble_branch_weights=body_weights,
+            ensemble_gate_baseline_branch_weights=body_baseline_weights,
+            ensemble_top1_gate_max_base_rank=body_gate[0],
+            ensemble_top1_gate_max_last_branch_rank=body_gate[1],
+            ensemble_top1_gate_max_base_last_branch_rank=body_gate[2],
+            ensemble_top1_gate_min_last_branch_rank_ratio=body_gate[3],
             style_model_id="google/siglip2-base-patch16-224",
             style_query_crop_name="body_context",
             style_rerank_k=100,
             style_blend=0.70,
             style_min_confidence=0.45,
-            benchmark_top1=0.6353,
-            benchmark_top10=0.8288,
+            benchmark_top1=benchmark("BODY", "top1"),
+            benchmark_top10=benchmark("BODY", "top10"),
             benchmark_scope=(
-                "strict three-fold pooled BODY v99 (987 images): v96 DINOv2 + "
-                "zero-shot DINOv3 baseline, DINOv3 e10 replacement candidate "
-                "at weight 1.25, and a frozen label-agnostic Top-1-only "
-                "agreement gate; DINOv2 Top-1000 and the complete v96 tail stay "
-                "frozen. The confidence-gated coverage-style reranker is not "
-                "included in this identity benchmark"
+                "strict item-disjoint three-fold pooled BODY v110 baseline "
+                f"({eligible('BODY')} images): refreshed DINOv2 plus zero-shot DINOv3 with "
+                "the final DINOv2 Top-1000 pool frozen. The adapted DINOv3 "
+                "candidate was excluded after a fold-level domain regression; "
+                "the confidence-gated style reranker is not included"
             ),
         ),
         "HEAD": SlotInferenceConfig(
             slot="HEAD",
-            index_dir=INDEXES_DIR
-            / "facebook-dinov2-base-head-multiscale-v4-20260730",
-            query_checkpoint=models
-            / "appearance_disjoint_cv_v54_head_fold01_qv65_e10.pt",
+            index_dir=index("facebook-dinov2-base-head-multiscale-v4"),
+            query_checkpoint=checkpoint("head_dinov2"),
             candidate_crop_routes=HEAD_PROMOTED_CANDIDATE_CROP_ROUTES,
             query_crop_names=("head_upper_accessory",),
             ensemble_model_ids=(
@@ -154,14 +212,12 @@ def current_best_configs() -> dict[str, SlotInferenceConfig]:
                 "var/models/dinov3-vitb16-pretrain-lvd1689m",
             ),
             ensemble_index_dirs=(
-                INDEXES_DIR
-                / "google-siglip2-base-patch16-224-head-multiscale-v4-20260730",
-                INDEXES_DIR
-                / "facebook-dinov3-vitb16-head-multiscale-v4-20260730",
+                index("google-siglip2-base-patch16-224-head-multiscale-v4"),
+                index("facebook-dinov3-vitb16-head-multiscale-v4"),
             ),
             ensemble_query_checkpoints=(
                 None,
-                models / "appearance_disjoint_cv_v71_head_fold01_dinov3_e3.pt",
+                checkpoint("head_dinov3"),
             ),
             morphology_checkpoint=(
                 models / "head_morphology_v73_fold01_qv65_upper_binary_ridge.npz"
@@ -175,20 +231,18 @@ def current_best_configs() -> dict[str, SlotInferenceConfig]:
             ensemble_rrf_k=10,
             ensemble_pool_branches=2,
             ensemble_pool_rrf_k=1,
-            benchmark_top1=0.2736,
-            benchmark_top10=0.4750,
+            benchmark_top1=benchmark("HEAD", "top1"),
+            benchmark_top10=benchmark("HEAD", "top10"),
             benchmark_scope=(
                 "strict three-fold pooled DINOv2+SigLIP2+DINOv3-query-adapted gated rank "
                 "ensemble with upper-query to face-candidate routing "
-                "(899 images; DINOv2+SigLIP2 Top-1000 pool preserved)"
+                f"({eligible('HEAD')} images; DINOv2+SigLIP2 Top-1000 pool preserved)"
             ),
         ),
         "HANDS": SlotInferenceConfig(
             slot="HANDS",
-            index_dir=INDEXES_DIR
-            / "facebook-dinov2-base-hands-multiscale-v5-20260730",
-            query_checkpoint=models
-            / "appearance_disjoint_cv_v59_hands_fold01_qv71_v5_e10.pt",
+            index_dir=index("facebook-dinov2-base-hands-multiscale-v5"),
+            query_checkpoint=checkpoint("hands_dinov2"),
             fusion="rrf",
             rrf_k=1,
             candidate_crop_routes=HANDS_CANDIDATE_CROP_ROUTES,
@@ -199,28 +253,25 @@ def current_best_configs() -> dict[str, SlotInferenceConfig]:
             no_equipment_model_id="google/siglip2-base-patch16-224",
             no_equipment_query_crop_names=("hands_left", "hands_right"),
             no_equipment_min_probability=0.80,
-            benchmark_top1=0.0307,
-            benchmark_top10=0.0878,
+            benchmark_top1=benchmark("HANDS", "top1"),
+            benchmark_top10=benchmark("HANDS", "top10"),
             benchmark_scope=(
-                "strict three-fold pooled benchmark (945 images); frozen "
+                f"strict item-disjoint three-fold pooled benchmark ({eligible('HANDS')} images); frozen "
                 "occupied-slot Top-1 gate demotes multi-slot outfit pieces only "
                 "when an exact HANDS piece is already in the base Top-3"
             ),
         ),
         "LEGS": SlotInferenceConfig(
             slot="LEGS",
-            index_dir=INDEXES_DIR
-            / "facebook-dinov2-base-legs-multiscale-v6-20260730",
-            query_checkpoint=models
-            / "appearance_disjoint_cv_v60_legs_fold01_qv72_e10.pt",
+            index_dir=index("facebook-dinov2-base-legs-multiscale-v6"),
+            query_checkpoint=checkpoint("legs_dinov2"),
             fusion="rrf",
             rrf_k=1,
             ensemble_model_ids=(
                 "var/models/dinov3-vitb16-pretrain-lvd1689m",
             ),
             ensemble_index_dirs=(
-                INDEXES_DIR
-                / "facebook-dinov3-vitb16-legs-multiscale-v6-20260730",
+                index("facebook-dinov3-vitb16-legs-multiscale-v6"),
             ),
             ensemble_query_checkpoints=(None,),
             ensemble_rrf_k=1,
@@ -232,25 +283,24 @@ def current_best_configs() -> dict[str, SlotInferenceConfig]:
             style_rerank_k=100,
             style_blend=0.30,
             style_min_confidence=0.50,
-            benchmark_top1=0.1393,
-            benchmark_top10=0.3194,
+            benchmark_top1=benchmark("LEGS", "top1"),
+            benchmark_top10=benchmark("LEGS", "top10"),
             benchmark_scope=(
                 "strict three-fold pooled DINOv2+DINOv3 branch RRF(k=1), "
                 "query-crop RRF(k=1), with the final DINOv2 Top-1000 "
-                "piece pool frozen (955 images). The confidence-gated "
+                f"piece pool frozen ({eligible('LEGS')} images). The confidence-gated "
                 "coverage-style reranker is not included in this identity benchmark"
             ),
         ),
         "FEET": SlotInferenceConfig(
             slot="FEET",
-            index_dir=INDEXES_DIR
-            / "facebook-dinov2-base-feet-multiscale-v7-clean-20260730",
-            query_checkpoint=models
-            / "appearance_disjoint_cv_v61_feet_fold01_qv73_e10.pt",
+            index_dir=index("facebook-dinov2-base-feet-multiscale-v7-clean"),
+            query_checkpoint=checkpoint("feet_dinov2"),
             ensemble_model_ids=("google/siglip2-base-patch16-224",),
             ensemble_index_dirs=(
-                INDEXES_DIR
-                / "google-siglip2-base-patch16-224-feet-multiscale-v7-clean-20260730",
+                index(
+                    "google-siglip2-base-patch16-224-feet-multiscale-v7-clean"
+                ),
             ),
             ensemble_query_checkpoints=(None,),
             ensemble_rrf_k=1,
@@ -261,12 +311,12 @@ def current_best_configs() -> dict[str, SlotInferenceConfig]:
             style_rerank_k=50,
             style_blend=0.70,
             style_min_confidence=0.70,
-            benchmark_top1=0.1934,
-            benchmark_top10=0.4116,
+            benchmark_top1=benchmark("FEET", "top1"),
+            benchmark_top10=benchmark("FEET", "top10"),
             benchmark_scope=(
                 "strict three-fold pooled DINOv2+SigLIP2 rank ensemble "
                 "with query-crop RRF(k=1), after primary visual-piece "
-                "metadata cleanup (967 images); the confidence-gated "
+                f"metadata cleanup ({eligible('FEET')} images); the confidence-gated "
                 "footwear-height reranker is reported separately"
             ),
         ),

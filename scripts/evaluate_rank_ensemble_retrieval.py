@@ -28,6 +28,7 @@ from scripts.evaluate_retrieval_funnel import (
     summarize_ranked_cases,
     validate_cutoffs,
 )
+from scripts.train_glamour_query_encoder import load_slot_eligibility
 
 
 def fuse_branch_searches(
@@ -217,7 +218,9 @@ def main() -> int:
         help="Repeat for each candidate-index/query-cache branch.",
     )
     parser.add_argument("--examples", type=Path, required=True)
-    parser.add_argument("--quality-manifest", type=Path, required=True)
+    quality_group = parser.add_mutually_exclusive_group(required=True)
+    quality_group.add_argument("--quality-manifest", type=Path)
+    quality_group.add_argument("--slot-eligibility-manifest", type=Path)
     parser.add_argument("--slot", choices=SLOTS, required=True)
     parser.add_argument("--regions-dir", type=Path, required=True)
     parser.add_argument("--fold", type=int, required=True)
@@ -319,10 +322,20 @@ def main() -> int:
     ]
     expected_paths = [str(row["local_path"]) for row in metadata]
     examples = read_jsonl(args.examples)
-    quality_by_id = {
-        str(row["example_id"]): bool(row.get("passed"))
-        for row in read_jsonl(args.quality_manifest)
-    }
+    if args.quality_manifest:
+        quality_by_id = {
+            str(row["example_id"]): bool(row.get("passed"))
+            for row in read_jsonl(args.quality_manifest)
+        }
+    else:
+        eligibility = load_slot_eligibility(args.slot_eligibility_manifest)
+        quality_by_id = {
+            str(example["example_id"]): (
+                args.slot
+                in eligibility.get(str(example["example_id"]), set())
+            )
+            for example in examples
+        }
     context = build_fold_context(
         fold=args.fold,
         fold_manifest=args.fold_manifest,
@@ -512,6 +525,10 @@ def main() -> int:
         "fold": args.fold,
         "fold_manifest": portable_path(args.fold_manifest),
         "metadata": portable_path(args.metadata),
+        "quality_manifest": portable_path(args.quality_manifest),
+        "slot_eligibility_manifest": portable_path(
+            args.slot_eligibility_manifest
+        ),
         "branches": branch_manifest,
         "candidate_k": args.candidate_k,
         "candidate_crop_routing": args.candidate_crop_routing,

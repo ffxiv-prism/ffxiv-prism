@@ -236,6 +236,14 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--resume",
+        action="store_true",
+        help=(
+            "Reuse target outputs that have a completed, structurally valid "
+            "summary and build only missing targets."
+        ),
+    )
+    parser.add_argument(
         "--skip-empty",
         action="store_true",
         help="Do not create a versioned copy for targets with no new rows.",
@@ -293,12 +301,31 @@ def main() -> int:
         for target in targets
         if additions[target.name] or not args.skip_empty
     ]
-    validate_output_dirs(writable_targets)
-
     encoders: dict[str, Any] = {}
     results = []
+    resumed_names: set[str] = set()
+    if args.resume:
+        for target in writable_targets:
+            if target.output.exists() and any(target.output.iterdir()):
+                result = load_completed_target(
+                    target,
+                    additions[target.name],
+                )
+                results.append(result)
+                resumed_names.add(target.name)
+                print(
+                    f"reused target={target.name} rows={result['candidate_count']}",
+                    flush=True,
+                )
+    pending_targets = [
+        target for target in writable_targets if target.name not in resumed_names
+    ]
+    validate_output_dirs(pending_targets)
+
     for target in targets:
         rows = additions[target.name]
+        if target.name in resumed_names:
+            continue
         if not rows and args.skip_empty:
             result = {
                 "target": target.name,
@@ -361,6 +388,57 @@ def main() -> int:
 
     print(json.dumps(results, ensure_ascii=False, indent=2))
     return 0
+
+
+def load_completed_target(
+    target: Target,
+    additions: Sequence[dict[str, Any]],
+) -> dict[str, Any]:
+    summary_path = target.output / "summary.json"
+    metadata_path = target.output / "metadata.jsonl"
+    embeddings_path = target.output / "embeddings.npy"
+    required = (summary_path, metadata_path, embeddings_path)
+    missing = [str(path) for path in required if not path.is_file()]
+    if missing:
+        raise ValueError(
+            f"{target.name}: incomplete resume output; missing {missing}"
+        )
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    source_rows = read_jsonl(target.source / "metadata.jsonl")
+    output_rows = read_jsonl(metadata_path)
+    embeddings = np.load(embeddings_path, mmap_mode="r")
+    expected_count = len(source_rows) + len(additions)
+    problems: list[str] = []
+    if summary.get("completed") is not True:
+        problems.append("summary is not completed")
+    if int(summary.get("source_candidate_count", -1)) != len(source_rows):
+        problems.append("source candidate count changed")
+    if int(summary.get("new_candidate_count", -1)) != len(additions):
+        problems.append("new candidate count changed")
+    if int(summary.get("candidate_count", -1)) != expected_count:
+        problems.append("total candidate count changed")
+    if len(output_rows) != expected_count:
+        problems.append("metadata row count mismatch")
+    if embeddings.ndim != 2 or embeddings.shape[0] != expected_count:
+        problems.append("embedding row count mismatch")
+    if len(output_rows) == expected_count:
+        if output_rows[: len(source_rows)] != source_rows:
+            problems.append("source metadata prefix changed")
+        if additions and output_rows[len(source_rows) :] != list(additions):
+            problems.append("appended metadata changed")
+    if problems:
+        raise ValueError(
+            f"{target.name}: existing output cannot be resumed: "
+            + "; ".join(problems)
+        )
+    return {
+        "target": target.name,
+        "source_candidate_count": len(source_rows),
+        "new_candidate_count": len(additions),
+        "candidate_count": expected_count,
+        "output": portable_path(target.output),
+        "reused": True,
+    }
 
 
 class DinoRowEncoder:

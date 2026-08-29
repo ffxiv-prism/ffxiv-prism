@@ -1,0 +1,42 @@
+{
+  "benchmarks": {
+    "BODY": {
+      "eligible": 1013,
+      "top1": 0.5972359328726555,
+      "top10": 0.8203356367226061
+    },
+    "FEET": {
+      "eligible": 930,
+      "top1": 0.2,
+      "top10": 0.4258064516129032
+    },
+    "HANDS": {
+      "eligible": 959,
+      "top1": 0.03023983315954119,
+      "top10": 0.08967674661105318
+    },
+    "HEAD": {
+      "eligible": 927,
+      "top1": 0.28694714131607335,
+      "top10": 0.49406688241639696
+    },
+    "LEGS": {
+      "eligible": 970,
+      "top1": 0.12886597938144329,
+      "top10": 0.3134020618556701
+    }
+  },
+  "body_policy": "baseline",
+  "candidate_suffix": "20260829-024239",
+  "checkpoints": {
+    "body_dinov2": "refresh_v110_body_fold01_dinov2_e10.pt",
+    "body_dinov3": null,
+    "feet_dinov2": "refresh_v110_feet_fold01_dinov2_e10.pt",
+    "hands_dinov2": "refresh_v110_hands_fold01_dinov2_e10.pt",
+    "head_dinov2": "refresh_v110_head_fold01_dinov2_e10.pt",
+    "head_dinov3": "refresh_v110_head_fold01_dinov3_e3.pt",
+    "legs_dinov2": "refresh_v110_legs_fold01_dinov2_e10.pt"
+  },
+  "release_id": "20260829-v110",
+  "version": 1
+}
