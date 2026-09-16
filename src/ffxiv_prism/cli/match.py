@@ -254,15 +254,17 @@ def main(argv: list[str] | None = None) -> int:
 
     occupied_slots_by_piece = _load_piece_occupied_slots(
         {
-            int(candidate["piece_id"])
+            int(item["piece_id"])
             for result in results
             for candidate in result.get("candidates", [])
+            for item in [candidate, *candidate.get("appearance_alternatives", [])]
         }
     )
     results = apply_multislot_consistency_gate(
         results,
         occupied_slots_by_piece,
         support_top_k=MULTISLOT_SUPPORT_TOP_K,
+        display_top_k=args.top_k,
     )
 
     manifest_path = output_dir / "regions.json"
@@ -1077,22 +1079,15 @@ def _run_slot(
             del candidate_pool
         del branch_searches
 
-    # Retrieve a deeper display pool so collapsing same-model variants can
-    # still return the requested number of visually distinct candidates.
-    deduplication_pool_k = min(candidate_k, max(top_k, top_k * 4))
-    retrieval_top_k = (
-        max(deduplication_pool_k, config.spatial_rerank_k)
-        if spatial_index is not None and spatial_query_profile is not None
-        else deduplication_pool_k
-    )
+    # Keep the full retrieval pool until same-model deduplication and the
+    # cross-slot gate finish. Truncating here can leave the report underfilled.
+    retrieval_top_k = candidate_k
+    if spatial_index is not None and spatial_query_profile is not None:
+        retrieval_top_k = max(retrieval_top_k, config.spatial_rerank_k)
     if style_policy_result is not None and style_policy_result.active:
         retrieval_top_k = max(retrieval_top_k, config.style_rerank_k)
     if long_body_legwear_profile is not None:
         retrieval_top_k = max(retrieval_top_k, config.style_rerank_k)
-    if reference_label is not None:
-        retrieval_top_k = max(retrieval_top_k, candidate_k)
-    if final_pool_search is not None:
-        retrieval_top_k = max(retrieval_top_k, candidate_k)
     candidates = (
         crop_then_branch_candidates[:retrieval_top_k]
         if crop_then_branch_candidates is not None
@@ -1378,12 +1373,12 @@ def _run_slot(
         ),
         None,
     )
-    displayed_candidates = []
-    for candidate in candidates[:top_k]:
+    pooled_candidates = []
+    for candidate in candidates:
         row = dict(candidate)
         row["reference_match"] = int(row.get("piece_id", -1)) in reference_piece_ids
-        displayed_candidates.append(row)
-    result = slot_result(config, slot_records["query"], displayed_candidates)
+        pooled_candidates.append(row)
+    result = slot_result(config, slot_records["query"], pooled_candidates)
     result["slot_presence_diagnostic"] = slot_presence_diagnostic
     if no_equipment_diagnostic is not None:
         result["no_equipment_diagnostic"] = no_equipment_diagnostic

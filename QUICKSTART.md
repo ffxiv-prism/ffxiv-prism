@@ -70,6 +70,8 @@ python scripts\recognize_glamour.py reference.png `
 - `regions.json`：关键点、可见性、置信度和裁剪路径；
 - `crops/`：检索裁剪以及不参与排名的质检裁剪。
 
+多槽位装备只有在所有占用部位的外观均进入各自筛选前的 Top-5 候选时，才会保留在报告中；同模装备也遵循此规则。未识别或没有可用候选的部位不算通过。系统先保留完整检索候选池，在同模去重和多槽位筛选后，按原排名用后续合格候选补足 `--top-k`；补位不会放宽多槽位校验。只有候选池中的合格外观确实不足，或部位没有可用识别结果时，才会少于设定数量。`--candidate-k` 控制检索池大小，默认 1000。当 `--top-k` 小于 5 时，多槽位支持范围也相应缩小，确保支撑外观出现在最终报告中。
+
 FEET 的 `feet_full_left`、`feet_full_right`、`feet_full_context` 专门用于确认
 完整鞋尖和鞋底是否被覆盖，`role` 为 `diagnostic`，检索权重为 0。若报告出现
 `source_edge_truncation_risk`，说明原图边缘很可能已经把鞋截断，此时应更换完整截图。

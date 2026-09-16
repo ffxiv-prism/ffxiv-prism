@@ -1414,11 +1414,24 @@ def apply_multislot_consistency_gate(
     occupied_slots_by_piece: Mapping[int, Sequence[str]],
     *,
     support_top_k: int,
+    display_top_k: int | None = None,
 ) -> list[dict[str, Any]]:
-    """Demote multi-slot candidates unsupported by their other visible slots."""
+    """Keep multi-slot appearances only when every occupied slot supports them.
 
+    Support uses the original Top-K, including the current slot. Missing slots
+    fail closed. Same-model alternatives can supply appearance evidence, but
+    must pass the gate themselves. Iterate removals so rejected candidates
+    cannot remain evidence for another candidate, without promoting weaker
+    matches into the support pool as ranks are compacted. Only truncate the
+    surviving pool at the end, so later eligible candidates fill removed rows.
+    """
     if support_top_k < 1:
         raise ValueError("support_top_k must be positive")
+    if display_top_k is not None:
+        if display_top_k < 1:
+            raise ValueError("display_top_k must be positive")
+        # Evidence must fit in the final report even for Top-1/Top-3 requests.
+        support_top_k = min(support_top_k, display_top_k)
     output = [
         {
             **dict(result),
@@ -1427,107 +1440,140 @@ def apply_multislot_consistency_gate(
         for result in slot_results
     ]
     by_slot = {str(result.get("slot")): result for result in output}
-    original_candidates = {
-        slot: [dict(row) for row in result.get("candidates", [])]
-        for slot, result in by_slot.items()
+    original_counts = {
+        slot: len(result["candidates"]) for slot, result in by_slot.items()
     }
+    removed_alternative_counts = dict.fromkeys(by_slot, 0)
 
     def normalized_name(row: Mapping[str, Any]) -> str:
         return " ".join(str(row.get("name_en") or "").casefold().split())
 
-    for slot, result in by_slot.items():
-        unsupported_count = 0
-        for original_index, candidate in enumerate(result["candidates"]):
-            piece_id = int(candidate["piece_id"])
-            occupied_slots = tuple(
-                occupied_slot
-                for occupied_slot in (
-                    str(value).upper()
-                    for value in occupied_slots_by_piece.get(piece_id, ())
-                )
-                if occupied_slot in SLOTS
-            )
-            if len(set(occupied_slots)) <= 1:
-                continue
-
-            candidate_name = normalized_name(candidate)
-            required_slots = [
-                occupied_slot
-                for occupied_slot in dict.fromkeys(occupied_slots)
-                if occupied_slot != slot and occupied_slot in by_slot
-            ]
-            support: dict[str, dict[str, Any]] = {}
-            unsupported_slots: list[str] = []
-            for occupied_slot in required_slots:
-                matched = next(
-                    (
-                        row
-                        for row in original_candidates[occupied_slot]
-                        if int(row.get("piece_id", -1)) == piece_id
-                        or (
-                            candidate_name
-                            and normalized_name(row) == candidate_name
-                        )
-                    ),
-                    None,
-                )
-                matched_rank = (
-                    int(matched.get("rank", 0)) if matched is not None else None
-                )
-                supported = (
-                    matched_rank is not None
+    def consistency(
+        item: Mapping[str, Any], slot: str, rank: int,
+    ) -> dict[str, Any] | None:
+        piece_id = int(item["piece_id"])
+        occupied_slots = list(dict.fromkeys(
+            str(value).upper()
+            for value in occupied_slots_by_piece.get(piece_id, ())
+            if str(value).upper() in SLOTS
+        ))
+        if len(occupied_slots) <= 1:
+            return None
+        candidate_name = normalized_name(item)
+        support = {}
+        for occupied_slot in occupied_slots:
+            matched_rank = rank if occupied_slot == slot else None
+            other_result = by_slot.get(occupied_slot, {})
+            if occupied_slot != slot:
+                evidence = evidence_by_slot.get(occupied_slot, {})
+                matches = [
+                    evidence[key]
+                    for key in [("piece", piece_id), ("name", candidate_name)]
+                    if key in evidence
+                ]
+                matched_rank = min(matches) if matches else None
+            support[occupied_slot] = {
+                "rank": matched_rank,
+                "supported": (
+                    other_result.get("status", "ok") == "ok"
+                    and matched_rank is not None
                     and 1 <= matched_rank <= support_top_k
-                )
-                support[occupied_slot] = {
-                    "rank": matched_rank,
-                    "supported": supported,
-                }
-                if not supported:
-                    unsupported_slots.append(occupied_slot)
-
-            if not required_slots:
-                state = "unchecked"
-                reliable = True
-            elif unsupported_slots:
-                state = "unsupported"
-                reliable = False
-                unsupported_count += 1
-            else:
-                state = "supported"
-                reliable = True
-            candidate["recommendation_reliable"] = reliable
-            candidate["cross_slot_consistency"] = {
-                "state": state,
-                "occupied_slots": list(dict.fromkeys(occupied_slots)),
-                "checked_slots": required_slots,
-                "support_top_k": support_top_k,
-                "support": support,
-                "unsupported_slots": unsupported_slots,
+                ),
             }
-            candidate["_cross_slot_original_index"] = original_index
+        unsupported = [
+            key for key, value in support.items() if not value["supported"]
+        ]
+        return {
+            "state": "unsupported" if unsupported else "supported",
+            "occupied_slots": occupied_slots,
+            "checked_slots": occupied_slots,
+            "support_top_k": support_top_k,
+            "support": support,
+            "unsupported_slots": unsupported,
+        }
 
-        result["candidates"].sort(
-            key=lambda row: (
-                not bool(row.get("recommendation_reliable", True)),
-                int(row.get("_cross_slot_original_index", row.get("rank", 0))),
-            )
-        )
-        reordered = any(
-            int(row.get("rank", index)) != index
-            for index, row in enumerate(result["candidates"], start=1)
-        )
+    while True:
+        # Index the pool once per round; full candidate pools can contain
+        # thousands of rows and same-model alternatives.
+        evidence_by_slot = {}
+        for slot, result in by_slot.items():
+            evidence = {}
+            for row in result["candidates"]:
+                rank = int(row.get("rank", 0))
+                for appearance in [row, *row.get("appearance_alternatives", [])]:
+                    keys = [("piece", int(appearance["piece_id"]))]
+                    name = normalized_name(appearance)
+                    if name:
+                        keys.append(("name", name))
+                    for key in keys:
+                        evidence[key] = min(evidence.get(key, rank), rank)
+            evidence_by_slot[slot] = evidence
+        changed = False
+        pending = {}
+        for slot, result in by_slot.items():
+            retained = []
+            for candidate in result["candidates"]:
+                rank = int(candidate.get("rank", 0))
+                diagnostic = consistency(candidate, slot, rank)
+                if diagnostic and diagnostic["unsupported_slots"]:
+                    changed = True
+                    continue
+                copied = dict(candidate)
+                if diagnostic:
+                    copied["recommendation_reliable"] = True
+                    copied["cross_slot_consistency"] = diagnostic
+                if "appearance_alternatives" in copied:
+                    alternatives = []
+                    for alternative in copied["appearance_alternatives"]:
+                        check = consistency(alternative, slot, rank)
+                        if check and check["unsupported_slots"]:
+                            changed = True
+                            removed_alternative_counts[slot] += 1
+                        else:
+                            alternatives.append(dict(alternative))
+                    copied["appearance_alternatives"] = alternatives
+                retained.append(copied)
+            pending[slot] = retained
+        # Apply each round together, independent of the slot iteration order.
+        for slot, retained in pending.items():
+            by_slot[slot]["candidates"] = retained
+        if not changed:
+            break
+
+    for slot, result in by_slot.items():
+        eligible_count = len(result["candidates"])
+        removed_count = original_counts[slot] - eligible_count
+        if display_top_k is not None:
+            result["candidates"] = result["candidates"][:display_top_k]
+        backfilled_count = sum(
+            int(row.get("rank", 0)) > display_top_k
+            for row in result["candidates"]
+        ) if display_top_k is not None else 0
         for rank, row in enumerate(result["candidates"], start=1):
             row["rank"] = rank
-            row.pop("_cross_slot_original_index", None)
         result["cross_slot_consistency"] = {
             "support_top_k": support_top_k,
-            "unsupported_candidate_count": unsupported_count,
-            "ranking_changed": reordered,
+            "unsupported_candidate_count": removed_count,
+            "removed_candidate_count": removed_count,
+            "removed_alternative_count": removed_alternative_counts[slot],
+            "ranking_changed": removed_count > 0,
+            "candidate_pool_count": original_counts[slot],
+            "eligible_candidate_count": eligible_count,
+            "backfilled_candidate_count": backfilled_count,
+            "requested_candidate_count": display_top_k,
+            "unfilled_candidate_count": (
+                max(0, display_top_k - len(result["candidates"]))
+                if display_top_k is not None else 0
+            ),
         }
-        if reordered:
+        if removed_count or len(result["candidates"]) < 2:
             result["top_score_margin"] = None
+        if removed_count and not result["candidates"]:
+            result["status"] = "no_usable_candidates"
         reference = result.get("reference")
         if isinstance(reference, dict):
+            reference = dict(reference)
+            result["reference"] = reference
             reference_rank = next(
                 (
                     int(row["rank"])

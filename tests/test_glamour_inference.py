@@ -383,7 +383,7 @@ class GlamourInferenceTests(unittest.TestCase):
         )[1]
         self.assertEqual(result["candidates"][0]["piece_id"], 2)
 
-    def test_multislot_candidate_is_demoted_when_another_slot_lacks_support(
+    def test_multislot_candidate_is_removed_when_another_slot_lacks_support(
         self,
     ) -> None:
         body = {
@@ -417,13 +417,13 @@ class GlamourInferenceTests(unittest.TestCase):
 
         self.assertEqual(
             [row["piece_id"] for row in results[0]["candidates"]],
-            [20, 10],
+            [20],
         )
-        demoted = results[0]["candidates"][1]
-        self.assertFalse(demoted["recommendation_reliable"])
         self.assertEqual(
-            demoted["cross_slot_consistency"]["unsupported_slots"],
-            ["HANDS"],
+            [row["piece_id"] for row in results[1]["candidates"]], [30]
+        )
+        self.assertEqual(
+            results[0]["cross_slot_consistency"]["removed_candidate_count"], 1
         )
         self.assertTrue(
             results[0]["cross_slot_consistency"]["ranking_changed"]
