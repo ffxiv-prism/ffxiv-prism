@@ -1290,6 +1290,12 @@ def _run_slot(
         candidates,
         appearance_equivalence,
     )
+    hand_shape_diagnostic = None
+    if config.slot == "HANDS" and config.no_equipment_model_id is not None:
+        candidates, hand_shape_diagnostic = _rerank_hands_shape(
+            candidates, filter_records_for_slot(records, "HANDS")["query"],
+            config.no_equipment_model_id, device=device, batch_size=batch_size,
+        )
     morphology_diagnostic = None
     if config.morphology_checkpoint is not None and candidates:
         with np.load(config.morphology_checkpoint, allow_pickle=False) as payload:
@@ -1380,6 +1386,8 @@ def _run_slot(
         pooled_candidates.append(row)
     result = slot_result(config, slot_records["query"], pooled_candidates)
     result["slot_presence_diagnostic"] = slot_presence_diagnostic
+    if hand_shape_diagnostic is not None:
+        result["hand_shape_diagnostic"] = hand_shape_diagnostic
     if no_equipment_diagnostic is not None:
         result["no_equipment_diagnostic"] = no_equipment_diagnostic
     if style_diagnostic is not None:
@@ -1464,6 +1472,56 @@ def _run_base_profile(
             )
         )
     return output
+
+
+def _rerank_hands_shape(
+    candidates: list[dict[str, Any]],
+    records: list[dict[str, Any]],
+    model_id: str,
+    *,
+    device: torch.device,
+    batch_size: int,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    from ffxiv_prism.matching.hands_morphology import (
+        HANDS_SHAPE_PROMPTS, HANDS_SHAPE_QUERY_CROPS,
+        hands_shape_decision, rerank_candidates_with_hand_shape,
+    )
+
+    by_name = {str(row["name"]): row for row in records}
+    rows = [by_name[name] for name in HANDS_SHAPE_QUERY_CROPS if name in by_name]
+    paths = [resolve_project_path(row.get("path")) for row in rows]
+    diagnostic = {
+        "active": False, "ranking_changed": False,
+        "reason": "full_hand_crops_unavailable", "model_id": model_id,
+        "query_crops": list(HANDS_SHAPE_QUERY_CROPS),
+    }
+    if (len(rows) != 2 or any(row.get("visibility") != "visible" for row in rows)
+            or any(path is None or not path.is_file() for path in paths)):
+        return candidates, diagnostic
+    probabilities = _classify_style_paths(
+        model_id, HANDS_SHAPE_PROMPTS, paths, device=device, batch_size=batch_size,
+    )
+    diagnostic.update(hands_shape_decision(probabilities))
+    if not diagnostic["active"] or not candidates:
+        return candidates, diagnostic
+    candidate_paths = [resolve_project_path(row.get("local_preview")) for row in candidates]
+    if any(path is None or not path.is_file() for path in candidate_paths):
+        diagnostic.update(active=False, reason="candidate_preview_unavailable")
+        return candidates, diagnostic
+    # A candidate can have multiple item identities sharing the same preview.
+    # Classify each actual image only once, without shrinking the retrieval pool.
+    unique_paths = list(dict.fromkeys(candidate_paths))
+    profiles = _classify_style_paths(
+        model_id, HANDS_SHAPE_PROMPTS, unique_paths, device=device, batch_size=batch_size,
+    )
+    by_path = dict(zip(unique_paths, profiles, strict=True))
+    output, decision = rerank_candidates_with_hand_shape(
+        candidates, probabilities,
+        {int(row["piece_id"]): by_path[path]
+         for row, path in zip(candidates, candidate_paths, strict=True)},
+    )
+    diagnostic.update(decision)
+    return output, diagnostic
 
 
 def _classify_style_paths(

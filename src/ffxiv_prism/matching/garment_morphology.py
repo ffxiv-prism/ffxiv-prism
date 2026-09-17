@@ -332,6 +332,21 @@ def style_policy(
 
     if not 0.0 <= minimum_confidence <= 1.0:
         raise ValueError("minimum_confidence must be between zero and one")
+    # BODY's short and long silhouettes require opposite crop policies. Their
+    # combined probability is not evidence for either one (nor is 1-P(regular)
+    # a confidence estimate). Unlike overlapping LEGS attributes, require one
+    # target class to win confidently before changing retrieval or reranking.
+    if prediction.slot == "BODY" and (
+        prediction.confidence < minimum_confidence
+        or prediction.predicted_class not in TARGET_STYLE_CLASSES["BODY"]
+    ):
+        return StylePolicy(
+            active=False,
+            crop_multipliers={},
+            candidate_crop_routes={},
+            retrieval_role_overrides={},
+            reason="body_style_ambiguous_or_regular",
+        )
     target_probability = sum(
         probability
         for class_name, probability in zip(

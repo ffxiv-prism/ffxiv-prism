@@ -81,6 +81,13 @@ HEAD 的 `head_full_accessory` 用于完整显示宽檐帽、高帽和大型头�
 
 候选 `score` 只用于相对排序，不是准确率或概率。请先检查 `overlay.jpg` 和 `crops.jpg`，再人工确认候选，尤其是 HEAD、HANDS、LEGS、FEET。
 
+BODY 的样式路由和二次排序仅在单个目标样式置信度达到 0.75 时启用，
+不会把短上衣、无袖和长外套的概率相加作为确定判断。HANDS 新增
+`hands_palm_left/right` 完整手掌裁剪，用于双手连指手套形状校验，
+不会直接输入原有手臂查询适配器。只有双手形状判断均通过、原第一名
+明显不符且候选预览齐全时，才从现有候选池提升最多五种匹配外观；
+诊断记录在 `hand_shape_diagnostic`。这些规则不代表身份已确认，仍需检查候选。
+
 `current-best` 的 HEAD 使用 DINOv2、SigLIP2 与 DINOv3，FEET 使用 DINOv2 与
 SigLIP2，BODY 使用 DINOv2、零样本 DINOv3 与查询适配 DINOv3 的保守 Top-1
 门控。`--check` 会验证候选索引、查询检查点和本地权重；公共模型缓存尚未下载时

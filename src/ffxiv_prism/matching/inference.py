@@ -190,7 +190,7 @@ def current_best_configs() -> dict[str, SlotInferenceConfig]:
             style_query_crop_name="body_context",
             style_rerank_k=100,
             style_blend=0.70,
-            style_min_confidence=0.45,
+            style_min_confidence=0.75,
             benchmark_top1=benchmark("BODY", "top1"),
             benchmark_top10=benchmark("BODY", "top10"),
             benchmark_scope=(
@@ -258,7 +258,9 @@ def current_best_configs() -> dict[str, SlotInferenceConfig]:
             benchmark_scope=(
                 f"strict item-disjoint three-fold pooled benchmark ({eligible('HANDS')} images); frozen "
                 "occupied-slot Top-1 gate demotes multi-slot outfit pieces only "
-                "when an exact HANDS piece is already in the base Top-3"
+                "when an exact HANDS piece is already in the base Top-3. "
+                "The bilateral mitten-shape recovery gate is not included "
+                "in this identity benchmark"
             ),
         ),
         "LEGS": SlotInferenceConfig(
@@ -1599,6 +1601,7 @@ def slot_result(
     if candidates and (
         candidates[0].get("occupied_slot_gate")
         or candidates[0].get("ensemble_top1_gate")
+        or candidates[0].get("hand_shape_gate")
         or candidates[0].get("is_no_equipment")
     ):
         score_margin = None

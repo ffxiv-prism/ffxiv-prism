@@ -18,6 +18,26 @@ from ffxiv_prism.matching.garment_morphology import (
 
 
 class GarmentMorphologyTests(unittest.TestCase):
+    def test_body_split_short_long_probability_cannot_enable_style_reranking(self) -> None:
+        # Saved cross-host regression: target mass .756 used to pass the gate,
+        # although the incorrectly predicted crop-top class was only .499.
+        prediction = StylePrediction.from_probabilities("BODY", (.499, .026, .244, .231))
+        policy = style_policy(prediction, minimum_confidence=.75)
+        self.assertFalse(policy.active)
+        candidates = [{"rank": 1, "piece_id": 1, "score": .75},
+                      {"rank": 2, "piece_id": 2, "score": .33}]
+        result = rerank_candidates_with_style(
+            candidates, prediction, {1: (.01, .01, .08, .90), 2: (.95, .01, .03, .01)},
+            rerank_k=100, blend=.70, minimum_confidence=.75,
+        )
+        self.assertEqual(result, candidates)
+        self.assertEqual(apply_style_crop_multipliers([{"name": "body_context"}], policy),
+                         [{"name": "body_context"}])
+
+    def test_body_regular_winner_cannot_activate_short_garment_route(self) -> None:
+        prediction = StylePrediction.from_probabilities("BODY", (.2, .1, .5, .2))
+        self.assertFalse(style_policy(prediction, minimum_confidence=.45).active)
+
     def test_legwear_prompts_distinguish_shorts_from_continuous_skirt(self) -> None:
         hot_shorts_prompt = LEGS_STYLE_PROMPTS[
             LEGS_STYLE_CLASSES.index("hot_shorts")

@@ -496,6 +496,30 @@ def build_outfit_regions(
         ("body_hands_overlap", "may_include_sleeves"),
     )
 
+    # COCO pose ends at the wrist. Extend along the forearm to include the
+    # fingers, without shrinking the trained arm crops or feeding a new crop
+    # distribution to their query adapter. These companions are used only by
+    # the confidence-gated hand-shape check.
+    for side, elbow_index, wrist_index in (("left", 7, 9), ("right", 8, 10)):
+        elbow, wrist = keypoints[elbow_index], keypoints[wrist_index]
+        dx, dy = wrist.x - elbow.x, wrist.y - elbow.y
+        forearm_length = distance(elbow, wrist)
+        radius = max(forearm_length * 0.60, shoulder_width * 0.20, 12.0)
+        center_x, center_y = wrist.x + dx * 0.40, wrist.y + dy * 0.40
+        raw = (center_x - radius, center_y - radius,
+               center_x + radius, center_y + radius)
+        confidence, visibility = assess_visibility([elbow, wrist], image_size, threshold)
+        tags = ("full_hand_shape", "extended_beyond_wrist")
+        if min(elbow.score, wrist.score) < threshold or forearm_length < 1.0:
+            visibility = "pose_uncertain"
+        elif box_exceeds_source(raw, image_size):
+            visibility = downgrade_visibility(visibility, "partially_visible")
+            tags += ("source_edge_truncation_risk",)
+        regions.append(CropRegion(
+            "HANDS", f"hands_palm_{side}", clamp_box(raw, image_size),
+            confidence, visibility, "diagnostic", tags,
+        ))
+
     leg_pad = max(shoulder_width * 0.20, 12.0)
     add("LEGS", "legs_left", (11, 13, 15), leg_pad, torso_length * 0.08)
     add("LEGS", "legs_right", (12, 14, 16), leg_pad, torso_length * 0.08)

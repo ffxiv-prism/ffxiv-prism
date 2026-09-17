@@ -114,10 +114,57 @@ class OutfitRegionTests(unittest.TestCase):
         self.assertEqual(set(by_slot), {"HEAD", "BODY", "HANDS", "LEGS", "FEET"})
         self.assertEqual(len(by_slot["HEAD"]), 5)
         self.assertEqual(len(by_slot["BODY"]), 4)
-        self.assertEqual(len(by_slot["HANDS"]), 5)
+        self.assertEqual(len(by_slot["HANDS"]), 7)
         self.assertEqual(len(by_slot["LEGS"]), 6)
         self.assertEqual(len(by_slot["FEET"]), 9)
         self.assertTrue(all(region.visibility == "visible" for region in regions))
+
+    def test_full_hand_crop_extends_beyond_wrist_without_changing_arm_inputs(self) -> None:
+        from ffxiv_prism.matching.inference import crop_weight
+
+        by_name = {r.name: r for r in build_outfit_regions(self.keypoints, (400, 500))}
+        palm = by_name["hands_palm_left"]
+        self.assertGreater(palm.box[3], by_name["hands_left"].box[3])
+        self.assertGreater(palm.box[1], self.keypoints[7].y)
+        self.assertEqual(palm.role, "diagnostic")
+        self.assertEqual(crop_weight({"role": palm.role, "visibility": palm.visibility,
+                                     "confidence": palm.confidence}), 0.0)
+
+    def test_full_hand_projection_follows_horizontal_arm(self) -> None:
+        keypoints = list(self.keypoints)
+        keypoints[7], keypoints[9] = Keypoint(150, 150, .9), Keypoint(200, 150, .9)
+        palm = next(r for r in build_outfit_regions(keypoints, (400, 500))
+                    if r.name == "hands_palm_left")
+        self.assertGreater(palm.box[2], 230)
+        self.assertLess(palm.box[0], 200)
+        self.assertLess(palm.box[1], 150)
+        self.assertGreater(palm.box[3], 150)
+
+    def test_saved_downward_mitten_crop_includes_fingertips(self) -> None:
+        keypoints = list(self.keypoints)
+        keypoints[5] = Keypoint(835.33, 756.74, .95)
+        keypoints[6] = Keypoint(517.91, 757.15, .88)
+        keypoints[8] = Keypoint(472.79, 1063.45, .97)
+        keypoints[10] = Keypoint(404.63, 1306.89, .98)
+        palm = next(r for r in build_outfit_regions(keypoints, (2400, 2648))
+                    if r.name == "hands_palm_right")
+        # Wrist-only padding stopped around y=1383; the visible fingertips
+        # reach y=1540. Keep both the cuff and fingertip inside the crop.
+        self.assertLess(palm.box[1], 1260)
+        self.assertGreater(palm.box[3], 1540)
+
+    def test_truncated_or_unreliable_hands_cannot_claim_full_visibility(self) -> None:
+        keypoints = list(self.keypoints)
+        keypoints[7], keypoints[9] = Keypoint(350, 150, .9), Keypoint(390, 150, .9)
+        palm = next(r for r in build_outfit_regions(keypoints, (400, 500))
+                    if r.name == "hands_palm_left")
+        self.assertNotEqual(palm.visibility, "visible")
+        self.assertIn("source_edge_truncation_risk", palm.tags)
+        keypoints[7] = Keypoint(150, 150, .1)
+        keypoints[9] = Keypoint(200, 150, .99)
+        palm = next(r for r in build_outfit_regions(keypoints, (400, 500))
+                    if r.name == "hands_palm_left")
+        self.assertEqual(palm.visibility, "pose_uncertain")
 
     def test_overlap_aware_regions_are_tagged_for_retrieval_weighting(self) -> None:
         regions = build_outfit_regions(self.keypoints, (400, 500))
