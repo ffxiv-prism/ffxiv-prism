@@ -505,8 +505,8 @@ def dataset_status() -> dict[str, Any]:
         "image_count": dataset.get("image_count") or sqlite.get("images"),
         "gear_pieces": sqlite.get("gear_pieces"),
         "gearsets": sqlite.get("gearsets"),
-        "ready_images": images.get("ready_rows") or sqlite.get("ready_images"),
-        "missing_images": images.get("missing_rows") or sqlite.get("missing_or_invalid_images"),
+        "ready_images": images.get("ready_rows", sqlite.get("ready_images")),
+        "missing_images": images.get("missing_rows", sqlite.get("missing_or_invalid_images")),
         "last_updated": last_updated,
     }
 

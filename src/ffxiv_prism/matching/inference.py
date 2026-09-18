@@ -2,13 +2,18 @@ from __future__ import annotations
 
 import html
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
+from urllib.parse import quote
 
 import numpy as np
 from PIL import Image, UnidentifiedImageError
 
+from ffxiv_prism.huiji_same_models import normalize_item_url
+from ffxiv_prism.matching.item_names import enrich_report_item_names
+from ffxiv_prism.matching.equipment_slots import candidate_matches_slot, load_official_slots
 from ffxiv_prism.paths import (
     APPEARANCE_EQUIVALENCE_PATH,
     INDEXES_DIR,
@@ -868,6 +873,8 @@ def select_slot_candidate_index_rows(
     metadata: Sequence[dict[str, Any]],
     embeddings: np.ndarray,
     slot: str,
+    *,
+    official_slots: Mapping[str, frozenset[str]] | None = None,
 ) -> tuple[list[dict[str, Any]], np.ndarray]:
     """Select one slot without breaking metadata/embedding row alignment."""
 
@@ -876,14 +883,25 @@ def select_slot_candidate_index_rows(
             "Candidate index row mismatch: "
             f"embeddings={embeddings.shape}, metadata_rows={len(metadata)}"
         )
-    indices = [
-        index
-        for index, row in enumerate(metadata)
-        if str(row.get("slot")) == slot
-    ]
+    if official_slots is None:
+        official_slots = load_official_slots()
+    indices = []
+    selected_metadata = []
+    for index, row in enumerate(metadata):
+        if str(row.get("slot")) != slot:
+            continue
+        selected = dict(row)
+        if "pieces" in row:
+            selected["pieces"] = [
+                piece for piece in row["pieces"]
+                if candidate_matches_slot(piece, slot, official_slots)
+            ]
+            if not selected["pieces"]:
+                continue
+        indices.append(index)
+        selected_metadata.append(selected)
     if not indices:
         raise ValueError(f"Candidate index contains no {slot} rows")
-    selected_metadata = [metadata[index] for index in indices]
     if len(indices) == len(metadata):
         return selected_metadata, embeddings
     return selected_metadata, np.asarray(embeddings[indices], dtype=np.float32)
@@ -1749,16 +1767,83 @@ def slot_result(
         "candidates": list(candidates),
     }
 
+_REPORT_FIXED_NOTICES = {
+    "Candidate scores are ranking signals, not calibrated probabilities.",
+    "The system assumes one main person and works best on clear front/full-body FFXIV screenshots.",
+}
+_REPORT_WARNING_TRANSLATIONS = {
+    "Top head candidates are nearly tied; hair, ears, or occlusion may dominate the crop.":
+        "头部候选得分非常接近；裁剪区域可能主要受到头发、耳朵或遮挡的影响。",
+    "The source image probably cuts through the full shoe area; footwear ranking may be incomplete.":
+        "原图可能截断了鞋靴区域，鞋靴候选排序可能不完整。",
+    "The source image probably cuts through the full headwear area; headwear ranking may be incomplete.":
+        "原图可能截断了头饰区域，头饰候选排序可能不完整。",
+    "The source image probably truncates part of this equipment area; ranking may be incomplete.":
+        "原图可能截断了部分装备区域，候选排序可能不完整。",
+    "Legwear style confidence is insufficient under a long top; no fixed legwear prior was applied. Please review the legwear candidates.":
+        "长上衣场景中的下装样式置信度不足；未加入固定下装先验，请人工复核腿部候选。",
+    "Not enough legwear is visible under the long top; the original retrieval ranking is retained without guessing shorts, skirts, or trousers.":
+        "长上衣场景中没有足够可见的下装区域；系统保留原始检索排序，不猜测短裤、裙子或长裤。",
+}
+for _predicted_en, _predicted_zh in (
+    ("enclosing headwear", "包覆式头具"),
+    ("open or small head accessories", "开放式或小型头饰"),
+):
+    for _top_en, _top_zh in (
+        ("enclosing headwear", "包覆式头具"),
+        ("open or small head accessories", "开放式或小型头饰"),
+    ):
+        _REPORT_WARNING_TRANSLATIONS[
+            f"The headwear shape classifier predicts {_predicted_en}, but the Top-1 "
+            f"candidate is {_top_en}; please review the headwear candidates carefully."
+        ] = (
+            f"头饰形态分类器判断查询更接近{_predicted_zh}，"
+            f"但 Top-1 是{_top_zh}；建议重点复核头部候选。"
+        )
+
+
+def _report_warning_text(value: Any) -> tuple[str, str]:
+    text = str(value)
+    for english, chinese in _REPORT_WARNING_TRANSLATIONS.items():
+        if text in (english, chinese):
+            return chinese, english
+    pose_match = re.fullmatch(
+        r"Pose quality is low \(([^)]+)\); inspect overlay.jpg before trusting candidates\.",
+        text,
+    )
+    if pose_match:
+        return (
+            f"人体姿态识别质量较低（{pose_match[1]}）；请先检查人体与区域质检图（overlay.jpg），再确认候选结果。",
+            text,
+        )
+    # Preserve unrecognized diagnostics, including reports from other versions.
+    if re.search(r"[\u4e00-\u9fff]", text):
+        return text, "Please review the diagnostic above and visually verify the candidates."
+    return "请查看下方诊断信息，并人工复核候选结果。", text
+
+
+def _bilingual_report_text(chinese: str, english: str) -> str:
+    return (
+        f'<span lang="zh-CN">{html.escape(chinese)}</span><br>'
+        f'<span lang="en">{html.escape(english)}</span>'
+    )
+
+
 def write_html_report(path: Path, payload: Mapping[str, Any]) -> None:
+    payload = enrich_report_item_names(payload)
     path.parent.mkdir(parents=True, exist_ok=True)
     source_path = resolve_project_path(payload.get("input", {}).get("path"))
     source_uri = _file_uri(source_path)
     artifacts = payload.get("artifacts", {})
     overlay_uri = _file_uri(resolve_project_path(artifacts.get("overlay")))
     contact_uri = _file_uri(resolve_project_path(artifacts.get("contact_sheet")))
+    pose_quality = payload.get("pose_quality")
+    pose_quality_text = f"{float(pose_quality):.1%}" if pose_quality is not None else "暂无数据"
     slot_sections = "".join(_slot_html(row) for row in payload.get("slots", []))
     warnings = "".join(
-        f"<li>{html.escape(str(value))}</li>" for value in payload.get("warnings", [])
+        f"<li>{_bilingual_report_text(*_report_warning_text(value))}</li>"
+        for value in payload.get("warnings", [])
+        if str(value) not in _REPORT_FIXED_NOTICES
     )
     document = f"""<!doctype html>
 <html lang="zh-CN">
@@ -1779,13 +1864,19 @@ def write_html_report(path: Path, payload: Mapping[str, Any]) -> None:
     .card img {{ width:100%; height:220px; object-fit:contain; background:#0b0e13; border-radius:8px; }}
     .same-models {{ margin:-.35em 0 .8em; color:#c8d2de; }}
     .rank {{ color:var(--accent); font-weight:700; }} .muted {{ color:var(--muted); }}
+    .slot-results {{ margin:24px 0; }}
+    .slot-results > summary {{ cursor:pointer; padding:8px 0; color:var(--accent); }}
+    .slot-results > summary h2 {{ display:inline; margin:0; color:#eef3f8; }}
+    .slot-results > summary:focus-visible {{ outline:2px solid var(--accent); outline-offset:4px; border-radius:4px; }}
+    .collapse-hint {{ margin-left:12px; font-size:13px; font-weight:400; }}
+    .slot-results[open] .expand-label,.slot-results:not([open]) .collapse-label {{ display:none; }}
     a {{ color:#8dc6ff; }} code {{ overflow-wrap:anywhere; }}
   </style>
 </head>
 <body><main>
   <h1>FFXIV Prism 识别结果</h1>
-  <p class="notice">候选分数是相对排序信号，不是准确率或概率。请结合裁剪质检图与候选预览人工确认，尤其是 HEAD/HANDS/LEGS/FEET。</p>
   {f'<ul class="notice">{warnings}</ul>' if warnings else ''}
+  <p class="pose-quality">输入图片姿态质量：<strong>{pose_quality_text}</strong></p>
   <section class="visuals">
     {_visual_panel('输入截图', source_uri)}
     {_visual_panel('人体与区域质检', overlay_uri)}
@@ -1798,22 +1889,19 @@ def write_html_report(path: Path, payload: Mapping[str, Any]) -> None:
 
 def _slot_html(result: Mapping[str, Any]) -> str:
     slot = html.escape(str(result.get("slot", "")))
-    benchmark = result.get("benchmark", {})
-    top1 = benchmark.get("top1")
-    top10 = benchmark.get("top10")
-    benchmark_text = html.escape(str(benchmark.get("scope", "")))
-    metrics = (
-        f"Top-1 {float(top1):.1%} / Top-10 {float(top10):.1%}"
-        if top1 is not None and top10 is not None
-        else "No registered benchmark"
-    )
     ranking_quality = result.get("ranking_quality", {})
     quality_reasons = ranking_quality.get("reasons", [])
+    translated_reasons = [_report_warning_text(value) for value in quality_reasons]
     quality_note = (
-        '<p class="notice">Low-confidence ranking: '
-        + html.escape(" ".join(str(value) for value in quality_reasons))
-        + " Visual review is recommended.</p>"
-        if quality_reasons
+        '<p class="notice">'
+        + _bilingual_report_text(
+            "低置信度排序：" + " ".join(zh for zh, _ in translated_reasons)
+            + " 建议人工复核。",
+            "Low-confidence ranking: " + " ".join(en for _, en in translated_reasons)
+            + " Visual review is recommended.",
+        )
+        + "</p>"
+        if quality_reasons or ranking_quality.get("level") == "low"
         else ""
     )
     reference = result.get("reference")
@@ -1833,28 +1921,33 @@ def _slot_html(result: Mapping[str, Any]) -> str:
         )
     cards = "".join(_candidate_html(row) for row in result.get("candidates", []))
     if not cards:
-        cards = '<div class="panel">No usable candidates; check crop visibility.</div>'
-    return f"""<section>
-  <h2>{slot}</h2>
-  <p class="muted">Reference benchmark: {metrics}; {benchmark_text}. This is not per-image confidence.</p>
+        cards = '<div class="panel">' + _bilingual_report_text(
+            "没有可用候选；请检查裁剪区域是否清晰可见。",
+            "No usable candidates; check crop visibility.",
+        ) + '</div>'
+    return f"""<details class="slot-results" open>
+  <summary><h2>{slot}</h2><span class="collapse-hint muted"><span class="collapse-label">收起候选结果</span><span class="expand-label">展开候选结果</span></span></summary>
   {reference_note}
   {quality_note}
   <div class="cards">{cards}</div>
-</section>"""
+</details>"""
 
 
 def _candidate_html(candidate: Mapping[str, Any]) -> str:
     preview = _file_uri(resolve_project_path(candidate.get("local_preview")))
-    source = str(
-        candidate.get("source_image_url")
-        or candidate.get("source_item_url")
-        or ""
+    item_name_zh = str(candidate.get("name_zh") or "").strip()
+    details_url = (
+        "https://ff14.huijiwiki.com/wiki/" + quote("物品:" + item_name_zh, safe=":")
+        if item_name_zh
+        else normalize_item_url(str(candidate.get("source_item_url") or ""))
     )
     name_en = html.escape(str(candidate.get("name_en") or "未知装备"))
     name_zh = html.escape(str(candidate.get("name_zh") or ""))
     name = f"{name_zh}<br><span class=\"muted\">{name_en}</span>" if name_zh else name_en
-    source_link = (
-        f'<a href="{html.escape(source, quote=True)}">来源图片</a>' if source else "无来源链接"
+    details_link = (
+        f'<a href="{html.escape(details_url, quote=True)}" '
+        'target="_blank" rel="noopener noreferrer">详细信息</a>'
+        if details_url else "暂无详细信息"
     )
     alternative_names = []
     for row in candidate.get("appearance_alternatives", []):
@@ -1877,8 +1970,10 @@ def _candidate_html(candidate: Mapping[str, Any]) -> str:
     reference_badge = " · Known ground truth" if candidate.get("reference_match") else ""
     no_equipment = bool(candidate.get("is_no_equipment"))
     no_equipment_badge = (
-        '<p class="notice"><strong>未检测到可见装备</strong>：'
-        "以皇帝系列的隐形外观表示。</p>"
+        '<p class="notice">' + _bilingual_report_text(
+            "未检测到可见装备：以皇帝系列的隐形外观表示。",
+            "No visible equipment detected; represented by the Emperor's invisible equipment.",
+        ) + '</p>'
         if no_equipment
         else ""
     )
@@ -1898,7 +1993,7 @@ def _candidate_html(candidate: Mapping[str, Any]) -> str:
   {alternatives_note}
   {no_equipment_badge}
   <p>{identifier} · {score_label}</p>
-  <p>{source_link}</p>
+  <p>{details_link}</p>
 </article>"""
 
 

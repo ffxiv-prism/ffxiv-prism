@@ -345,8 +345,14 @@ def insert_gear_piece_images(
         piece_id = piece_ids.get((gearset_slug, slot, piece.get("source_item_url"), name))
         if not piece_id:
             continue
-        exact_by_gearset_slot.setdefault((gearset_slug, slot), []).append(piece_id)
-        for occupied_slot in piece.get("occupied_slots") or []:
+        occupied = (
+            piece.get("official_occupied_slots") or []
+            if piece.get("official_equip_slot_source")
+            else piece.get("occupied_slots") or []
+        )
+        if not piece.get("official_equip_slot_source") or slot in occupied:
+            exact_by_gearset_slot.setdefault((gearset_slug, slot), []).append(piece_id)
+        for occupied_slot in occupied:
             occupied_by_gearset_slot.setdefault((gearset_slug, occupied_slot), []).append(piece_id)
 
     link_rows: list[tuple[int, int, str]] = []

@@ -236,6 +236,12 @@ def parse_gearset_detail(
             if in_equipment and text in GEAR_SLOTS:
                 current_slot = text
                 continue
+            if in_equipment and text in {
+                "MAIN HAND", "OFF HAND", "MAINHAND", "OFFHAND", "WEAPON", "WEAPONS",
+                "ACCESSORIES", "EARRINGS", "EARS", "NECKLACE", "NECK",
+                "BRACELETS", "WRISTS", "RING", "RINGS",
+            }:
+                current_slot = None
 
         if isinstance(event, LinkEvent):
             if not in_equipment:
@@ -263,7 +269,10 @@ def parse_gearset_detail(
                     seen_page_static_urls.add(image_url)
 
     html_pieces = extract_equipment_pieces(html_text, page_url)
-    if html_pieces:
+    if html_pieces or re.search(
+        r"\bc-gear-slot-(?:head|body|hands|legs|feet)\b|gear-icon-box-slot-name",
+        html_text,
+    ):
         pieces = html_pieces
     present_slots = unique([piece.slot for piece in dedupe_pieces(pieces)])
     missing_slots = [slot for slot in STANDARD_GEAR_SLOTS if slot not in present_slots]
@@ -364,13 +373,17 @@ def extract_equipment_pieces(html_text: str, page_url: str) -> list[GearPieceRec
     if not equipment_html:
         return extract_modern_equipment_pieces(html_text, page_url)
 
-    marker_pattern = re.compile(r"\bc-gear-slot-(head|body|hands|legs|feet)\b", re.I)
+    # Non-armour slot markers also terminate the previous slot's HTML range.
+    # Otherwise an empty FEET slot consumes the following weapon/accessory.
+    marker_pattern = re.compile(r"\bc-gear-slot-(?!item\b)([a-z]+(?:-[a-z]+)*)\b", re.I)
     markers = [(match.group(1).upper(), match.start()) for match in marker_pattern.finditer(equipment_html)]
     if not markers:
         return extract_modern_equipment_pieces(html_text, page_url)
 
     pieces: list[GearPieceRecord] = []
     for index, (slot, start) in enumerate(markers):
+        if slot not in GEAR_SLOTS:
+            continue
         end = markers[index + 1][1] if index + 1 < len(markers) else len(equipment_html)
         chunk = equipment_html[start:end]
         item_url = first_lodestone_item_url(chunk)

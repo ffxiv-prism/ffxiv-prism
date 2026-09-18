@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -10,6 +11,23 @@ from scripts import web_app
 
 
 class WebAppTests(unittest.TestCase):
+    def test_dataset_status_preserves_zero_missing_images_after_refresh(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            processed = root / "data" / "processed"
+            processed.mkdir(parents=True)
+            (processed / "eorzea_image_qa_summary.json").write_text(
+                json.dumps({"missing_rows": 0, "ready_rows": 40048}), encoding="utf-8"
+            )
+            (processed / "eorzea_sqlite_summary.json").write_text(
+                json.dumps({"missing_or_invalid_images": 101, "ready_images": 39947}),
+                encoding="utf-8",
+            )
+            with mock.patch.object(web_app, "PROJECT_ROOT", root):
+                status = web_app.dataset_status()
+            self.assertEqual(status["missing_images"], 0)
+            self.assertEqual(status["ready_images"], 40048)
+
     def test_build_recognition_command_contains_selected_options(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)

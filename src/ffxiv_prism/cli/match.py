@@ -12,6 +12,8 @@ import torch
 from PIL import Image
 
 from ffxiv_prism.jsonl import read_jsonl
+from ffxiv_prism.matching.item_names import enrich_report_item_names
+from ffxiv_prism.matching.equipment_slots import filter_candidates_for_slot, load_official_slots
 from ffxiv_prism.matching.inference import (
     apply_ensemble_top1_gate,
     apply_multislot_consistency_gate,
@@ -309,6 +311,7 @@ def main(argv: list[str] | None = None) -> int:
     }
     json_path = output_dir / "results.json"
     html_path = output_dir / "report.html"
+    payload = enrich_report_item_names(payload)
     write_json_report(json_path, payload)
     write_html_report(html_path, payload)
     print(
@@ -929,12 +932,6 @@ def _run_slot(
             strict=True,
         ):
             ensemble_metadata = read_jsonl(ensemble_index_dir / "metadata.jsonl")
-            if [row["local_path"] for row in ensemble_metadata] != [
-                row["local_path"] for row in metadata
-            ]:
-                raise ValueError(
-                    "Primary and ensemble candidate metadata do not align"
-                )
             ensemble_candidate_embeddings = np.load(
                 ensemble_index_dir / "embeddings.npy",
                 mmap_mode="r",
@@ -946,6 +943,12 @@ def _run_slot(
                     config.slot,
                 )
             )
+            if [row["local_path"] for row in ensemble_metadata] != [
+                row["local_path"] for row in metadata
+            ]:
+                raise ValueError(
+                    "Primary and ensemble candidate metadata do not align"
+                )
             query_paths = [Path(str(row["path"])) for row in slot_records["query"]]
             if ensemble_query_checkpoint is None:
                 ensemble_encoder = build_encoder(
@@ -1286,6 +1289,7 @@ def _run_slot(
         piece_catalog=_load_appearance_equivalence_catalog(),
         max_equivalents_per_anchor=None,
     )
+    candidates = filter_candidates_for_slot(candidates, config.slot, load_official_slots())
     candidates = collapse_appearance_equivalent_candidates(
         candidates,
         appearance_equivalence,
