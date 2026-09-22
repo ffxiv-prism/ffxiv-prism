@@ -13,6 +13,7 @@ from PIL import Image, UnidentifiedImageError
 
 from ffxiv_prism.huiji_same_models import normalize_item_url
 from ffxiv_prism.matching.item_names import enrich_report_item_names
+from ffxiv_prism.matching.item_dyes import enrich_report_dye_counts
 from ffxiv_prism.matching.equipment_slots import candidate_matches_slot, load_official_slots
 from ffxiv_prism.paths import (
     APPEARANCE_EQUIVALENCE_PATH,
@@ -1830,7 +1831,7 @@ def _bilingual_report_text(chinese: str, english: str) -> str:
 
 
 def write_html_report(path: Path, payload: Mapping[str, Any]) -> None:
-    payload = enrich_report_item_names(payload)
+    payload = enrich_report_dye_counts(enrich_report_item_names(payload))
     path.parent.mkdir(parents=True, exist_ok=True)
     source_path = resolve_project_path(payload.get("input", {}).get("path"))
     source_uri = _file_uri(source_path)
@@ -1853,37 +1854,87 @@ def write_html_report(path: Path, payload: Mapping[str, Any]) -> None:
   <title>FFXIV Prism 识别结果</title>
   <style>
     :root {{ color-scheme: dark; --bg:#11151c; --panel:#1a202b; --muted:#9ba7b7; --accent:#76b7ff; }}
-    * {{ box-sizing:border-box; }} body {{ margin:0; font:15px/1.5 system-ui,sans-serif; background:var(--bg); color:#eef3f8; }}
-    main {{ max-width:1280px; margin:auto; padding:28px; }} h1,h2,h3 {{ margin:.2em 0 .6em; }}
-    .notice {{ background:#2b2517; border:1px solid #6e5b25; padding:12px 16px; border-radius:10px; }}
-    .visuals,.cards {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:14px; }}
-    .panel,.card {{ background:var(--panel); border:1px solid #30394a; border-radius:12px; padding:14px; }}
+    * {{ box-sizing:border-box; }} body {{ margin:0; font:14px/1.5 system-ui,sans-serif; background:var(--bg); color:#eef3f8; }}
+    main {{ max-width:1280px; margin:auto; padding:24px; }} h1,h2,h3 {{ margin:.2em 0 .6em; }}
+    .notice {{ background:#2b2517; border:1px solid #6e5b25; padding:10px 14px; border-radius:8px; }}
+    .report-disclaimer {{ color:#c9b987; }}
+    .equipment-name {{ font-weight:400; }}
+    .equipment-name.dyeable {{ font-weight:700; }}
+    .dye-unknown-note {{ font-size:12px; font-weight:400; }}
+    .visuals,.cards {{ display:grid; gap:12px; }}
+    .visuals {{ grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); }}
+    .cards {{ grid-template-columns:repeat(5,minmax(0,1fr)); }}
+    .panel,.card {{ background:var(--panel); border:1px solid #30394a; border-radius:10px; padding:12px; min-width:0; overflow-wrap:anywhere; }}
     .card.reference {{ border-color:#48c78e; box-shadow:0 0 0 1px #48c78e inset; }}
-    .reference-note {{ background:#153327; border:1px solid #2f8f64; padding:12px 16px; border-radius:10px; }}
-    .visuals img {{ width:100%; max-height:480px; object-fit:contain; background:#0b0e13; border-radius:8px; }}
-    .card img {{ width:100%; height:220px; object-fit:contain; background:#0b0e13; border-radius:8px; }}
+    .reference-note {{ background:#153327; border:1px solid #2f8f64; padding:10px 14px; border-radius:8px; }}
+    .visuals img {{ width:100%; max-height:400px; object-fit:contain; background:#0b0e13; border-radius:8px; }}
+    .card img {{ width:100%; height:180px; object-fit:contain; background:#0b0e13; border-radius:8px; }}
     .same-models {{ margin:-.35em 0 .8em; color:#c8d2de; }}
+    .same-models-text {{ margin:0; }}
+    .same-models.is-collapsed .same-models-text {{ display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:5; overflow:hidden; }}
+    .same-models-toggle {{ margin-top:4px; padding:0; border:0; background:none; color:var(--accent); font:inherit; cursor:pointer; }}
+    .same-models-toggle:focus-visible {{ outline:2px solid var(--accent); outline-offset:3px; }}
     .rank {{ color:var(--accent); font-weight:700; }} .muted {{ color:var(--muted); }}
-    .slot-results {{ margin:24px 0; }}
-    .slot-results > summary {{ cursor:pointer; padding:8px 0; color:var(--accent); }}
+    .slot-results {{ margin:20px 0; }}
+    .slot-results > summary {{ cursor:pointer; padding:6px 0; color:var(--accent); }}
     .slot-results > summary h2 {{ display:inline; margin:0; color:#eef3f8; }}
     .slot-results > summary:focus-visible {{ outline:2px solid var(--accent); outline-offset:4px; border-radius:4px; }}
-    .collapse-hint {{ margin-left:12px; font-size:13px; font-weight:400; }}
+    .collapse-hint {{ margin-left:10px; font-size:12px; font-weight:400; }}
     .slot-results[open] .expand-label,.slot-results:not([open]) .collapse-label {{ display:none; }}
     a {{ color:#8dc6ff; }} code {{ overflow-wrap:anywhere; }}
+    @media (max-width:1100px) {{ .cards {{ grid-template-columns:repeat(4,minmax(0,1fr)); }} }}
+    @media (max-width:900px) {{ .cards {{ grid-template-columns:repeat(3,minmax(0,1fr)); }} }}
+    @media (max-width:640px) {{ main {{ padding:16px; }} .cards {{ grid-template-columns:repeat(2,minmax(0,1fr)); }} }}
+    @media (max-width:400px) {{ .cards {{ grid-template-columns:minmax(0,1fr); }} }}
   </style>
 </head>
 <body><main>
   <h1>FFXIV Prism 识别结果</h1>
+  <p class="notice report-disclaimer">识别结果仅供参考，请结合图片进行核对，更准确结果请求助能工智人。</p>
   {f'<ul class="notice">{warnings}</ul>' if warnings else ''}
-  <p class="pose-quality">输入图片姿态质量：<strong>{pose_quality_text}</strong></p>
+  <p class="dye-legend muted"><strong>加粗表示可染色</strong>，非加粗表示不可染色</p>
+  <p class="pose-quality muted">输入图片姿态质量：<strong>{pose_quality_text}</strong></p>
   <section class="visuals">
     {_visual_panel('输入截图', source_uri)}
     {_visual_panel('人体与区域质检', overlay_uri)}
     {_visual_panel('槽位裁剪', contact_uri)}
   </section>
   {slot_sections}
-</main></body></html>"""
+</main>
+<script>
+  const sameModelBlocks = [...document.querySelectorAll('.same-models')];
+  sameModelBlocks.forEach((block, index) => {{
+    const text = block.querySelector('.same-models-text');
+    const button = block.querySelector('.same-models-toggle');
+    text.id = `same-models-${{index}}`;
+    button.setAttribute('aria-controls', text.id);
+    button.addEventListener('click', () => {{
+      const expanded = button.getAttribute('aria-expanded') !== 'true';
+      button.setAttribute('aria-expanded', String(expanded));
+      button.textContent = expanded ? '收起' : '展开';
+      block.classList.toggle('is-collapsed', !expanded);
+    }});
+  }});
+  function updateSameModels() {{
+    sameModelBlocks.forEach(block => {{
+      const text = block.querySelector('.same-models-text');
+      if (!text.clientWidth) return;
+      const button = block.querySelector('.same-models-toggle');
+      const overflowing = text.scrollHeight > parseFloat(getComputedStyle(text).lineHeight) * 5 + 1;
+      button.hidden = !overflowing;
+      if (!overflowing) {{
+        button.setAttribute('aria-expanded', 'false');
+        button.textContent = '展开';
+      }}
+      block.classList.toggle('is-collapsed', overflowing && button.getAttribute('aria-expanded') !== 'true');
+    }});
+  }}
+  window.addEventListener('resize', updateSameModels);
+  document.addEventListener('toggle', updateSameModels, true);
+  document.fonts.ready.then(updateSameModels);
+  updateSameModels();
+</script>
+</body></html>"""
     path.write_text(document, encoding="utf-8")
 
 
@@ -1933,6 +1984,17 @@ def _slot_html(result: Mapping[str, Any]) -> str:
 </details>"""
 
 
+def _dye_name_html(name: str, item: Mapping[str, Any]) -> str:
+    count = item.get("dye_count")
+    if count is None:
+        return (
+            f'<span class="equipment-name dye-unknown">{name}</span>'
+            '<span class="dye-unknown-note muted">（染色信息未知）</span>'
+        )
+    state = "dyeable" if count > 0 else "undyeable"
+    return f'<span class="equipment-name {state}">{name}</span>'
+
+
 def _candidate_html(candidate: Mapping[str, Any]) -> str:
     preview = _file_uri(resolve_project_path(candidate.get("local_preview")))
     item_name_zh = str(candidate.get("name_zh") or "").strip()
@@ -1944,6 +2006,7 @@ def _candidate_html(candidate: Mapping[str, Any]) -> str:
     name_en = html.escape(str(candidate.get("name_en") or "未知装备"))
     name_zh = html.escape(str(candidate.get("name_zh") or ""))
     name = f"{name_zh}<br><span class=\"muted\">{name_en}</span>" if name_zh else name_en
+    name = _dye_name_html(name, candidate)
     details_link = (
         f'<a href="{html.escape(details_url, quote=True)}" '
         'target="_blank" rel="noopener noreferrer">详细信息</a>'
@@ -1954,15 +2017,18 @@ def _candidate_html(candidate: Mapping[str, Any]) -> str:
         alternative_name_zh = html.escape(str(row.get("name_zh") or ""))
         alternative_name_en = html.escape(str(row.get("name_en") or ""))
         if alternative_name_zh and alternative_name_en:
-            alternative_names.append(
+            alternative_names.append(_dye_name_html(
                 f'{alternative_name_zh} <span class="muted">'
-                f'({alternative_name_en})</span>'
-            )
+                f'({alternative_name_en})</span>', row,
+            ))
         elif alternative_name_zh or alternative_name_en:
-            alternative_names.append(alternative_name_zh or alternative_name_en)
+            alternative_names.append(_dye_name_html(alternative_name_zh or alternative_name_en, row))
     alternatives = "、".join(alternative_names)
     alternatives_note = (
-        f'<p class="same-models"><strong>同模装备：</strong>{alternatives}</p>'
+        '<div class="same-models">'
+        f'<p class="same-models-text"><strong>同模：</strong>{alternatives}</p>'
+        '<button class="same-models-toggle" type="button" aria-expanded="false" hidden>展开</button>'
+        '</div>'
         if alternatives
         else ""
     )

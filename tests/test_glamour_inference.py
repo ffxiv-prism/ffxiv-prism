@@ -871,7 +871,7 @@ class GlamourInferenceTests(unittest.TestCase):
 
             content = path.read_text(encoding="utf-8")
             name_position = content.index("当前装备")
-            same_model_position = content.index("同模装备：")
+            same_model_position = content.index("同模：")
             identifier_position = content.index("piece_id=1")
             self.assertLess(name_position, same_model_position)
             self.assertLess(same_model_position, identifier_position)
