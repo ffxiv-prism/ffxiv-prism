@@ -3,7 +3,9 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from dataclasses import dataclass
+import tempfile
+from dataclasses import dataclass, replace
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -199,7 +201,12 @@ def main() -> int:
         default=None,
         help="Optional legacy base index metadata; SQLite is used by default.",
     )
-    parser.add_argument("--source-suffix", default="20260730")
+    parser.add_argument("--source-suffix", default=None, help="Legacy explicit source version; otherwise use the active selection.")
+    parser.add_argument("--source-selection", type=Path, default=Path("data/current_best_selection.json"))
+    parser.add_argument("--selection", type=Path, default=Path("data/current_best_selection.json"))
+    parser.add_argument("--activate", action="store_true", help="Atomically activate all validated outputs after every branch succeeds.")
+    parser.add_argument("--sample-manifest", type=Path, help="Only append eligible images from this audited manifest.")
+    parser.add_argument("--summary", type=Path, help="Write this run's candidate counts and activation result.")
     parser.add_argument("--suffix", required=True)
     expected_group = parser.add_mutually_exclusive_group(required=True)
     expected_group.add_argument(
@@ -255,7 +262,16 @@ def main() -> int:
         if args.base_index is not None
         else load_candidate_images(db_path=args.db)
     )
-    targets = target_plan(args.source_suffix, args.suffix)
+    selection = json.loads(args.source_selection.read_text(encoding="utf-8"))
+    targets = active_target_plan(selection, args.suffix, source_suffix=args.source_suffix)
+    if args.sample_manifest:
+        if not args.sample_manifest.is_file():
+            raise FileNotFoundError(args.sample_manifest)
+        allowed = {row["source_image_url"] for row in read_jsonl(args.sample_manifest)
+                   if row.get("eligibility_status") == "eligible"}
+        base_rows = [row for row in base_rows if row.get("source_image_url") in allowed]
+    if args.activate and args.targets:
+        raise ValueError("Activation requires all candidate branches; omit --targets")
     if args.targets:
         known_names = {target.name for target in targets}
         unknown_names = sorted(set(args.targets) - known_names)
@@ -386,8 +402,69 @@ def main() -> int:
             flush=True,
         )
 
-    print(json.dumps(results, ensure_ascii=False, indent=2))
+    activated = False
+    if args.activate:
+        activated = activate_targets(targets, results, selection, args.selection)
+    summary = {
+        "activated": activated,
+        "new_indexed_images": len({row["source_image_url"] for rows in additions.values() for row in rows}),
+        "new_candidate_rows": sum(len(rows) for rows in additions.values()),
+        "indexes": results,
+    }
+    if args.summary:
+        write_json(args.summary, summary)
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
     return 0
+
+
+def active_target_plan(selection: dict[str, Any], suffix: str, *, source_suffix: str | None = None) -> list[Target]:
+    base_suffix = source_suffix or str(selection["candidate_suffix"])
+    targets = target_plan(base_suffix, suffix)
+    if source_suffix:
+        return targets
+    overrides = selection.get("candidate_indexes") or {}
+    return [replace(target, source=Path(overrides.get(
+        target.source.name.removesuffix("-" + base_suffix), target.source))) for target in targets]
+
+
+def activate_targets(targets: list[Target], results: list[dict[str, Any]],
+                     source_selection: dict[str, Any], selection_path: Path) -> bool:
+    """Commit the selection only after every branch is complete; preserve weights."""
+    if len(results) != len(targets) or {r["target"] for r in results} != {t.name for t in targets}:
+        raise ValueError("Cannot activate an incomplete candidate update")
+    destinations = {r["target"]: Path(r["output"]) for r in results}
+    overrides = dict(source_selection.get("candidate_indexes") or {})
+    for target in targets:
+        destination = destinations[target.name]
+        rows = read_jsonl(destination / "metadata.jsonl")
+        matrix = np.load(destination / "embeddings.npy", mmap_mode="r")
+        if not rows or matrix.ndim != 2 or len(rows) != matrix.shape[0]:
+            raise ValueError(f"{target.name}: invalid activation metadata/embedding shape")
+        if destination != target.source:
+            summary = json.loads((destination / "summary.json").read_text(encoding="utf-8"))
+            if summary.get("completed") is not True:
+                raise ValueError(f"{target.name}: output is not complete")
+        # Output suffix can contain dashes; derive the stable prefix from the plan.
+        template = next(t for t in target_plan("source", "output") if t.name == target.name)
+        prefix = template.output.name.removesuffix("-output")
+        overrides[prefix] = portable_path(destination)
+    current = json.loads(selection_path.read_text(encoding="utf-8"))
+    if current.get("candidate_indexes") == overrides:
+        return True  # A resumed, already committed update.
+    if current != source_selection:
+        raise ValueError("Active selection changed during update; refusing to overwrite it")
+    if not any(not row.get("skipped") for row in results):
+        return False
+    updated = {**current, "candidate_indexes": overrides,
+               "candidate_indexes_updated_at": datetime.now(UTC).isoformat(timespec="seconds")}
+    # Existing metrics describe the previous candidate corpus, not this expansion.
+    metrics_path = selection_path.parent / "processed/current_recognition_metrics.json"
+    if metrics_path.is_file():
+        metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+        metrics.update(metric_status="refresh_required", candidate_update_reason="image_library_expanded")
+        write_json(metrics_path, metrics)
+    write_json(selection_path, updated)
+    return True
 
 
 def load_completed_target(
@@ -573,7 +650,31 @@ def build_additions(
     return additions
 
 
-def extend_index(
+def extend_index(target: Target, additions: list[dict[str, Any]], new_embeddings: np.ndarray) -> dict[str, Any]:
+    # A stopped build leaves only a private staging directory, never a published
+    # half-built version that prevents --resume from trying this branch again.
+    validate_output_dirs([target])
+    target.output.parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix=f".partial-{target.output.name}-", dir=target.output.parent))
+    result = _write_extended_index(replace(target, output=staging), additions, new_embeddings)
+    for filename in ("summary.json", "manifest.json"):
+        path = staging / filename
+        if path.is_file():
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            if filename == "summary.json":
+                payload["output"] = portable_path(target.output)
+            else:
+                payload["embeddings"] = portable_path(target.output / "embeddings.npy")
+                payload["metadata"] = portable_path(target.output / "metadata.jsonl")
+            write_json(path, payload)
+    if target.output.exists():
+        target.output.rmdir()  # Only an empty directory is permitted.
+    staging.rename(target.output)
+    result["output"] = portable_path(target.output)
+    return result
+
+
+def _write_extended_index(
     target: Target,
     additions: list[dict[str, Any]],
     new_embeddings: np.ndarray,
@@ -588,6 +689,8 @@ def extend_index(
             f"{source_embeddings.shape} vs {len(source_rows)}"
         )
     expected_shape = (len(additions), int(source_embeddings.shape[1]))
+    if not np.isfinite(new_embeddings).all():
+        raise ValueError(f"{target.name}: non-finite embeddings")
     if new_embeddings.shape != expected_shape:
         raise ValueError(
             f"{target.name}: new embedding shape {new_embeddings.shape} "

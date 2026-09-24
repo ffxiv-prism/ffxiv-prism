@@ -96,6 +96,7 @@ def filter_mapping(
                 "equip_slot_category_id": equip_slot_category_id,
                 "game_item_id": item_id,
                 "item_ui_category_en": item_ui_category_en,
+                "dye_count": row.get("dye_count"),
                 "name_en": name_en,
                 "name_zh": name_zh,
                 "source": row.get("source") or "https://cafemaker.wakingsands.com/Item",

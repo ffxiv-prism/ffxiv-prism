@@ -74,7 +74,7 @@ def make_png(width: int, height: int) -> bytes:
     ihdr_payload = width.to_bytes(4, "big") + height.to_bytes(4, "big") + b"\x08\x02\x00\x00\x00"
     ihdr = make_png_chunk(b"IHDR", ihdr_payload)
     iend = make_png_chunk(b"IEND", b"")
-    return signature + ihdr + iend
+    return signature + ihdr + make_png_chunk(b"IDAT", zlib.compress((b"\x00" + b"\x00" * (width * 3)) * height)) + iend
 
 
 def make_png_chunk(kind: bytes, payload: bytes) -> bytes:

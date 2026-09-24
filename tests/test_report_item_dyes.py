@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -27,6 +28,41 @@ class ReportItemDyesTests(unittest.TestCase):
             self.assertEqual(by_name, {"Fixed": 0, "Dual": 2})
             self.assertNotIn(5, by_id)
             self.assertNotIn(8, by_id)
+
+    def test_jsonl_keeps_ambiguous_and_incomplete_names_unknown(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "items.jsonl"
+            rows = [{"game_item_id": item_id, "name_en": name,
+                     "equip_slot_category_id": slot, "dye_count": count}
+                    for item_id, name, slot, count in [
+                        (1, "Fixed", 3, 0), (2, "Dual", 3, 2),
+                        (3, "Ambiguous", 3, 0), (4, "Ambiguous", 3, 1),
+                        (5, "Dual", 0, 0), (6, "Incomplete", 3, 1),
+                        (7, "Incomplete", 3, None), (8, "Invalid", 3, -1)]]
+            path.write_text("\n".join(json.dumps(row) for row in rows), encoding="utf-8")
+            by_id, by_name = load_item_dye_counts(path)
+            self.assertEqual(by_name, {"Fixed": 0, "Dual": 2})
+            self.assertNotIn(5, by_id)
+            self.assertNotIn(8, by_id)
+
+    def test_current_table_overrides_stale_csv_even_when_unknown(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "xiv_datamining_item_en.csv").write_text(
+                "#,Name,EquipSlotCategory,DyeCount\n1,Dual,3,1\n2,Unknown,3,2\n",
+                encoding="utf-8",
+            )
+            current = root / "cafemaker_item_names_raw.jsonl"
+            current.write_text("\n".join(json.dumps(row) for row in [
+                {"game_item_id": 1, "name_en": "Dual", "equip_slot_category_id": 3, "dye_count": 2},
+                {"game_item_id": 2, "name_en": "Unknown", "equip_slot_category_id": 3, "dye_count": None},
+            ]), encoding="utf-8")
+            with patch("ffxiv_prism.matching.item_dyes.GAME_DATA_RAW_DIR", root):
+                self.assertEqual(load_item_dye_counts(), ({1: 2}, {"Dual": 2}))
+                current.write_text('{"game_item_id": 1}\n', encoding="utf-8")
+                self.assertEqual(load_item_dye_counts()[0], {1: 1, 2: 2})
+                current.unlink()
+                self.assertEqual(load_item_dye_counts()[0], {1: 1, 2: 2})
 
     def test_missing_source_produces_unknown_not_undyeable(self):
         with tempfile.TemporaryDirectory() as directory:

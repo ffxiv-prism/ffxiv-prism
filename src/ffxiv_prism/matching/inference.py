@@ -135,6 +135,12 @@ def current_best_configs() -> dict[str, SlotInferenceConfig]:
         raise ValueError(f"Unsupported BODY current-best policy: {body_policy}")
 
     def index(name: str) -> Path:
+        override = (selection.get("candidate_indexes") or {}).get(name)
+        if override:
+            path = resolve_project_path(override)
+            if path is None:
+                raise ValueError(f"Invalid candidate index override: {name}")
+            return path
         return INDEXES_DIR / f"{name}-{suffix}"
 
     def checkpoint(name: str) -> Path:

@@ -33,16 +33,9 @@ EXECUTION_DEVICES = {"cpu", "cuda"}
 RUNNING_STATES = {"queued", "running"}
 LOADING_WEIGHTS_PROGRESS = re.compile(r"\bLoading weights:\s*(\d{1,3})%")
 DATASET_MODES: dict[str, list[str]] = {
-    "standard": [],
-    "full": ["--all"],
-    "local-index": [
-        "--stage",
-        "build-index",
-        "--stage",
-        "validate-images",
-        "--stage",
-        "build-sqlite",
-    ],
+    "standard": ["--source-mode", "refresh"],
+    "full": ["--source-mode", "refresh"],  # Backward-compatible API alias.
+    "local-index": ["--source-mode", "local"],
 }
 
 
@@ -65,6 +58,7 @@ class Job:
     output_dir: str | None = None
     device: str | None = None
     logs: list[str] = field(default_factory=list)
+    dataset_result: dict[str, Any] | None = None
 
     def public(self, *, include_logs: bool = True) -> dict[str, Any]:
         payload = asdict(self)
@@ -199,7 +193,7 @@ class JobRegistry:
                 job.finished_at = _now()
                 if return_code == 0:
                     job.status = "succeeded"
-                    job.stage = "已完成"
+                    job.stage = (job.dataset_result or {}).get("message", "已完成")
                 else:
                     job.status = "failed"
                     job.stage = "运行失败"
@@ -227,6 +221,13 @@ def _loading_weights_percent(line: str) -> int | None:
 
 
 def _append_job_log(job: Job, line: str) -> None:
+    if job.kind == "dataset" and line.startswith("DATASET_RESULT "):
+        try:
+            result = json.loads(line.removeprefix("DATASET_RESULT "))
+            if isinstance(result, dict):
+                job.dataset_result = result
+        except ValueError:
+            pass
     current_percent = _loading_weights_percent(line)
     previous_percent = (
         _loading_weights_percent(job.logs[-1]) if job.logs else None
@@ -257,8 +258,11 @@ def _stage_from_log(line: str, kind: str) -> str:
     dataset_labels = {
         "discover_eorzea_gearsets": "发现装备套装",
         "collect_eorzea_gearset_details": "采集装备详情",
-        "build_eorzea_image_url_manifest": "整理图片清单",
-        "download_cafemaker": "更新中文名称",
+        "build_eorzea_image_url_manifest": "发现与验证图片清单",
+        "download_eorzea_images_from_url_manifest": "下载新增与缺失图片",
+        "build_equipment_image_samples": "检查图片样本准入",
+        "update_active_candidate_indexes": "扩展并激活检索索引",
+        "download_cafemaker": "更新物品名称、槽位与染色资料",
         "search_huiji_item_zh_name": "补充中文名称",
         "build_eorzea_dataset_index": "重建数据索引",
         "validate_eorzea_images": "校验本地图片",
@@ -393,7 +397,8 @@ def build_dataset_command(*, python_executable: str, mode: str) -> list[str]:
         raise ValueError("数据集更新模式无效。")
     return [
         python_executable,
-        str(PROJECT_ROOT / "scripts" / "run_data_pipeline.py"),
+        str(PROJECT_ROOT / "scripts" / "run_lifecycle_pipeline.py"),
+        "--workflow", "sample-library", "--candidate-mode", "extend", "--device", "auto",
         *DATASET_MODES[mode],
     ]
 
@@ -660,9 +665,9 @@ class PrismRequestHandler(BaseHTTPRequestHandler):
         payload = self._read_request_json()
         mode = str(payload.get("mode", "standard"))
         labels = {
-            "standard": "标准数据集更新",
-            "full": "完整数据集更新",
-            "local-index": "重建本地索引",
+            "standard": "更新装备图片库",
+            "full": "更新装备图片库",
+            "local-index": "修复本地图片库与索引",
         }
         if mode not in labels:
             raise ValueError("数据集更新模式无效。")

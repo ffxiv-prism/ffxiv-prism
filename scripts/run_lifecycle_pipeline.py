@@ -15,6 +15,11 @@ from typing import Any, Sequence
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PYTHON = sys.executable
+if str(PROJECT_ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT / "src"))
+from ffxiv_prism.dataset.update_audit import SAMPLE_PATH, image_snapshot, update_result
+from ffxiv_prism.jsonl import write_json_atomic
+from ffxiv_prism.paths import portable_path
 DEFAULT_REPORT_ROOT = Path("data/outputs/lifecycle-reports")
 METRICS_PATH = Path("data/processed/current_recognition_metrics.json")
 ASSET_MANIFEST = Path("data/current_best_assets.json")
@@ -55,12 +60,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--workflow",
         choices=("sample-library", "model-release", "all"),
-        default="all",
+        default="sample-library",
     )
     parser.add_argument(
         "--source-mode",
         choices=("local", "cached", "refresh"),
-        default="local",
+        default="refresh",
         help=(
             "local rebuilds derived assets only; cached prefers existing web "
             "caches; refresh bypasses cached Eorzea list pages."
@@ -69,19 +74,21 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--candidate-mode",
         choices=("skip", "check", "extend"),
-        default="check",
+        default="extend",
         help=(
             "Check or version-extend active visual indexes after updating the "
             "sample library."
         ),
     )
-    parser.add_argument("--candidate-source-suffix", default="20260730")
+    parser.add_argument("--candidate-source-suffix", default=None)
     parser.add_argument(
         "--candidate-suffix",
         default=None,
         help="Version suffix for newly extended indexes; defaults to the run ID.",
     )
-    parser.add_argument("--device", default="cuda")
+    parser.add_argument("--device", default="auto")
+    parser.add_argument("--huiji-proxy", default=None)
+    parser.add_argument("--huiji-user-data-dir", default=None)
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--image-workers", type=int, default=8)
     parser.add_argument("--download-delay", type=float, default=0.2)
@@ -139,6 +146,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "to rerun. May be repeated."
         ),
     )
+    parser.add_argument("--discovery-mode", choices=("auto", "incremental", "full"), default="auto")
+    parser.add_argument("--discovery-head-pages", type=int, default=3)
+    parser.add_argument("--discovery-max-head-pages", type=int, default=8)
+    parser.add_argument("--discovery-history-pages", type=int, default=3)
     return parser.parse_args(argv)
 
 
@@ -146,204 +157,68 @@ def python_command(script: str, *arguments: str) -> tuple[str, ...]:
     return (PYTHON, script, *arguments)
 
 
+def run_artifact(args: argparse.Namespace, run_id: str, kind: str) -> Path:
+    root = args.report_root if args.report_root.is_absolute() else PROJECT_ROOT / args.report_root
+    return root / f"{run_id}.{kind}.json"
+
+
 def sample_stages(args: argparse.Namespace, run_id: str) -> list[Stage]:
     stages: list[Stage] = []
+    def add(name: str, label: str, script: str, *arguments: str, advisory: bool = False):
+        stages.append(Stage(name, label, python_command(script, *arguments), "sample-library", advisory))
+    def data(name: str, label: str, *arguments: str, advisory: bool = False):
+        add(name, label, "scripts/run_data_pipeline.py", "--stage", name, *arguments, advisory=advisory)
+
+    browser = []
+    if args.browser_verification:
+        browser = ["--browser-verification", "--browser-profile-dir", args.browser_profile_dir,
+                   "--browser-wait-seconds", str(args.browser_wait_seconds)]
+    refresh = ["--refresh-source"] if args.source_mode == "refresh" else []
     if args.source_mode != "local":
-        discovery_args = ["--stage", "discover"]
-        if args.source_mode == "refresh":
-            discovery_args.append("--refresh-source")
-        browser_args: list[str] = []
-        if args.browser_verification:
-            browser_args = [
-                "--browser-verification",
-                "--browser-profile-dir",
-                args.browser_profile_dir,
-                "--browser-wait-seconds",
-                str(args.browser_wait_seconds),
-            ]
-            discovery_args.extend(browser_args)
-        stages.extend(
-            [
-                Stage(
-                    "discover",
-                    "发现装备套装",
-                    python_command("scripts/run_data_pipeline.py", *discovery_args),
-                    "sample-library",
-                ),
-                Stage(
-                    "collect-details",
-                    "采集套装详情与槽位",
-                    python_command(
-                        "scripts/run_data_pipeline.py",
-                        "--stage",
-                        "collect-details",
-                        *browser_args,
-                    ),
-                    "sample-library",
-                ),
-                Stage(
-                    "build-image-manifest",
-                    "生成并验证图片 URL 清单",
-                    python_command(
-                        "scripts/run_data_pipeline.py",
-                        "--stage",
-                        "build-image-manifest",
-                        *browser_args,
-                    ),
-                    "sample-library",
-                ),
-                Stage(
-                    "download-images",
-                    "下载新增装备图片",
-                    python_command(
-                        "scripts/download_eorzea_images_from_url_manifest.py",
-                        "--image-workers",
-                        str(args.image_workers),
-                        "--delay",
-                        str(args.download_delay),
-                        *browser_args,
-                    ),
-                    "sample-library",
-                ),
-            ]
-        )
-        if args.source_mode == "refresh":
-            stages.extend(
-                [
-                    Stage(
-                        "cafemaker-zh",
-                        "更新中文名称与槽位资料",
-                        python_command(
-                            "scripts/run_data_pipeline.py",
-                            "--stage",
-                            "cafemaker-zh",
-                        ),
-                        "sample-library",
-                    ),
-                    Stage(
-                        "cafemaker-models",
-                        "更新同模判定字段",
-                        python_command("scripts/download_cafemaker_item_models.py"),
-                        "sample-library",
-                    ),
-                ]
-            )
-        else:
-            stages.append(
-                Stage(
-                    "cafemaker-enrich-local",
-                    "复用缓存并富化中文名称与槽位",
-                    python_command(
-                        "scripts/run_data_pipeline.py",
-                        "--stage",
-                        "cafemaker-enrich-local",
-                    ),
-                    "sample-library",
-                )
-            )
-        stages.append(
-            Stage(
-                "huiji-missing-zh",
-                "补齐缺失中文名称",
-                python_command(
-                    "scripts/run_data_pipeline.py",
-                    "--stage",
-                    "huiji-missing-zh",
-                ),
-                "sample-library",
-            )
-        )
-
-    stages.extend(
-        [
-            Stage(
-                "build-index",
-                "重建规范图片索引",
-                python_command(
-                    "scripts/run_data_pipeline.py", "--stage", "build-index"
-                ),
-                "sample-library",
-            ),
-            Stage(
-                "validate-images",
-                "校验本地图片",
-                python_command(
-                    "scripts/run_data_pipeline.py", "--stage", "validate-images"
-                ),
-                "sample-library",
-            ),
-            Stage(
-                "build-sqlite",
-                "重建规范 SQLite",
-                python_command(
-                    "scripts/run_data_pipeline.py", "--stage", "build-sqlite"
-                ),
-                "sample-library",
-            ),
-        ]
-    )
-
-    if args.source_mode != "local" or (PROJECT_ROOT / CAFEMAKER_MODELS).is_file():
-        broad_equivalence = Path(
-            "data/processed/piece_appearance_equivalence_huiji_models.json"
-        )
-        stages.extend(
-            [
-                Stage(
-                    "build-same-model",
-                    "重建全库同模关系",
-                    python_command(
-                        "scripts/build_huiji_model_equivalence_full.py",
-                        "--items",
-                        CAFEMAKER_MODELS.as_posix(),
-                    ),
-                    "sample-library",
-                ),
-                Stage(
-                    "select-same-model",
-                    "发布可见装备同模关系",
-                    python_command(
-                        "scripts/select_huiji_equivalence_relation.py",
-                        "--input",
-                        broad_equivalence.as_posix(),
-                        "--output",
-                        SAME_MODEL_OUTPUT.as_posix(),
-                        "--relation",
-                        "same_model",
-                    ),
-                    "sample-library",
-                ),
-            ]
-        )
-
+        data("discover", "增量发现装备图片来源", *refresh, *browser,
+             "--discovery-mode", args.discovery_mode,
+             "--discovery-head-pages", str(args.discovery_head_pages),
+             "--discovery-max-head-pages", str(args.discovery_max_head_pages),
+             "--discovery-history-pages", str(args.discovery_history_pages))
+        data("build-image-manifest", "发现并验证新增图片 URL", *refresh, *browser)
+        add("download-images", "下载新增与缺失装备图片", "scripts/download_eorzea_images_from_url_manifest.py",
+            "--image-workers", str(args.image_workers), "--delay", str(args.download_delay),
+            "--summary", str(run_artifact(args, run_id, "downloads")), *browser)
+        data("collect-details", "关联图片的装备与部位标签", *browser, advisory=True)
+    data("build-index", "整理图片清单并去除重复来源")
+    data("validate-images", "完整解码与图片质量检查")
+    data("build-sqlite", "关联图片与装备标签并入库")
+    add("sample-eligibility", "生成合格样本与待处理图片清单", "scripts/build_equipment_image_samples.py")
     if args.candidate_mode != "skip":
-        suffix = args.candidate_suffix or run_id
-        candidate_args = [
-            "--source-suffix",
-            args.candidate_source_suffix,
-            "--suffix",
-            suffix,
-            "--allow-any-new-gearsets",
-            "--skip-empty",
-            "--batch-size",
-            str(args.batch_size),
-            "--device",
-            args.device,
-        ]
-        if args.candidate_mode == "check":
-            candidate_args.append("--dry-run")
-        else:
-            candidate_args.append("--resume")
-        stages.append(
-            Stage(
-                "candidate-indexes",
-                "检查或扩展版本化视觉候选索引",
-                python_command(
-                    "scripts/update_active_candidate_indexes.py", *candidate_args
-                ),
-                "sample-library",
-            )
-        )
+        candidate = ["--suffix", args.candidate_suffix or run_id, "--allow-any-new-gearsets", "--skip-empty",
+                     "--sample-manifest", SAMPLE_PATH.as_posix(), "--batch-size", str(args.batch_size),
+                     "--device", args.device, "--summary", str(run_artifact(args, run_id, "candidates")),
+                     "--source-selection", str(getattr(args, "source_selection_path", "data/current_best_selection.json"))]
+        if args.candidate_source_suffix:
+            candidate.extend(["--source-suffix", args.candidate_source_suffix])
+        candidate.extend(["--dry-run"] if args.candidate_mode == "check" else ["--resume", "--activate"])
+        add("candidate-indexes", "扩展并激活合格图片的检索索引", "scripts/update_active_candidate_indexes.py", *candidate)
+
+    # Report enrichment must never block the image -> retrieval path.
+    if args.source_mode == "refresh":
+        add("cafemaker-zh", "补充物品名称与染色资料", "scripts/download_cafemaker_item_names.py", advisory=True)
+        add("slot-metadata", "补充官方槽位资料", "scripts/download_cafemaker_equip_slot_categories.py", advisory=True)
+        add("cafemaker-models", "补充同模判定字段", "scripts/download_cafemaker_item_models.py", advisory=True)
+    if args.source_mode != "local":
+        data("cafemaker-enrich-local", "补充中文名与装备限制", advisory=True)
+        huiji = []
+        if args.huiji_proxy:
+            huiji.extend(["--huiji-proxy", args.huiji_proxy])
+        if args.huiji_user_data_dir:
+            huiji.extend(["--huiji-user-data-dir", args.huiji_user_data_dir])
+        data("huiji-missing-zh", "补齐缺失中文名称", *huiji, advisory=True)
+        add("refresh-display-database", "更新数据库展示资料", "scripts/build_eorzea_sqlite.py", advisory=True)
+    if args.source_mode != "local" or (PROJECT_ROOT / CAFEMAKER_MODELS).is_file():
+        add("build-same-model", "补充同模关系", "scripts/build_huiji_model_equivalence_full.py",
+            "--items", CAFEMAKER_MODELS.as_posix(), advisory=True)
+        add("select-same-model", "更新可见装备同模关系", "scripts/select_huiji_equivalence_relation.py",
+            "--input", "data/processed/piece_appearance_equivalence_huiji_models.json",
+            "--output", SAME_MODEL_OUTPUT.as_posix(), "--relation", "same_model", advisory=True)
     return stages
 
 
@@ -447,7 +322,17 @@ def load_resume_report(path: Path) -> tuple[Path, dict[str, Any]]:
 
 
 def normalized_resume_command(command: Sequence[str]) -> list[str]:
-    return [part for part in command if part != "--resume"]
+    normalized = []
+    skip = False
+    for part in command:
+        if skip:
+            skip = False
+            continue
+        if part == "--summary":
+            skip = True
+        elif part != "--resume":
+            normalized.append(portable_path(part) or part)
+    return normalized
 
 
 def candidate_suffix_from_report(payload: dict[str, Any]) -> str:
@@ -609,6 +494,7 @@ def write_report(
     *,
     release_gate: dict[str, Any] | None,
     resumed_from: Path | None = None,
+    finished: bool = True,
 ) -> tuple[Path, dict[str, Any]]:
     report_root = args.report_root
     if not report_root.is_absolute():
@@ -627,10 +513,13 @@ def write_report(
         else "passed"
     )
     payload = {
-        "version": 2,
+        "version": 3,
+        "source_selection_path": str(getattr(args, "source_selection_path", "")),
+        "baseline_path": str(getattr(args, "baseline_path", "")),
         "run_id": run_id,
         "workflow": args.workflow,
         "source_mode": args.source_mode,
+        "discovery_mode": args.discovery_mode,
         "candidate_mode": args.candidate_mode,
         "candidate_suffix": args.candidate_suffix or run_id,
         "release_mode": args.release_mode,
@@ -639,18 +528,28 @@ def write_report(
             if resumed_from is not None and resumed_from.is_relative_to(PROJECT_ROOT)
             else str(resumed_from) if resumed_from is not None else None
         ),
-        "status": status,
+        "status": status if finished else "running",
         "started_at": started_at,
         "finished_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "stages": [asdict(row) for row in results],
         "release_gate": release_gate,
         "summary": collect_summary(args.candidate_suffix or run_id),
     }
+    if finished and args.workflow in {"sample-library", "all"}:
+        def evidence(kind):
+            path = run_artifact(args, run_id, kind)
+            return json.loads(path.read_text(encoding="utf-8")) if path.is_file() and not args.dry_run else {}
+        before = getattr(args, "image_baseline", {})
+        after = image_snapshot(PROJECT_ROOT) if not args.dry_run else {}
+        payload["image_update"] = update_result(before, after, candidate=evidence("candidates"),
+            download=evidence("downloads"), warnings=sum(r.status == "warning" for r in results),
+            failed=bool(failures), planned=args.dry_run)
+        if status == "passed" and (any(r.status == "warning" for r in results)
+                or payload["image_update"]["missing_download_images"]
+                or payload["image_update"]["outcome"] == "images_pending_index"):
+            payload["status"] = "warning"
     report_path = report_root / f"{run_id}.json"
-    report_path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
+    write_json_atomic(report_path, payload)
     return report_path, payload
 
 
@@ -708,6 +607,8 @@ def print_report(report_path: Path, payload: dict[str, Any]) -> None:
     except ValueError:
         display_path = report_path
     print(f"JSON报告: {display_path}")
+    if payload.get("image_update"):
+        print("DATASET_RESULT " + json.dumps(payload["image_update"], ensure_ascii=False))
 
 
 def format_command(command: Sequence[str]) -> str:
@@ -730,6 +631,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     hard_failure = False
     resume_path: Path | None = None
     previous_by_name: dict[str, dict[str, Any]] = {}
+    previous_report: dict[str, Any] = {}
     if args.resume_report is not None:
         resume_path, previous_report = load_resume_report(args.resume_report)
         if args.candidate_suffix is None:
@@ -743,7 +645,24 @@ def main(argv: Sequence[str] | None = None) -> int:
         }
 
     if args.workflow in {"sample-library", "all"}:
-        reuse_invalidated = False
+        if not args.dry_run:
+            args.source_selection_path = Path(previous_report.get("source_selection_path") or run_artifact(args, run_id, "sources"))
+            args.baseline_path = Path(previous_report.get("baseline_path") or run_artifact(args, run_id, "before"))
+            if not args.source_selection_path.is_absolute():
+                args.source_selection_path = PROJECT_ROOT / args.source_selection_path
+            if not args.baseline_path.is_absolute():
+                args.baseline_path = PROJECT_ROOT / args.baseline_path
+            for path in (args.source_selection_path, args.baseline_path):
+                path.parent.mkdir(parents=True, exist_ok=True)
+            if not args.source_selection_path.is_file():
+                source = json.loads((PROJECT_ROOT / "data/current_best_selection.json").read_text(encoding="utf-8"))
+                write_json_atomic(args.source_selection_path, source)
+            if args.baseline_path.is_file():
+                args.image_baseline = json.loads(args.baseline_path.read_text(encoding="utf-8"))
+            else:
+                args.image_baseline = image_snapshot(PROJECT_ROOT)
+                write_json_atomic(args.baseline_path, args.image_baseline)
+        reuse_invalidated = bool(previous_report and previous_report.get("version", 0) < 3)
         for stage in sample_stages(args, run_id):
             if stage.name in set(args.restart_stage):
                 reuse_invalidated = True
@@ -755,6 +674,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             if result is None:
                 result = run_stage(stage, dry_run=args.dry_run)
             results.append(result)
+            # Preserve the matching run evidence when a stage is reused.
+            if result.status == "reused" and stage.name in {"download-images", "candidate-indexes"}:
+                previous_command = previous_by_name.get(stage.name, {}).get("command", [])
+                if "--summary" in previous_command:
+                    old_path = Path(previous_command[previous_command.index("--summary") + 1])
+                    if not old_path.is_absolute():
+                        old_path = PROJECT_ROOT / old_path
+                    kind = "downloads" if stage.name == "download-images" else "candidates"
+                    if old_path.is_file():
+                        write_json_atomic(run_artifact(args, run_id, kind), json.loads(old_path.read_text(encoding="utf-8")))
+            write_report(args, run_id, started_at, results, release_gate=None, resumed_from=resume_path, finished=False)
             if result.status == "failed":
                 hard_failure = True
                 break
@@ -806,7 +736,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         resumed_from=resume_path,
     )
     print_report(report_path, payload)
-    return 0 if payload["status"] in {"passed", "planned"} else 2
+    return 0 if payload["status"] in {"passed", "warning", "planned"} else 2
 
 
 if __name__ == "__main__":

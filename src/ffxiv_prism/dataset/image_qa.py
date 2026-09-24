@@ -6,6 +6,8 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, BinaryIO
 
+from PIL import Image
+
 from ffxiv_prism.jsonl import (
     read_jsonl,
     write_json_atomic,
@@ -122,7 +124,11 @@ def annotate_image_row(
 
     try:
         width, height, image_format = read_image_dimensions(path)
-    except ImageHeaderError as exc:
+        with Image.open(path) as image:
+            image.verify()
+        with Image.open(path) as image:
+            image.load()
+    except (ImageHeaderError, OSError, ValueError, SyntaxError) as exc:
         flags.append("invalid_image")
         qa["image_format"] = None
         qa["image_error"] = str(exc)

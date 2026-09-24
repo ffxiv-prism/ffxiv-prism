@@ -136,91 +136,88 @@ python scripts\audit_slot_quality_folds.py
 发布预览所需的 19,807 张图片全部可用。玩家逐槽准入集的五部位标签均已达到
 100% 活动候选覆盖。
 
-更新本地数据：
+## 更新装备图片库
+
+网页和命令行使用同一套图片优先流程。默认执行远端图片发现与采集、质量校验、
+必要标签关联和检索索引扩展，随后补充名称、染色等展示资料，不自动训练或发布模型：
 
 ```powershell
-python scripts\run_data_pipeline.py
+python scripts/run_lifecycle_pipeline.py
 ```
 
-强制刷新远端目录发现：
+网页只提供“更新装备图片库”和“修复本地图片库与索引”。命令行离线修复：
 
 ```powershell
-python scripts\run_data_pipeline.py --all --refresh-source
+python scripts/run_lifecycle_pipeline.py --source-mode local
 ```
 
-## 样本库更新与模型发布闭环
+流程依次执行：来源发现 → 图片 URL 发现与验证 → 图片下载 → 装备/部位标签关联
+→ 图片去重与完整解码检查 → SQLite → 样本准入清单 → 特征提取与检索索引激活
+→ 中文名、染色、装备限制和同模关系补充。现有装备新增的图片同样会被发现；
+历史不可用 URL 按冷却期和每次最多 200 个的预算重试，损坏的本地缓存图片会重新下载。
+报告补充资料失败只记录警告，不阻断合格图片的检索更新。
 
-`run_data_pipeline.py` 保留为单阶段维护入口。生产更新统一由
-`run_lifecycle_pipeline.py` 编排，并在结束时打印简要报告、同时写入一份 JSON
-审计记录。
+来源扫描默认 `--discovery-mode auto`：仅无历史装备记录时自动全扫；已有库即使缺少
+本机网页缓存也采用增量。每类列表检查 3–8 页首页，再轮查 3 页历史，男女合计通常
+12 页、最多 22 页。游标按页持久化，较旧页面的新增图片可能延后至轮查时发现。
+需要人工全量核对时使用 `--discovery-mode full`。扫描预算及图片重试规则见
+[增量扫描说明](docs/data_update_flow.md#增量扫描与请求预算)。
 
-完整刷新样本库并版本化扩展有新增样本的视觉候选索引：
+候选扩展以当前活动索引为基础，不再固定从旧日期索引开始。所有分支完成并验证后，
+通过 `data/current_best_selection.json` 的 `candidate_indexes` 映射一次切换；
+无新增图片的分支继续使用原索引。模型权重保持不变，旧评估指标标记为需要刷新。
+任一分支失败时不切换，已有索引仍可用；SQLite 也在新库构建成功后才原子替换。
+
+`data/processed/equipment_image_samples.jsonl` 记录每张图片是否合格、重复、缺标签、
+质量失败或不属于当前支持的视图。缺少中文名或染色字段不会影响图片准入。
+合格图片同时成为训练候选，但仍需质量审核、防泄漏划分和训练流程；
+**图片入库不代表模型已经训练，也不代表通过了训练准入。**
+
+结束报告列出新发现、下载成功、下载失败、质检通过、新增合格样本、实际新增检索图片，
+以及待标签和重复图片数量。无新增可用图片会明确显示“无新增有效检索样本”，
+不会把单纯元数据更新称为样本扩充。JSON 报告及各阶段证据位于
+`data/outputs/lifecycle-reports/`，每完成一个阶段都会保存恢复点。
+
+中断后恢复（沿用来源快照、更新前图片基线和候选索引后缀）：
 
 ```powershell
-python scripts\run_lifecycle_pipeline.py `
-  --workflow sample-library `
-  --source-mode refresh `
-  --candidate-mode extend `
-  --device cuda
+python scripts/run_lifecycle_pipeline.py --resume-report data/outputs/lifecycle-reports/<上次运行时间>.json
 ```
 
-该流程依次执行远端套装发现、详情采集、图片 URL 验证、图片下载、中文名与
-槽位补全、图片索引和 QA、SQLite、精准同模关系，以及 DINOv2、DINOv3、
-SigLIP2 活动候选索引的版本化增量扩展。没有新增候选的分支不会复制旧索引。
-候选索引扩展现在按分支写入完成标记；某个分支失败后用同一命令重试时，已完成且
-结构校验通过的分支会直接复用，不再重新加载对应编码器或重复生成向量。
+恢复时应使用与原任务一致的来源和候选模式。`--restart-stage <阶段名>` 可从指定阶段
+重做。旧版本流程报告会重新执行新流程，避免跳过新增图片准入与索引激活步骤。
 
-长流程中断后，可直接从上一份生命周期报告恢复：
+高级参数：`--source-mode cached` 复用目录缓存并下载缺失图片；
+`--candidate-mode check` 只检查新增候选，`skip` 不更新索引；两者都不保证新增图片
+可检索。`--device auto` 为默认，可指定 `cpu` / `cuda`。
+`--dry-run` 只显示计划。`run_data_pipeline.py` 的无参数和 `--all` 旧调用转交统一入口，
+显式 `--stage` 仅用于内部执行或单阶段维护。
+
+### 染色资料
+
+refresh 更新在图片流程之后请求 Item 的 `DyeCount`，写入受 Git 管理的
+`data/raw/game_data/cafemaker_item_names_raw.jsonl`，装备精简表也保留 `dye_count`。
+0 表示不可染色，正数为通道数，null 表示未知；旧 CSV 仅作为旧数据兼容回退。
+仅补充报告资料时可单独运行：
 
 ```powershell
-python scripts\run_lifecycle_pipeline.py `
-  --workflow all `
-  --source-mode refresh `
-  --candidate-mode extend `
-  --release-mode publish `
-  --resume-report data\outputs\lifecycle-reports\<上次运行时间>.json `
-  --device cuda
+python scripts/download_cafemaker_item_names.py
+python scripts/filter_cafemaker_item_names_for_gear_pieces.py
 ```
 
-恢复时会沿用原候选索引后缀，并复用命令参数一致、已通过的样本库阶段；测试和发布
-门禁仍会重新执行。如果需要从某一阶段主动重做，可加
-`--restart-stage <阶段名>`，该阶段及其后的样本库阶段都会重跑。
+### 模型训练与发布
 
-校验当前选定的新模型发布候选：
+训练与数据更新独立。重新评估并登记有效指标后，才可执行模型发布门禁：
 
 ```powershell
-python scripts\run_lifecycle_pipeline.py `
-  --workflow model-release `
-  --release-mode check
+python scripts/run_lifecycle_pipeline.py --workflow model-release --release-mode check
 ```
 
-真正导出 `current-best` 时使用 `--release-mode publish`。如果已登记指标有效但尚未
-达到全部槽位目标，需要同时显式传入 `--allow-below-target`。发布门禁要求全量测试、
-推理配置、预览图片和运行资产完整性通过，并要求
-`data/processed/current_recognition_metrics.json` 是当前有效评估；指标过期时会
-阻止覆盖发布资产。完整串联可使用 `--workflow all`。默认的 `local` 来源模式只
-重建已有本地资料的派生资产，避免普通检查意外触发大规模网络采集；生产更新应
-显式选择 `--source-mode refresh`。
+显式 `--release-mode publish` 才导出资产。`--workflow all` 为高级串联模式；
+如果刚扩展图片库而未重新评估，发布门禁会因指标过期阻止发布。
+公开模型与图片缓存仍由各主机准备；已发布运行资产由 Git LFS 提供。
 
-模型评估的 `--query-cache` / `--crop-cache` 会在加载大模型前验证路径、模型、折次、
-检查点和预处理信息。缓存有效时直接进入检索；只有传入
-`--rebuild-query-cache` 或 `--rebuild-crop-cache` 才会强制重编码。严格三折报告完成后，
-`register_current_recognition_metrics.py` 会同时写入指标快照和
-`data/current_best_selection.json`；后者统一决定候选索引版本、推理检查点、BODY
-安全策略和基准值。`export_current_best_assets.py` 从该清单自动发现要导出的模型，
-因此晋升不再需要手改 `inference.py` 或资产文件名。
-
-`--source-mode cached` 会刷新由当前网页缓存派生的清单并下载缺失图片，但复用
-已有 CafeMaker 名称、槽位和模型原始表，只执行本地筛选与装备富化；只有
-`refresh` 模式才会全量重拉这些游戏资料表。
-
-命令结束时会输出套装、部件、图片、同模关系、发布资产和门禁状态，完整报告位于
-`data/outputs/lifecycle-reports/<运行时间>.json`。
-
-装备图片、远端页面、公共模型缓存、训练缓存、调试图与运行输出均属于本地可再
-生成资产，不进入 Git。已发布 `current-best` 所需的候选向量索引、推理检查点、
-DINOv3 权重及同模装备关系属于版本化运行资产；文件清单和哈希位于
-`data/current_best_assets.json`，其中大型二进制文件通过 Git LFS 提供。
+具体字段、恢复语义和分支核对记录见[数据更新流程说明](docs/data_update_flow.md)。
 
 ## 项目结构
 

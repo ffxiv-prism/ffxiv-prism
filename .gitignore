@@ -120,6 +120,7 @@ data/outputs/**
 # portable source artifacts.
 var/models/**
 var/tmp/**
+work/
 *.orig
 *.rej
 
@@ -178,3 +179,6 @@ var/models/dinov3-vitb16-pretrain-lvd1689m/*
 !var/models/dinov3-vitb16-pretrain-lvd1689m/LICENSE.md
 !var/models/dinov3-vitb16-pretrain-lvd1689m/model.safetensors
 !var/models/dinov3-vitb16-pretrain-lvd1689m/preprocessor_config.json
+
+# Generated image eligibility catalogue; rebuilt by the unified update workflow.
+data/processed/equipment_image_samples.jsonl

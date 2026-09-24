@@ -4,6 +4,8 @@ from __future__ import annotations
 import hashlib
 import json
 import time
+
+from PIL import Image
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -363,8 +365,19 @@ class EorzeaCollectionCollector:
 
     def _download_image(self, candidate: ImageCandidate) -> tuple[Path, bool]:
         target = self.image_target(candidate)
-        result = self.http.fetch_bytes(candidate.source_image_url, target)
+        result = self.http.fetch_bytes(candidate.source_image_url, target, force_refresh=target.is_file() and not self.image_is_readable(target))
         return result.local_path, result.from_cache
+
+    @staticmethod
+    def image_is_readable(path: Path) -> bool:
+        try:
+            with Image.open(path) as image:
+                image.verify()
+            with Image.open(path) as image:
+                image.load()
+            return True
+        except (OSError, ValueError, SyntaxError):
+            return False
 
     def image_target(self, candidate: ImageCandidate) -> Path:
         group = candidate.gearset_slug or "misc"
@@ -378,6 +391,8 @@ class EorzeaCollectionCollector:
         local_path: Path,
         from_cache: bool,
     ) -> DownloadedImageRecord:
+        if not self.image_is_readable(local_path):
+            raise ValueError(f"Downloaded image cannot be decoded: {local_path}")
         return DownloadedImageRecord(
             source_image_url=candidate.source_image_url,
             source_page_url=candidate.source_page_url,

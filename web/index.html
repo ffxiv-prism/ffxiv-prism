@@ -162,6 +162,7 @@
       </div>
       <div class="progress-track"><span id="progress-bar"></span></div>
       <p class="job-stage" id="job-stage">等待本地进程启动…</p>
+      <p id="dataset-result" class="job-stage" hidden aria-live="polite"></p>
       <details>
         <summary>查看运行日志</summary>
         <pre id="job-log"></pre>
@@ -203,9 +204,8 @@
       <label class="field">
         <span>更新范围</span>
         <select id="update-mode">
-          <option value="standard">标准增量更新（推荐）</option>
-          <option value="local-index">只重建本地索引与数据库</option>
-          <option value="full">完整发现与更新</option>
+          <option value="standard">更新装备图片库（推荐）</option>
+          <option value="local-index">修复本地图片库与索引</option>
         </select>
       </label>
       <div class="mode-note" id="mode-note">
