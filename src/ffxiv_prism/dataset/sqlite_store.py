@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 import sqlite3
 from pathlib import Path
 from typing import Any
 
-from ffxiv_prism.jsonl import read_jsonl, write_json_atomic
+from ffxiv_prism.jsonl import read_jsonl, write_json_atomic, replace_with_retry
 from ffxiv_prism.paths import EORZEA_METADATA_DIR, PROCESSED_DIR, ensure_project_dirs, portable_path, resolve_project_path
 from ffxiv_prism.collectors.eorzea_collection.url_utils import sanitize_slug
 
@@ -41,11 +43,11 @@ def build_eorzea_sqlite(
     gear_pieces = read_jsonl(gear_pieces_path)
     images = read_jsonl(images_path)
 
-    if db_path.exists():
-        db_path.unlink()
     db_path.parent.mkdir(parents=True, exist_ok=True)
-
-    conn = sqlite3.connect(db_path)
+    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{db_path.name}.", suffix=".tmp", dir=db_path.parent)
+    os.close(descriptor)
+    temporary = Path(temporary_name)
+    conn = sqlite3.connect(temporary)
     try:
         conn.execute("PRAGMA foreign_keys = ON")
         create_schema(conn)
@@ -65,8 +67,16 @@ def build_eorzea_sqlite(
             }
         )
         conn.commit()
-    finally:
+    except BaseException:
         conn.close()
+        temporary.unlink(missing_ok=True)
+        raise
+    else:
+        conn.close()
+    try:
+        replace_with_retry(temporary, db_path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
     # The database is replaced immediately before this summary is written.
     # On Windows, opening the existing summary in place can briefly fail with

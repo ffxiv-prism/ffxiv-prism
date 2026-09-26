@@ -57,13 +57,17 @@ class LifecyclePipelineTests(unittest.TestCase):
         )
         self.assertLess(names.index("download-images"), names.index("build-index"))
         self.assertLess(names.index("build-sqlite"), names.index("build-same-model"))
-        self.assertLess(
-            names.index("select-same-model"), names.index("candidate-indexes")
-        )
+        self.assertLess(names.index("candidate-indexes"), names.index("cafemaker-zh"))
+        self.assertLess(names.index("download-images"), names.index("collect-details"))
+        self.assertLess(names.index("sample-eligibility"), names.index("candidate-indexes"))
         self.assertIn("--refresh-source", stages[0].command)
-        self.assertNotIn("--dry-run", stages[-1].command)
-        self.assertIn("--skip-empty", stages[-1].command)
-        self.assertIn("--resume", stages[-1].command)
+        candidate = next(stage for stage in stages if stage.name == "candidate-indexes")
+        self.assertNotIn("--dry-run", candidate.command)
+        self.assertIn("--skip-empty", candidate.command)
+        self.assertIn("--resume", candidate.command)
+        self.assertIn("--activate", candidate.command)
+        for stage in stages[names.index("candidate-indexes") + 1:]:
+            self.assertTrue(stage.advisory, stage.name)
 
     def test_cached_plan_reuses_cafemaker_raw_tables(self) -> None:
         args = lifecycle.parse_args(

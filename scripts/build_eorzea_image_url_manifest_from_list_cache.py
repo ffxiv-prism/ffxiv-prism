@@ -9,6 +9,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Iterable
 from urllib.parse import urlparse
@@ -56,6 +57,10 @@ def main() -> int:
     parser.add_argument("--batch-size", type=int, default=1000, help="Rows to flush per JSONL batch.")
     parser.add_argument("--limit", type=int, default=None, help="Optional candidate limit for debugging.")
     parser.add_argument("--resume", action="store_true", help="Skip URLs already present in image_url_checks_raw.jsonl.")
+    parser.add_argument("--retry-unavailable", action="store_true", help="Recheck previously unavailable images while retaining successful checks.")
+    parser.add_argument("--retry-limit", type=int, default=200, help="Maximum historical failed URLs retried per run.")
+    parser.add_argument("--missing-retry-days", type=float, default=7, help="Cooldown for historical HTTP 404/410 results.")
+    parser.add_argument("--error-retry-hours", type=float, default=6, help="Cooldown for transient failures.")
     parser.add_argument(
         "--reset-output",
         action="store_true",
@@ -90,6 +95,8 @@ def main() -> int:
     parser.add_argument("--browser-wait-seconds", type=float, default=600.0)
     parser.add_argument("--browser-batch-size", type=int, default=64)
     args = parser.parse_args()
+    if min(args.retry_limit, args.missing_retry_days, args.error_retry_hours) < 0:
+        parser.error("Retry limits and cooldowns must be nonnegative")
 
     checks_path = EORZEA_METADATA_DIR / "image_url_checks_raw.jsonl"
     manifest_path = EORZEA_METADATA_DIR / "image_url_manifest_raw.jsonl"
@@ -105,15 +112,8 @@ def main() -> int:
         parts=split_csv(args.parts),
         dye_states=split_csv(args.dye_states),
     )
-    if not candidate_urls and cached_check_rows:
-        candidate_urls = candidate_urls_from_checks(cached_check_rows)
-        if candidate_urls:
-            print(
-                "No list-page image seeds were available; rebuilding the manifest "
-                f"from {len(candidate_urls)} cached URL checks.",
-                file=sys.stderr,
-                flush=True,
-            )
+    # A bounded list refresh must not hide old URL families or their retry backlog.
+    candidate_urls = sorted(set(candidate_urls) | set(candidate_urls_from_checks(cached_check_rows)))
     if args.limit is not None:
         candidate_urls = candidate_urls[: args.limit]
     if not candidate_urls:
@@ -134,12 +134,20 @@ def main() -> int:
             if not url or not parse_gearsets_image_url(str(url)):
                 continue
             cached_rows_by_url[str(url)] = row
+    retry_urls = select_retry_urls(
+        {url: row for url, row in cached_rows_by_url.items() if url in candidate_url_set},
+        enabled=args.retry_unavailable, browser=args.browser_verification,
+        limit=args.retry_limit, missing_days=args.missing_retry_days,
+        error_hours=args.error_retry_hours,
+    )
+    deferred_retry_count = sum(not row.get("accessible") for url, row in cached_rows_by_url.items()
+                               if url in candidate_url_set) - len(retry_urls)
     checked_rows_by_url: dict[str, dict[str, object]] = {}
     if use_cached_checks:
         for url, row in cached_rows_by_url.items():
             if url not in candidate_url_set:
                 continue
-            if args.browser_verification and browser_retryable_check(row):
+            if url in retry_urls:
                 continue
             checked_rows_by_url[url] = row
     checked_urls = set(checked_rows_by_url)
@@ -161,6 +169,7 @@ def main() -> int:
         "Starting URL verification: "
         f"scope={args.model_scope}, candidates={total_count}, "
         f"already_checked={already_checked_count}, pending={len(pending_urls)}, "
+        f"historical_retries={len(retry_urls)}, deferred_retries={deferred_retry_count}, "
         f"workers={max(1, args.workers)}",
         file=sys.stderr,
         flush=True,
@@ -265,6 +274,9 @@ def main() -> int:
                 "candidate_url_count": len(candidate_urls),
                 "already_checked_count": already_checked_count,
                 "newly_checked_count": checked_count,
+                "historical_retries": len(retry_urls),
+                "deferred_historical_retries": deferred_retry_count,
+                "new_url_count": sum(url not in cached_rows_by_url for url in pending_urls),
                 "accessible_url_count": accessible_count,
                 "unavailable_url_count": unavailable_count,
                 "manifest_url_count": len(manifest_rows),
@@ -279,6 +291,27 @@ def main() -> int:
         )
     )
     return 0
+
+
+def select_retry_urls(rows: dict[str, dict], *, enabled: bool, browser: bool = False,
+                      limit: int = 200, missing_days: float = 7, error_hours: float = 6,
+                      now: datetime | None = None) -> set[str]:
+    """Retry the oldest eligible failures; successful URLs never consume requests."""
+    now = now or datetime.now(UTC)
+    eligible = []
+    for url, row in rows.items():
+        if row.get("accessible") or not (enabled or (browser and browser_retryable_check(row))):
+            continue
+        try:
+            checked = datetime.fromisoformat(str(row.get("checked_at") or "").replace("Z", "+00:00"))
+            if checked.tzinfo is None:
+                checked = checked.replace(tzinfo=UTC)
+        except ValueError:
+            checked = datetime.min.replace(tzinfo=UTC)
+        cooldown = timedelta(days=missing_days) if row.get("status") in {404, 410} else timedelta(hours=error_hours)
+        if now - checked >= cooldown:
+            eligible.append((checked, url))
+    return {url for _, url in sorted(eligible)[:limit]}
 
 
 def discover_seed_urls(cache_dir: Path) -> list[str]:

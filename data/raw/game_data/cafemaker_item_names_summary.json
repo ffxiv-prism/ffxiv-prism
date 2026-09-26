@@ -1,20 +1,24 @@
 {
   "duplicate_rows_removed": 0,
-  "empty_name_en": 2028,
+  "dyeable_wearable_rows": 12585,
+  "empty_name_en": 1921,
   "fields": [
     "Name@lang(chs)",
     "Name@lang(en)",
     "EquipSlotCategory@as(raw)",
-    "ItemUICategory@lang(en).Name"
+    "ItemUICategory@lang(en).Name",
+    "DyeCount"
   ],
-  "finished_at": "2026-08-24T07:39:24Z",
-  "game_version": "2026071600010000",
+  "finished_at": "2026-09-23T02:47:46Z",
+  "game_version": "2026090100000000",
   "last_row_id": 52800,
   "output": "data/raw/game_data/cafemaker_item_names_raw.jsonl",
   "page_size": 1000,
   "pages_fetched": 106,
   "results_total": 52801,
   "rows_written": 52801,
-  "schema": "exdschema@2:rev:83e965d091116f895d5b17573cc5d12909a5f407",
-  "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item"
+  "schema": "exdschema@2:rev:e773c41a90aed788cf4c1c48469fa85618ef01fb",
+  "source": "https://xivapi-v2.xivcdn.com/api/sheet/Item",
+  "wearable_rows_missing_dye_count": 0,
+  "wearable_rows_with_dye_count": 29339
 }

@@ -1,39 +1,64 @@
 from __future__ import annotations
 
 import csv
+import json
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 
 from ffxiv_prism.paths import GAME_DATA_RAW_DIR
 
 
 def load_item_dye_counts(path: Path | None = None) -> tuple[dict[int, int], dict[str, int]]:
     """Read per-item dye channels; only resolve unambiguous wearable names."""
-    path = path if path is not None else GAME_DATA_RAW_DIR / "xiv_datamining_item_en.csv"
-    by_id: dict[int, int] = {}
-    names: dict[str, set[int | None]] = defaultdict(set)
+    if path is None:
+        current = GAME_DATA_RAW_DIR / "cafemaker_item_names_raw.jsonl"
+        if current.is_file():
+            with current.open(encoding="utf-8-sig") as handle:
+                rows = [json.loads(line) for line in handle if line.strip()]
+            # Refreshed data is authoritative, including explicit unknowns.
+            # Only pre-dye snapshots fall back to the legacy local CSV.
+            if any("dye_count" in row for row in rows):
+                return _index_dye_rows(rows)
+        path = GAME_DATA_RAW_DIR / "xiv_datamining_item_en.csv"
     if not path.is_file():
         return {}, {}
+    if path.suffix == ".jsonl":
+        with path.open(encoding="utf-8-sig") as handle:
+            return _index_dye_rows(json.loads(line) for line in handle if line.strip())
     with path.open(encoding="utf-8-sig", newline="") as handle:
-        for row in csv.DictReader(handle):
-            try:
-                item_id = int(row["#"])
-                slot = int(row["EquipSlotCategory"])
-            except (KeyError, TypeError, ValueError):
-                continue
-            if item_id <= 0 or slot <= 0:
-                continue
-            try:
-                count = int(row["DyeCount"])
-                if count < 0:
-                    count = None
-            except (KeyError, TypeError, ValueError):
+        return _index_dye_rows({
+            "game_item_id": row.get("#"),
+            "equip_slot_category_id": row.get("EquipSlotCategory"),
+            "dye_count": row.get("DyeCount"),
+            "name_en": row.get("Name"),
+        } for row in csv.DictReader(handle))
+
+
+def _index_dye_rows(rows: Iterable[Mapping[str, Any]]) -> tuple[dict[int, int], dict[str, int]]:
+    by_id: dict[int, int] = {}
+    names: dict[str, set[int | None]] = defaultdict(set)
+    for row in rows:
+        try:
+            item_id = int(row["game_item_id"])
+            slot = int(row["equip_slot_category_id"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if item_id <= 0 or slot <= 0:
+            continue
+        try:
+            value = row["dye_count"]
+            if isinstance(value, bool) or not isinstance(value, (int, str)):
+                raise ValueError("Invalid dye channel count")
+            count = int(value)
+            if count < 0:
                 count = None
-            if count is not None:
-                by_id[item_id] = count
-            if name := str(row.get("Name") or "").strip():
-                names[name].add(count)
+        except (KeyError, TypeError, ValueError):
+            count = None
+        if count is not None:
+            by_id[item_id] = count
+        if name := str(row.get("name_en") or "").strip():
+            names[name].add(count)
     by_name = {
         name: next(iter(counts))
         for name, counts in names.items()

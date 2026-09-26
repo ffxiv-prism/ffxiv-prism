@@ -13,6 +13,8 @@ from scripts import build_eorzea_image_url_manifest_from_list_cache as image_man
 from scripts import download_cafemaker_equip_slot_categories as equip_slots
 from scripts import download_cafemaker_item_names as item_names
 from scripts import download_cafemaker_item_models as item_models
+from scripts.filter_cafemaker_item_names_for_gear_pieces import filter_mapping
+from ffxiv_prism.matching.item_dyes import load_item_dye_counts
 
 
 class FakeResponse:
@@ -72,9 +74,69 @@ class GameDataSourceTests(unittest.TestCase):
                 "name_en": "Ironworks Tool Set",
                 "equip_slot_category_id": 7,
                 "item_ui_category_en": "Wall-mounted",
+                "dye_count": None,
                 "source": "https://example.test/Item",
             },
         )
+
+    def test_dye_count_normalization_preserves_zero_and_unknowns(self) -> None:
+        for raw, expected in [(0, 0), (1, 1), (2, 2), ("2", 2),
+                              (None, None), (-1, None), ("bad", None),
+                              (True, None), (1.5, None)]:
+            with self.subTest(raw=raw):
+                row = item_names.normalize_item_row({"row_id": 1, "fields": {"DyeCount": raw}})
+                self.assertEqual(row["dye_count"], expected)
+
+    def test_dye_download_reaches_report_and_filtered_mapping_without_csv(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "cafemaker_item_names_raw.jsonl"
+            summary = Path(directory) / "summary.json"
+            rows = [{"row_id": number, "fields": {
+                "Name@lang(en)": name, "Name@lang(chs)": name,
+                "EquipSlotCategory@as(raw)": 3, "DyeCount": count,
+            }} for number, name, count in [(1, "Fixed", 0), (2, "Dual", 2), (3, "Unknown", None)]]
+            pages = [{"rows": rows[:2], "schema": "schema-test", "version": "version-test"},
+                     {"rows": rows[2:]}, {"rows": []}]
+            with patch.object(sys, "argv", ["download", "--output", str(output), "--summary", str(summary)]), \
+                 patch.object(item_names, "fetch_sheet_page", side_effect=pages) as fetch:
+                self.assertEqual(item_names.main(), 0)
+            self.assertIn("DyeCount", fetch.call_args_list[0].kwargs["fields"])
+            self.assertEqual([call.kwargs["after"] for call in fetch.call_args_list], [None, 2, 3])
+            with patch("ffxiv_prism.matching.item_dyes.GAME_DATA_RAW_DIR", Path(directory)):
+                self.assertEqual(load_item_dye_counts(), ({1: 0, 2: 2}, {"Fixed": 0, "Dual": 2}))
+            filtered, _ = filter_mapping(item_names.read_jsonl(output), {"fixed", "dual", "unknown"})
+            self.assertEqual({r["game_item_id"]: r["dye_count"] for r in filtered}, {1: 0, 2: 2, 3: None})
+            metadata = json.loads(summary.read_text(encoding="utf-8"))
+            self.assertEqual(metadata["wearable_rows_with_dye_count"], 2)
+            self.assertEqual(metadata["wearable_rows_missing_dye_count"], 1)
+            self.assertEqual(metadata["dyeable_wearable_rows"], 1)
+            self.assertEqual(metadata["game_version"], "version-test")
+
+    def test_missing_dye_schema_or_network_failure_preserves_old_output(self) -> None:
+        for failure in ("schema", "network"):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as directory:
+                output = Path(directory) / "items.jsonl"
+                summary = Path(directory) / "summary.json"
+                output.write_text("original", encoding="utf-8")
+                summary.write_text("original-summary", encoding="utf-8")
+                row = {"row_id": 1, "fields": {"EquipSlotCategory@as(raw)": 3}}
+                responses = [{"rows": [row]}, {"rows": []} if failure == "schema" else RuntimeError("offline")]
+                with patch.object(sys, "argv", ["download", "--output", str(output), "--summary", str(summary)]), \
+                     patch.object(item_names, "fetch_sheet_page", side_effect=responses), \
+                     self.assertRaises(RuntimeError):
+                    item_names.main()
+                self.assertEqual(output.read_text(encoding="utf-8"), "original")
+                self.assertEqual(summary.read_text(encoding="utf-8"), "original-summary")
+
+    def test_resume_rejects_pre_dye_partial_download(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "items.jsonl"
+            output.with_suffix(".jsonl.tmp").write_text('{"game_item_id": 1}\n', encoding="utf-8")
+            with patch.object(sys, "argv", ["download", "--output", str(output), "--resume"]), \
+                 patch.object(item_names, "fetch_sheet_page") as fetch, \
+                 self.assertRaisesRegex(ValueError, "without --resume"):
+                item_names.main()
+            fetch.assert_not_called()
 
     def test_equip_slot_normalization_preserves_downstream_contract(self) -> None:
         fields = {field: 0 for field in equip_slots.EQUIP_SLOT_FIELDS}

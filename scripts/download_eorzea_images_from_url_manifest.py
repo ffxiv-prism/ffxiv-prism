@@ -29,7 +29,7 @@ from ffxiv_prism.collectors.eorzea_collection.visible_browser import (  # noqa: 
     create_visible_driver,
     fetch_verified_html,
 )
-from ffxiv_prism.jsonl import append_jsonl, read_jsonl  # noqa: E402
+from ffxiv_prism.jsonl import append_jsonl, read_jsonl, write_json  # noqa: E402
 from ffxiv_prism.paths import (  # noqa: E402
     EORZEA_METADATA_DIR,
     portable_path,
@@ -45,6 +45,7 @@ def main() -> int:
         default=EORZEA_METADATA_DIR / "image_url_manifest_raw.jsonl",
         help="Verified image URL manifest JSONL path.",
     )
+    parser.add_argument("--summary", type=Path, help="Write per-run download counts.")
     parser.add_argument("--limit", type=int, default=None, help="Maximum number of manifest rows to download.")
     parser.add_argument("--gearset-slug", default=None, help="Only download rows for this gearset slug.")
     parser.add_argument(
@@ -187,6 +188,13 @@ def main() -> int:
             "manifest_path": str(args.manifest),
         },
     )
+    if args.summary:
+        write_json(args.summary, {
+            "images_downloaded": summary.images_downloaded,
+            "images_from_cache": summary.images_from_cache,
+            "download_failures": progress.failed,
+            "candidate_images": len({row.source_image_url for row in candidates}),
+        })
     if required_images and args.limit is None:
         report = current_best_image_coverage(required_images)
         print(json.dumps(report, ensure_ascii=False, indent=2))
@@ -218,7 +226,7 @@ def download_images_browser(
             target = collector.image_target(candidate)
             record = None
             try:
-                if target.is_file():
+                if target.is_file() and collector.image_is_readable(target):
                     record = collector.downloaded_image_record(
                         candidate,
                         target,

@@ -177,7 +177,7 @@ def main() -> int:
             sort_keys=True,
         )
     )
-    return 0
+    return 1 if error_count else 0
 
 
 def collect_one(

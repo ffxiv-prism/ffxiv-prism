@@ -1,6 +1,6 @@
 {
   "filtered_mapping_rows": 11443,
-  "finished_at": "2026-08-28T15:56:55Z",
+  "finished_at": "2026-09-23T02:51:00Z",
   "full_mapping": "data/raw/game_data/cafemaker_item_names_raw.jsonl",
   "full_mapping_rows": 52801,
   "matched_unique_english_names": 11431,

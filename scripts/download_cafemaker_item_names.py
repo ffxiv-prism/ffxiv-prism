@@ -36,12 +36,13 @@ ITEM_FIELDS = (
     "Name@lang(en)",
     "EquipSlotCategory@as(raw)",
     "ItemUICategory@lang(en).Name",
+    "DyeCount",
 )
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Cache Boilmaster Item names for English-to-Chinese item name mapping."
+        description="Cache Boilmaster Item names, equipment slots, and dye channel counts."
     )
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL, help="Boilmaster Item sheet endpoint.")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT, help="Output JSONL path.")
@@ -62,6 +63,8 @@ def main() -> int:
     tmp_output = args.output.with_suffix(args.output.suffix + ".tmp")
     if args.resume and tmp_output.exists():
         existing_rows = read_jsonl(tmp_output)
+        if any("dye_count" not in row for row in existing_rows):
+            raise ValueError("Legacy Item download lacks dye_count; rerun without --resume")
         written = len(existing_rows)
         after = resume_after(existing_rows)
         pages_fetched = 0
@@ -115,6 +118,10 @@ def main() -> int:
         raise RuntimeError(
             f"Boilmaster returned no Item rows; refusing to replace existing output: {args.output}"
         )
+    wearable_rows = [row for row in deduped_rows if (row.get("equip_slot_category_id") or 0) > 0]
+    known_dyes = [row for row in wearable_rows if row.get("dye_count") is not None]
+    if wearable_rows and not known_dyes:
+        raise RuntimeError("No wearable DyeCount values returned; refusing to replace existing output")
     write_jsonl_atomic(args.output, deduped_rows)
     tmp_output.unlink(missing_ok=True)
     final_counts = inspect_output(args.output)
@@ -126,6 +133,9 @@ def main() -> int:
         "rows_written": written,
         "duplicate_rows_removed": duplicate_rows_removed,
         "empty_name_en": final_counts["empty_name_en"],
+        "wearable_rows_with_dye_count": len(known_dyes),
+        "wearable_rows_missing_dye_count": len(wearable_rows) - len(known_dyes),
+        "dyeable_wearable_rows": sum(row["dye_count"] > 0 for row in known_dyes),
         "pages_fetched": pages_fetched,
         "page_size": args.page_size,
         "results_total": written,
@@ -149,8 +159,16 @@ def normalize_item_row(row: object, source: str = DEFAULT_BASE_URL) -> dict[str,
         "name_en": str(fields.get("Name@lang(en)") or "").strip() or None,
         "equip_slot_category_id": normalize_int(fields.get("EquipSlotCategory@as(raw)")),
         "item_ui_category_en": normalize_nested_name(fields.get("ItemUICategory@lang(en)")),
+        "dye_count": normalize_dye_count(fields.get("DyeCount")),
         "source": source,
     }
+
+
+def normalize_dye_count(value: object) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        return None
+    count = normalize_int(value)
+    return count if count is not None and count >= 0 else None
 
 
 def normalize_int(value: object) -> int | None:
