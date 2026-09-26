@@ -1,30 +1,48 @@
 {
   "by_flag": {
-    "duplicate_sha256": 829
+    "duplicate_sha256": 829,
+    "invalid_image": 2
   },
   "by_format": {
-    "png": 40036,
+    "png": 40062,
+    "unknown": 2,
     "webp": 12
   },
   "by_status": {
-    "ready": 40048
+    "invalid": 2,
+    "ready": 40074
   },
   "byte_size_mismatch_rows": 0,
   "duplicate_local_path_rows": 0,
   "duplicate_sha256_rows": 829,
-  "file_exists_rows": 40048,
+  "file_exists_rows": 40076,
   "flagged_rows": 0,
-  "image_rows": 40048,
+  "image_rows": 40076,
   "index": "data/processed/eorzea_images_index.jsonl",
-  "invalid_examples": [],
-  "invalid_rows": 0,
+  "invalid_examples": [
+    {
+      "dye_state": "normal",
+      "gearset_slug": "vanadielian-striking",
+      "image_part": "feet",
+      "local_path": "data/raw/eorzea_collection/images/gearset_static/vanadielian-striking/alliance-windurst-vanadielian-striking-hyur-male-normal-feet.png",
+      "source_image_url": "https://gearsets.eorzeacollection.com/alliance/vanadiel/windurst/vanadielian-striking/hyur-male-feet.png"
+    },
+    {
+      "dye_state": "normal",
+      "gearset_slug": "white-campanula-corsage",
+      "image_part": "head",
+      "local_path": "data/raw/eorzea_collection/images/gearset_static/white-campanula-corsage/crafted-flowers-white-campanula-corsage-hyur-female-normal-head.png",
+      "source_image_url": "https://gearsets.eorzeacollection.com/crafted/glamour/flowers/white-campanula-corsage/hyur-female-head.png"
+    }
+  ],
+  "invalid_rows": 2,
   "min_height": 64,
   "min_width": 64,
   "missing_examples": [],
   "missing_manifest": "data/processed/eorzea_missing_images_manifest.jsonl",
   "missing_rows": 0,
   "output": "data/processed/eorzea_images_qa_index.jsonl",
-  "readable_image_rows": 40048,
-  "ready_rows": 40048,
+  "readable_image_rows": 40074,
+  "ready_rows": 40074,
   "too_small_rows": 0
 }

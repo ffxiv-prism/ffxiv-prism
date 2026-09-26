@@ -1,17 +1,17 @@
 {
   "database": "data/processed/eorzea.sqlite",
-  "full_preview_images": 17443,
-  "gear_piece_image_links": 20595,
-  "gear_pieces": 11796,
+  "full_preview_images": 17451,
+  "gear_piece_image_links": 20614,
+  "gear_pieces": 11815,
   "gear_pieces_source": "data/raw/eorzea_collection/metadata/gear_pieces_raw.jsonl",
-  "gearsets": 2456,
+  "gearsets": 2460,
   "gearsets_source": "data/raw/eorzea_collection/metadata/gearset_details_raw.jsonl",
-  "images": 40048,
+  "images": 40076,
   "images_source": "data/processed/eorzea_images_qa_index.jsonl",
-  "linked_slot_images": 19853,
-  "missing_or_invalid_images": 0,
-  "ready_images": 40048,
-  "slot_images": 22605,
+  "linked_slot_images": 19872,
+  "missing_or_invalid_images": 2,
+  "ready_images": 40074,
+  "slot_images": 22625,
   "slot_images_without_gearset": 0,
-  "unlinked_slot_images": 2752
+  "unlinked_slot_images": 2753
 }

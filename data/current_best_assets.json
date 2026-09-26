@@ -3,164 +3,164 @@
   "profile": "current-best",
   "files": [
     {
-      "path": "data/indexes/facebook-dinov2-base-feet-multiscale-v7-clean-20260829-024239/embeddings.npy",
-      "size": 59596928,
-      "sha256": "f98bc033703edf7a6016f152ba89ab12e0d89ed6b63020f8185e1cce36c4a242"
+      "path": "data/indexes/facebook-dinov2-base-feet-multiscale-v7-clean-20260926-134639/embeddings.npy",
+      "size": 59658368,
+      "sha256": "58653a109f56239dd339eaced9a2e64b9fe7195636a3ed7110083e40a92d6afd"
     },
     {
-      "path": "data/indexes/facebook-dinov2-base-feet-multiscale-v7-clean-20260829-024239/metadata.jsonl",
-      "size": 13734150,
-      "sha256": "d923e7de756f413e17f1dc5bc151c227d10944407e24183f3e21bbc978a3999a"
+      "path": "data/indexes/facebook-dinov2-base-feet-multiscale-v7-clean-20260926-134639/metadata.jsonl",
+      "size": 13746934,
+      "sha256": "13c1d38a93d43a4a827ca5c7a5bc54358dfacdaf2f457a37be3923d894e25479"
     },
     {
-      "path": "data/indexes/facebook-dinov2-base-feet-multiscale-v7-clean-20260829-024239/summary.json",
-      "size": 1248,
-      "sha256": "e53454e1500edd49de99d6aff15e9f7c226a2faac6e53a168a52e32a0e1280f9"
+      "path": "data/indexes/facebook-dinov2-base-feet-multiscale-v7-clean-20260926-134639/summary.json",
+      "size": 1223,
+      "sha256": "a61881837f605e68f603f3af1b09bbddceada987ff04255487dc67fcd0e30caf"
     },
     {
-      "path": "data/indexes/facebook-dinov2-base-hands-multiscale-v5-20260829-024239/embeddings.npy",
-      "size": 67829888,
-      "sha256": "d476dccc51fd4a602c9fac593e7c646a9219d91560de34b36bc84714e9a4ef36"
+      "path": "data/indexes/facebook-dinov2-base-hands-multiscale-v5-20260926-134639/embeddings.npy",
+      "size": 67903616,
+      "sha256": "91f34d166a422f51618542a72a69fe1d4e64226b7622f5a9602a2e2227b7ce7e"
     },
     {
-      "path": "data/indexes/facebook-dinov2-base-hands-multiscale-v5-20260829-024239/metadata.jsonl",
-      "size": 15994268,
-      "sha256": "5b969ceab24efa20a4b66cecbe3e6c6bfe0a70057aeef5f94c5501f69281362c"
+      "path": "data/indexes/facebook-dinov2-base-hands-multiscale-v5-20260926-134639/metadata.jsonl",
+      "size": 16009868,
+      "sha256": "a34407a840a1df285e2d84a55791effbdee69d61d24289e5c5c0a6790e6df3f3"
     },
     {
-      "path": "data/indexes/facebook-dinov2-base-hands-multiscale-v5-20260829-024239/summary.json",
-      "size": 939,
-      "sha256": "4e8940251dc96aaaf8e6c5fef5012277050ae5b3c5987a2a54d4cc4c234fcf29"
+      "path": "data/indexes/facebook-dinov2-base-hands-multiscale-v5-20260926-134639/summary.json",
+      "size": 960,
+      "sha256": "744401a117135d70e178846b28d93635b77cf2b711593e3917fc7866562976c4"
     },
     {
-      "path": "data/indexes/facebook-dinov2-base-head-multiscale-v4-20260829-024239/embeddings.npy",
-      "size": 39684224,
-      "sha256": "2888d57713256455d7a3e316db41531a07e8bc1dbc42f343602434c0264c10f9"
+      "path": "data/indexes/facebook-dinov2-base-head-multiscale-v4-20260926-134639/embeddings.npy",
+      "size": 39711872,
+      "sha256": "d3cd2954e7a06e3e83fbed74e7929336d9844ce5e19347f53907cf6b692dbc4a"
     },
     {
-      "path": "data/indexes/facebook-dinov2-base-head-multiscale-v4-20260829-024239/metadata.jsonl",
-      "size": 9236007,
-      "sha256": "dbe25a28ba7d68b980a07fb414ce1118ee47ae653384a540a2aefe8f76f769f4"
+      "path": "data/indexes/facebook-dinov2-base-head-multiscale-v4-20260926-134639/metadata.jsonl",
+      "size": 9241800,
+      "sha256": "d6a41a545682c76bc508cae35e1d0b3d4faf5347d8117c663b72c760a07e05a8"
     },
     {
-      "path": "data/indexes/facebook-dinov2-base-head-multiscale-v4-20260829-024239/summary.json",
-      "size": 884,
-      "sha256": "9e8a7ff2f8c0c8dcd69f007eb7d2b139823295020c8d79bb775d64999e743589"
+      "path": "data/indexes/facebook-dinov2-base-head-multiscale-v4-20260926-134639/summary.json",
+      "size": 936,
+      "sha256": "2cc8bf755b9d481fdec9ced0ee2022c20847896f9628e45b966d369accf104f9"
     },
     {
-      "path": "data/indexes/facebook-dinov2-base-legs-multiscale-v6-20260829-024239/embeddings.npy",
-      "size": 59673728,
-      "sha256": "f6c1d0add623c40892bd927cc5c683d04c74d66dd56ad31f8723912127e0f156"
+      "path": "data/indexes/facebook-dinov2-base-legs-multiscale-v6-20260926-134639/embeddings.npy",
+      "size": 59735168,
+      "sha256": "3b4716d0579f4182900fb31cebac134995d40409184ed7c873e76faa51e0e56b"
     },
     {
-      "path": "data/indexes/facebook-dinov2-base-legs-multiscale-v6-20260829-024239/metadata.jsonl",
-      "size": 13838475,
-      "sha256": "e6bf073b3512c0c43a8d815f119293b5455ffb01e76f103f5ad87d68b68f6174"
+      "path": "data/indexes/facebook-dinov2-base-legs-multiscale-v6-20260926-134639/metadata.jsonl",
+      "size": 13851271,
+      "sha256": "2485e344b899dfeceb7fe2ae6c006ee87f85d1c2a037903c1686ec82c4d17d78"
     },
     {
-      "path": "data/indexes/facebook-dinov2-base-legs-multiscale-v6-20260829-024239/summary.json",
-      "size": 943,
-      "sha256": "2318df6dd86dbce4e026a4bf8a745531efb8b272a079a9e75adc1f45466cc469"
+      "path": "data/indexes/facebook-dinov2-base-legs-multiscale-v6-20260926-134639/summary.json",
+      "size": 898,
+      "sha256": "7fda5406ba0ed1ebad77105b05a53f7e4d5faf8839a537277d9af02f9699b765"
     },
     {
-      "path": "data/indexes/facebook-dinov2-base-slot-aligned-v3-body-multiscale-20260829-024239/embeddings.npy",
-      "size": 95917184,
-      "sha256": "68fa1d1465fdeefdb1a1dc216e22fbd6876540021e479b58736eec3beb88955b"
+      "path": "data/indexes/facebook-dinov2-base-slot-aligned-v3-body-multiscale-20260926-134639/embeddings.npy",
+      "size": 96012416,
+      "sha256": "bdaef9fd1df0b44337af005a32e9285aebe393bd681ca410e6f5d67ac410dd35"
     },
     {
-      "path": "data/indexes/facebook-dinov2-base-slot-aligned-v3-body-multiscale-20260829-024239/metadata.jsonl",
-      "size": 22666798,
-      "sha256": "bcd14146050449765d42633f208d51a15fef9d5774539f334aa1156d62cb4140"
+      "path": "data/indexes/facebook-dinov2-base-slot-aligned-v3-body-multiscale-20260926-134639/metadata.jsonl",
+      "size": 22686635,
+      "sha256": "1757e29d2d867a70412d72ce84982d2999879fcc625af616594b1efefc63da58"
     },
     {
-      "path": "data/indexes/facebook-dinov2-base-slot-aligned-v3-body-multiscale-20260829-024239/summary.json",
-      "size": 1287,
-      "sha256": "ee8f7cac243c719aa17fbd35a4771620a0bd4e89f29e978a7036285fae643bb0"
+      "path": "data/indexes/facebook-dinov2-base-slot-aligned-v3-body-multiscale-20260926-134639/summary.json",
+      "size": 941,
+      "sha256": "d3881abc663805344156d65c56897031f79da37619a5fd9c6a124b4461632d60"
     },
     {
-      "path": "data/indexes/facebook-dinov3-vitb16-body-multiscale-v3-20260829-024239/embeddings.npy",
-      "size": 24920192,
-      "sha256": "5a273ce980e780b1088506317046548226f064c0c76a290f63d723390e57e4dc"
+      "path": "data/indexes/facebook-dinov3-vitb16-body-multiscale-v3-20260926-134639/embeddings.npy",
+      "size": 24944768,
+      "sha256": "b45301af5baf125a9781f88ba0522fdf7e195dbc8eba7c67f600a8150104ba21"
     },
     {
-      "path": "data/indexes/facebook-dinov3-vitb16-body-multiscale-v3-20260829-024239/metadata.jsonl",
-      "size": 5770168,
-      "sha256": "d3393da4e5903c9b769757db9ef43f9b5c071cf29495886e6e20206930e184b0"
+      "path": "data/indexes/facebook-dinov3-vitb16-body-multiscale-v3-20260926-134639/metadata.jsonl",
+      "size": 5775284,
+      "sha256": "9a8100fba077c03777a0d711227e53e41572393afc700798b373ad88d7c99335"
     },
     {
-      "path": "data/indexes/facebook-dinov3-vitb16-body-multiscale-v3-20260829-024239/summary.json",
-      "size": 1282,
-      "sha256": "399aa0b0021aced903b94d392b4104db8dbc3fd03d07459f1e7d980b330c0e89"
+      "path": "data/indexes/facebook-dinov3-vitb16-body-multiscale-v3-20260926-134639/summary.json",
+      "size": 1008,
+      "sha256": "3f1acfef284f15f6b31f75777211da4fe80cc27b27530fa3ef70b228a3be18bd"
     },
     {
-      "path": "data/indexes/facebook-dinov3-vitb16-head-multiscale-v4-20260829-024239/embeddings.npy",
-      "size": 39684224,
-      "sha256": "a9e0a9e8a2a4fdb9242d9f100d096bc148ceb0e782afcfa4bdb1c26a6f2d7178"
+      "path": "data/indexes/facebook-dinov3-vitb16-head-multiscale-v4-20260926-134639/embeddings.npy",
+      "size": 39711872,
+      "sha256": "d59aeba6a4ea7c78a021f7e57e75649fb3b3f79bf24007b04c54dc44106c5dd8"
     },
     {
-      "path": "data/indexes/facebook-dinov3-vitb16-head-multiscale-v4-20260829-024239/manifest.json",
-      "size": 574,
-      "sha256": "245f31733678b035b54c11da530436246aab1b3c3b6f52b6b91f173f48e61391"
+      "path": "data/indexes/facebook-dinov3-vitb16-head-multiscale-v4-20260926-134639/manifest.json",
+      "size": 626,
+      "sha256": "d6b647ab28ec19d2461e9c01ae69b558c00a0f7620ed5d2eb89fb9219124a6a2"
     },
     {
-      "path": "data/indexes/facebook-dinov3-vitb16-head-multiscale-v4-20260829-024239/metadata.jsonl",
-      "size": 9236007,
-      "sha256": "dbe25a28ba7d68b980a07fb414ce1118ee47ae653384a540a2aefe8f76f769f4"
+      "path": "data/indexes/facebook-dinov3-vitb16-head-multiscale-v4-20260926-134639/metadata.jsonl",
+      "size": 9241800,
+      "sha256": "d6a41a545682c76bc508cae35e1d0b3d4faf5347d8117c663b72c760a07e05a8"
     },
     {
-      "path": "data/indexes/facebook-dinov3-vitb16-head-multiscale-v4-20260829-024239/summary.json",
-      "size": 475,
-      "sha256": "e8da2eb59e065d78d05ec8b925facf7003b4c6e2c6580416432240938fcef683"
+      "path": "data/indexes/facebook-dinov3-vitb16-head-multiscale-v4-20260926-134639/summary.json",
+      "size": 527,
+      "sha256": "080f8ff7f22db32a1bd73d848cdae0b867558df98656d2014e56c761bdd8ede7"
     },
     {
-      "path": "data/indexes/facebook-dinov3-vitb16-legs-multiscale-v6-20260829-024239/embeddings.npy",
-      "size": 59673728,
-      "sha256": "34c91a127c194a946051158495ee65f69195a8a8d125e2cc019b1a308108629b"
+      "path": "data/indexes/facebook-dinov3-vitb16-legs-multiscale-v6-20260926-134639/embeddings.npy",
+      "size": 59735168,
+      "sha256": "f4334d77be52115d65f938114f2c28f81be70e8fd0d02952497c077aada2f18d"
     },
     {
-      "path": "data/indexes/facebook-dinov3-vitb16-legs-multiscale-v6-20260829-024239/metadata.jsonl",
-      "size": 13838475,
-      "sha256": "e6bf073b3512c0c43a8d815f119293b5455ffb01e76f103f5ad87d68b68f6174"
+      "path": "data/indexes/facebook-dinov3-vitb16-legs-multiscale-v6-20260926-134639/metadata.jsonl",
+      "size": 13851271,
+      "sha256": "2485e344b899dfeceb7fe2ae6c006ee87f85d1c2a037903c1686ec82c4d17d78"
     },
     {
-      "path": "data/indexes/facebook-dinov3-vitb16-legs-multiscale-v6-20260829-024239/summary.json",
-      "size": 1025,
-      "sha256": "cf3e5dfa59528da83179684e9b9713c2bdc8d0188f3379805ed594b7c65b62c1"
+      "path": "data/indexes/facebook-dinov3-vitb16-legs-multiscale-v6-20260926-134639/summary.json",
+      "size": 980,
+      "sha256": "180288eb426dd94686e60b6e7e9190f61598ebf9b6acf00f6636b04f76ad57da"
     },
     {
-      "path": "data/indexes/google-siglip2-base-patch16-224-feet-multiscale-v7-clean-20260829-024239/embeddings.npy",
-      "size": 59596928,
-      "sha256": "8f36406de8a1820e4cfb60877fcf9365537229f979c846a3513037203501b643"
+      "path": "data/indexes/google-siglip2-base-patch16-224-feet-multiscale-v7-clean-20260926-134639/embeddings.npy",
+      "size": 59658368,
+      "sha256": "075d45213df3087a5201718531bf8a3b33ffd1ff4e51f07bc1c346fe2826fd9b"
     },
     {
-      "path": "data/indexes/google-siglip2-base-patch16-224-feet-multiscale-v7-clean-20260829-024239/metadata.jsonl",
-      "size": 13734150,
-      "sha256": "d923e7de756f413e17f1dc5bc151c227d10944407e24183f3e21bbc978a3999a"
+      "path": "data/indexes/google-siglip2-base-patch16-224-feet-multiscale-v7-clean-20260926-134639/metadata.jsonl",
+      "size": 13746934,
+      "sha256": "13c1d38a93d43a4a827ca5c7a5bc54358dfacdaf2f457a37be3923d894e25479"
     },
     {
-      "path": "data/indexes/google-siglip2-base-patch16-224-feet-multiscale-v7-clean-20260829-024239/summary.json",
-      "size": 922,
-      "sha256": "5285da0dc38bd87a4e99266d37aaa7982ac5aafc643663239443e1f8e98b173a"
+      "path": "data/indexes/google-siglip2-base-patch16-224-feet-multiscale-v7-clean-20260926-134639/summary.json",
+      "size": 897,
+      "sha256": "1f3fac10fb8946830c9469c024e3af5cc1bc808804f9a6b959123ec092f8aded"
     },
     {
-      "path": "data/indexes/google-siglip2-base-patch16-224-head-multiscale-v4-20260829-024239/embeddings.npy",
-      "size": 39684224,
-      "sha256": "cf685ef77138eae586891d6f10b476d62df334f9d4b0eb239be1748e058f0d19"
+      "path": "data/indexes/google-siglip2-base-patch16-224-head-multiscale-v4-20260926-134639/embeddings.npy",
+      "size": 39711872,
+      "sha256": "a0f79a43a38cb47a3a9c8275332acc34fbf15747b1cb697b3741347ce315bc1a"
     },
     {
-      "path": "data/indexes/google-siglip2-base-patch16-224-head-multiscale-v4-20260829-024239/manifest.json",
-      "size": 588,
-      "sha256": "4b6420060ecc64b0024fc47f111d033025c4771f530975512489c56760375adc"
+      "path": "data/indexes/google-siglip2-base-patch16-224-head-multiscale-v4-20260926-134639/manifest.json",
+      "size": 640,
+      "sha256": "73a168c70678c5faad9bac67a6ad15a1f4858bad9e381387ed77912cd58d60d1"
     },
     {
-      "path": "data/indexes/google-siglip2-base-patch16-224-head-multiscale-v4-20260829-024239/metadata.jsonl",
-      "size": 9236007,
-      "sha256": "dbe25a28ba7d68b980a07fb414ce1118ee47ae653384a540a2aefe8f76f769f4"
+      "path": "data/indexes/google-siglip2-base-patch16-224-head-multiscale-v4-20260926-134639/metadata.jsonl",
+      "size": 9241800,
+      "sha256": "d6a41a545682c76bc508cae35e1d0b3d4faf5347d8117c663b72c760a07e05a8"
     },
     {
-      "path": "data/indexes/google-siglip2-base-patch16-224-head-multiscale-v4-20260829-024239/summary.json",
-      "size": 493,
-      "sha256": "26148c345a301b018bb30c89d21931ee54df65687d9b6b3d122d16df96fe45e6"
+      "path": "data/indexes/google-siglip2-base-patch16-224-head-multiscale-v4-20260926-134639/summary.json",
+      "size": 545,
+      "sha256": "77d43969d395c9d0fc6ca8094cc2699fc5f0a0c14e0f4946c36f6d5fcca80cc1"
     },
     {
       "path": "data/models/current-best/refresh_v110_body_fold01_dinov2_e10.pt",
@@ -199,8 +199,8 @@
     },
     {
       "path": "data/processed/piece_appearance_equivalence_huiji_exact_models.json",
-      "size": 1451916,
-      "sha256": "6e8cb7f6e67c9d2736b6f236d7a206320f6f9bbaa2fce14d910b08ca3ad5e0e6"
+      "size": 1453920,
+      "sha256": "d4b3cfe569e88c558140794bf8f9e3773da4d91e5697bcf6f6482820aef97ac2"
     },
     {
       "path": "var/models/dinov3-vitb16-pretrain-lvd1689m/config.json",

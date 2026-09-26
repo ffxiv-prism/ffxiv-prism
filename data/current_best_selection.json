@@ -3,31 +3,44 @@
     "BODY": {
       "eligible": 1013,
       "top1": 0.5972359328726555,
-      "top10": 0.8203356367226061
-    },
-    "FEET": {
-      "eligible": 930,
-      "top1": 0.2,
-      "top10": 0.4258064516129032
-    },
-    "HANDS": {
-      "eligible": 959,
-      "top1": 0.03023983315954119,
-      "top10": 0.08967674661105318
+      "top10": 0.8499506416584403
     },
     "HEAD": {
       "eligible": 927,
       "top1": 0.28694714131607335,
-      "top10": 0.49406688241639696
+      "top10": 0.5264293419633226
+    },
+    "HANDS": {
+      "eligible": 959,
+      "top1": 0.03023983315954119,
+      "top10": 0.10010427528675704
     },
     "LEGS": {
       "eligible": 970,
       "top1": 0.12886597938144329,
-      "top10": 0.3134020618556701
+      "top10": 0.33505154639175255
+    },
+    "FEET": {
+      "eligible": 930,
+      "top1": 0.2032258064516129,
+      "top10": 0.45483870967741935
     }
   },
   "body_policy": "baseline",
-  "candidate_suffix": "20260829-024239",
+  "candidate_indexes": {
+    "facebook-dinov2-base-feet-multiscale-v7-clean": "data/indexes/facebook-dinov2-base-feet-multiscale-v7-clean-20260926-134639",
+    "facebook-dinov2-base-hands-multiscale-v5": "data/indexes/facebook-dinov2-base-hands-multiscale-v5-20260926-134639",
+    "facebook-dinov2-base-head-multiscale-v4": "data/indexes/facebook-dinov2-base-head-multiscale-v4-20260926-134639",
+    "facebook-dinov2-base-legs-multiscale-v6": "data/indexes/facebook-dinov2-base-legs-multiscale-v6-20260926-134639",
+    "facebook-dinov2-base-slot-aligned-v3-body-multiscale": "data/indexes/facebook-dinov2-base-slot-aligned-v3-body-multiscale-20260926-134639",
+    "facebook-dinov3-vitb16-body-multiscale-v3": "data/indexes/facebook-dinov3-vitb16-body-multiscale-v3-20260926-134639",
+    "facebook-dinov3-vitb16-head-multiscale-v4": "data/indexes/facebook-dinov3-vitb16-head-multiscale-v4-20260926-134639",
+    "facebook-dinov3-vitb16-legs-multiscale-v6": "data/indexes/facebook-dinov3-vitb16-legs-multiscale-v6-20260926-134639",
+    "google-siglip2-base-patch16-224-feet-multiscale-v7-clean": "data/indexes/google-siglip2-base-patch16-224-feet-multiscale-v7-clean-20260926-134639",
+    "google-siglip2-base-patch16-224-head-multiscale-v4": "data/indexes/google-siglip2-base-patch16-224-head-multiscale-v4-20260926-134639"
+  },
+  "candidate_indexes_updated_at": "2026-09-26T06:29:26+00:00",
+  "candidate_suffix": "20260926-134639",
   "checkpoints": {
     "body_dinov2": "refresh_v110_body_fold01_dinov2_e10.pt",
     "body_dinov3": null,
@@ -37,6 +50,7 @@
     "head_dinov3": "refresh_v110_head_fold01_dinov3_e3.pt",
     "legs_dinov2": "refresh_v110_legs_fold01_dinov2_e10.pt"
   },
-  "release_id": "20260829-v110",
-  "version": 1
+  "release_id": "20260926-weight-refresh",
+  "version": 1,
+  "benchmark_scope": "strict appearance-disjoint three-fold pooled validation; official-equivalence deduplicated identity retrieval; production style/presence/local-detail heuristics excluded; model selection on existing validation folds, not an independent test"
 }

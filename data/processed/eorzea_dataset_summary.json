@@ -1,23 +1,23 @@
 {
   "by_gender": {
-    "female": 20020,
+    "female": 20048,
     "male": 20028
   },
   "by_kind": {
-    "gearset_static": 40048
+    "gearset_static": 40076
   },
   "by_part": {
-    "back": 4770,
-    "body": 4071,
-    "feet": 4515,
-    "front": 12673,
-    "hands": 4629,
-    "head": 4730,
-    "legs": 4660
+    "back": 4774,
+    "body": 4075,
+    "feet": 4519,
+    "front": 12677,
+    "hands": 4633,
+    "head": 4734,
+    "legs": 4664
   },
   "by_race": {
     "hrothgar": 1974,
-    "hyur": 32152,
+    "hyur": 32180,
     "lalafell": 3948,
     "viera": 1974
   },
@@ -31,33 +31,33 @@
     "maiming": 2599,
     "scouting": 2464,
     "striking": 2635,
-    "unknown": 20824
+    "unknown": 20852
   },
   "by_slot": {
-    "BODY": 4071,
-    "FEET": 4515,
-    "HANDS": 4629,
-    "HEAD": 4730,
-    "LEGS": 4660,
-    "unknown": 17443
+    "BODY": 4075,
+    "FEET": 4519,
+    "HANDS": 4633,
+    "HEAD": 4734,
+    "LEGS": 4664,
+    "unknown": 17451
   },
   "by_slot_gender_race": {
-    "BODY|female|hyur": 2035,
+    "BODY|female|hyur": 2039,
     "BODY|male|hyur": 2036,
-    "FEET|female|hyur": 2257,
+    "FEET|female|hyur": 2261,
     "FEET|male|hyur": 2258,
-    "HANDS|female|hyur": 2315,
+    "HANDS|female|hyur": 2319,
     "HANDS|male|hyur": 2314,
-    "HEAD|female|hyur": 2365,
+    "HEAD|female|hyur": 2369,
     "HEAD|male|hyur": 2365,
-    "LEGS|female|hyur": 2330,
+    "LEGS|female|hyur": 2334,
     "LEGS|male|hyur": 2330,
-    "unknown|female|hyur": 4770,
+    "unknown|female|hyur": 4778,
     "unknown|female|lalafell": 1974,
     "unknown|female|viera": 1974,
     "unknown|male|hrothgar": 1974,
     "unknown|male|hyur": 4777,
     "unknown|male|lalafell": 1974
   },
-  "image_count": 40048
+  "image_count": 40076
 }

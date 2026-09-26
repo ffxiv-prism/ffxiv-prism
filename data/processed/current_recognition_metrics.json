@@ -1,276 +1,310 @@
 {
-  "candidate_snapshot": "20260829-024239",
-  "canonical_training_assets": {
-    "examples": "data/processed/glamour_examples_huiji_models_closed.jsonl",
-    "folds": "data/interim/appearance-disjoint-cv-v55-slot-recovery-{slot}",
-    "regions": "data/debug/outfit-regions/slot-quality-20260801",
-    "slot_eligibility": "data/processed/slot_quality_eligibility_20260801.jsonl",
-    "visibility_reviews": "data/processed/training_visibility_reviews_20260801.jsonl"
-  },
-  "fold_audit": "data/outputs/slot-quality-fold-audit-20260801/summary.json",
-  "fold_audit_status": "ready_for_training",
+  "version": 3,
+  "release_id": "20260926-weight-refresh",
+  "registered_at": "2026-09-26T18:21:50.715519+00:00",
   "metric": "appearance_recall",
+  "protocol": "strict appearance-disjoint three-fold pooled validation; official-equivalence deduplicated identity retrieval; production style/presence/local-detail heuristics excluded; model selection on existing validation folds, not an independent test",
   "metric_status": "release_ready",
-  "protocol": "strict item-disjoint three-fold pooled",
-  "registered_at": "2026-08-29T13:39:29.174363+00:00",
-  "release_id": "20260829-v110",
+  "candidate_snapshot": "20260926-134639",
+  "fold_audit": "data/outputs/model-refresh-20260926/fold-audit.json",
+  "fold_audit_status": "ready_for_training",
+  "target_top10": 0.8,
+  "target_achieved_all_slots": false,
   "release_policies": {
     "BODY": "baseline",
     "HANDS": "occupied-slot-top1-gate"
   },
+  "weight_refresh_evidence": "data/processed/weight_refresh_20260926.json",
   "slots": [
     {
+      "slot": "BODY",
       "eligible": 1013,
+      "hits": {
+        "1": 605,
+        "5": 784,
+        "10": 861,
+        "20": 921,
+        "100": 994,
+        "1000": 1013
+      },
+      "top1": 0.5972359328726555,
+      "top10": 0.8499506416584403,
+      "top100": 0.981243830207305,
+      "top1000": 1.0,
+      "method": "DINOv2 adapted query plus zero-shot DINOv3 inside the frozen DINOv2 Top-1000 pool; unsafe adapted DINOv3 candidate excluded",
       "fold_reports": [
         {
-          "eligible": 337,
           "fold": 1,
+          "eligible": 337,
           "hits": {
             "1": 203,
-            "10": 283,
-            "100": 328,
+            "5": 269,
+            "10": 296,
+            "20": 311,
+            "100": 333,
             "1000": 337
           },
-          "path": "data/outputs/current-best-refresh-20260829/final-body-fold01.json"
+          "path": "data/outputs/model-refresh-20260926/comparison-body.json"
         },
         {
-          "eligible": 338,
           "fold": 2,
+          "eligible": 338,
           "hits": {
             "1": 194,
-            "10": 274,
+            "5": 253,
+            "10": 280,
+            "20": 306,
+            "100": 332,
+            "1000": 338
+          },
+          "path": "data/outputs/model-refresh-20260926/comparison-body.json"
+        },
+        {
+          "fold": 3,
+          "eligible": 338,
+          "hits": {
+            "1": 208,
+            "5": 262,
+            "10": 285,
+            "20": 304,
             "100": 329,
             "1000": 338
           },
-          "path": "data/outputs/current-best-refresh-20260829/final-body-fold02.json"
-        },
-        {
-          "eligible": 338,
-          "fold": 3,
-          "hits": {
-            "1": 208,
-            "10": 274,
-            "100": 325,
-            "1000": 338
-          },
-          "path": "data/outputs/current-best-refresh-20260829/final-body-fold03.json"
+          "path": "data/outputs/model-refresh-20260926/comparison-body.json"
         }
-      ],
-      "hits": {
-        "1": 605,
-        "10": 831,
-        "100": 982,
-        "1000": 1013
-      },
-      "method": "DINOv2 adapted query plus zero-shot DINOv3 inside the frozen DINOv2 Top-1000 pool; unsafe adapted DINOv3 candidate excluded",
-      "slot": "BODY",
-      "top1": 0.5972359328726555,
-      "top10": 0.8203356367226061,
-      "top100": 0.9693978282329714,
-      "top1000": 1.0
+      ]
     },
     {
+      "slot": "HEAD",
       "eligible": 927,
-      "fold_reports": [
-        {
-          "eligible": 309,
-          "fold": 1,
-          "hits": {
-            "1": 76,
-            "10": 140,
-            "100": 200,
-            "1000": 287
-          },
-          "path": "data/outputs/current-best-refresh-20260829/final-head-fold01.json"
-        },
-        {
-          "eligible": 309,
-          "fold": 2,
-          "hits": {
-            "1": 105,
-            "10": 175,
-            "100": 247,
-            "1000": 298
-          },
-          "path": "data/outputs/current-best-refresh-20260829/final-head-fold02.json"
-        },
-        {
-          "eligible": 309,
-          "fold": 3,
-          "hits": {
-            "1": 85,
-            "10": 143,
-            "100": 225,
-            "1000": 296
-          },
-          "path": "data/outputs/current-best-refresh-20260829/final-head-fold03.json"
-        }
-      ],
       "hits": {
         "1": 266,
-        "10": 458,
-        "100": 672,
+        "5": 422,
+        "10": 488,
+        "20": 565,
+        "100": 732,
         "1000": 881
       },
-      "method": "DINOv2, SigLIP2 and adapted DINOv3 rank ensemble with upper-to-face routing",
-      "slot": "HEAD",
       "top1": 0.28694714131607335,
-      "top10": 0.49406688241639696,
-      "top100": 0.7249190938511327,
-      "top1000": 0.9503775620280475
-    },
-    {
-      "eligible": 959,
+      "top10": 0.5264293419633226,
+      "top100": 0.7896440129449838,
+      "top1000": 0.9503775620280475,
+      "method": "DINOv2, SigLIP2 and adapted DINOv3 rank ensemble with upper-to-face routing",
       "fold_reports": [
         {
-          "eligible": 319,
           "fold": 1,
+          "eligible": 309,
           "hits": {
-            "1": 10,
-            "10": 28,
-            "100": 109,
-            "1000": 290
+            "1": 76,
+            "5": 129,
+            "10": 148,
+            "20": 177,
+            "100": 221,
+            "1000": 287
           },
-          "path": "data/outputs/current-best-refresh-20260829/final-hands-fold01.json"
+          "path": "data/outputs/model-refresh-20260926/comparison-head.json"
         },
         {
-          "eligible": 320,
           "fold": 2,
+          "eligible": 309,
           "hits": {
-            "1": 4,
-            "10": 15,
-            "100": 90,
-            "1000": 292
+            "1": 105,
+            "5": 164,
+            "10": 190,
+            "20": 211,
+            "100": 264,
+            "1000": 298
           },
-          "path": "data/outputs/current-best-refresh-20260829/final-hands-fold02.json"
+          "path": "data/outputs/model-refresh-20260926/comparison-head.json"
         },
         {
-          "eligible": 320,
           "fold": 3,
+          "eligible": 309,
           "hits": {
-            "1": 15,
-            "10": 43,
-            "100": 128,
-            "1000": 299
+            "1": 85,
+            "5": 129,
+            "10": 150,
+            "20": 177,
+            "100": 247,
+            "1000": 296
           },
-          "path": "data/outputs/current-best-refresh-20260829/final-hands-fold03.json"
+          "path": "data/outputs/model-refresh-20260926/comparison-head.json"
         }
-      ],
+      ]
+    },
+    {
+      "slot": "HANDS",
+      "eligible": 959,
       "hits": {
         "1": 29,
-        "10": 86,
-        "100": 327,
-        "1000": 881
+        "5": 70,
+        "10": 96,
+        "20": 144,
+        "100": 422,
+        "1000": 880
       },
-      "method": "DINOv2 adapted query, multi-crop/gender routing and occupied-slot Top-1 gate",
-      "slot": "HANDS",
       "top1": 0.03023983315954119,
-      "top10": 0.08967674661105318,
-      "top100": 0.3409801876955162,
-      "top1000": 0.9186652763295099
-    },
-    {
-      "eligible": 970,
+      "top10": 0.10010427528675704,
+      "top100": 0.44004171011470283,
+      "top1000": 0.9176225234619395,
+      "method": "DINOv2 adapted query, multi-crop/gender routing and occupied-slot Top-1 gate",
       "fold_reports": [
         {
-          "eligible": 323,
           "fold": 1,
+          "eligible": 319,
           "hits": {
-            "1": 57,
-            "10": 116,
-            "100": 191,
-            "1000": 298
+            "1": 10,
+            "5": 22,
+            "10": 30,
+            "20": 48,
+            "100": 140,
+            "1000": 289
           },
-          "path": "data/outputs/current-best-refresh-20260829/final-legs-fold01.json"
+          "path": "data/outputs/model-refresh-20260926/comparison-hands.json"
         },
         {
-          "eligible": 323,
           "fold": 2,
+          "eligible": 320,
           "hits": {
-            "1": 25,
-            "10": 77,
-            "100": 166,
-            "1000": 298
+            "1": 4,
+            "5": 9,
+            "10": 16,
+            "20": 27,
+            "100": 125,
+            "1000": 292
           },
-          "path": "data/outputs/current-best-refresh-20260829/final-legs-fold02.json"
+          "path": "data/outputs/model-refresh-20260926/comparison-hands.json"
         },
         {
-          "eligible": 324,
           "fold": 3,
+          "eligible": 320,
           "hits": {
-            "1": 43,
-            "10": 111,
-            "100": 204,
-            "1000": 315
+            "1": 15,
+            "5": 39,
+            "10": 50,
+            "20": 69,
+            "100": 157,
+            "1000": 299
           },
-          "path": "data/outputs/current-best-refresh-20260829/final-legs-fold03.json"
+          "path": "data/outputs/model-refresh-20260926/comparison-hands.json"
         }
-      ],
+      ]
+    },
+    {
+      "slot": "LEGS",
+      "eligible": 970,
       "hits": {
         "1": 125,
-        "10": 304,
-        "100": 561,
+        "5": 259,
+        "10": 325,
+        "20": 410,
+        "100": 639,
         "1000": 911
       },
-      "method": "DINOv2 plus DINOv3 rank ensemble inside a frozen DINOv2 Top-1000 pool",
-      "slot": "LEGS",
       "top1": 0.12886597938144329,
-      "top10": 0.3134020618556701,
-      "top100": 0.5783505154639176,
-      "top1000": 0.9391752577319588
-    },
-    {
-      "eligible": 930,
+      "top10": 0.33505154639175255,
+      "top100": 0.6587628865979381,
+      "top1000": 0.9391752577319588,
+      "method": "DINOv2 plus DINOv3 rank ensemble inside a frozen DINOv2 Top-1000 pool",
       "fold_reports": [
         {
-          "eligible": 310,
           "fold": 1,
+          "eligible": 323,
           "hits": {
-            "1": 64,
-            "10": 132,
-            "100": 234,
-            "1000": 300
+            "1": 57,
+            "5": 101,
+            "10": 122,
+            "20": 148,
+            "100": 213,
+            "1000": 298
           },
-          "path": "data/outputs/current-best-refresh-20260829/final-feet-fold01.json"
+          "path": "data/outputs/model-refresh-20260926/comparison-legs.json"
         },
         {
-          "eligible": 310,
           "fold": 2,
+          "eligible": 323,
+          "hits": {
+            "1": 25,
+            "5": 67,
+            "10": 85,
+            "20": 109,
+            "100": 190,
+            "1000": 298
+          },
+          "path": "data/outputs/model-refresh-20260926/comparison-legs.json"
+        },
+        {
+          "fold": 3,
+          "eligible": 324,
           "hits": {
             "1": 43,
-            "10": 112,
-            "100": 212,
-            "1000": 306
+            "5": 91,
+            "10": 118,
+            "20": 153,
+            "100": 236,
+            "1000": 315
           },
-          "path": "data/outputs/current-best-refresh-20260829/final-feet-fold02.json"
+          "path": "data/outputs/model-refresh-20260926/comparison-legs.json"
+        }
+      ]
+    },
+    {
+      "slot": "FEET",
+      "eligible": 930,
+      "hits": {
+        "1": 189,
+        "5": 336,
+        "10": 423,
+        "20": 515,
+        "100": 735,
+        "1000": 914
+      },
+      "top1": 0.2032258064516129,
+      "top10": 0.45483870967741935,
+      "top100": 0.7903225806451613,
+      "top1000": 0.9827956989247312,
+      "method": "clean primary-family candidate index with DINOv2 and SigLIP2 rank ensemble",
+      "fold_reports": [
+        {
+          "fold": 1,
+          "eligible": 310,
+          "hits": {
+            "1": 64,
+            "5": 114,
+            "10": 142,
+            "20": 173,
+            "100": 252,
+            "1000": 301
+          },
+          "path": "data/outputs/model-refresh-20260926/comparison-feet.json"
         },
         {
+          "fold": 2,
           "eligible": 310,
-          "fold": 3,
           "hits": {
-            "1": 79,
-            "10": 152,
-            "100": 236,
+            "1": 44,
+            "5": 86,
+            "10": 119,
+            "20": 147,
+            "100": 235,
+            "1000": 306
+          },
+          "path": "data/outputs/model-refresh-20260926/comparison-feet.json"
+        },
+        {
+          "fold": 3,
+          "eligible": 310,
+          "hits": {
+            "1": 81,
+            "5": 136,
+            "10": 162,
+            "20": 195,
+            "100": 248,
             "1000": 307
           },
-          "path": "data/outputs/current-best-refresh-20260829/final-feet-fold03.json"
+          "path": "data/outputs/model-refresh-20260926/comparison-feet.json"
         }
-      ],
-      "hits": {
-        "1": 186,
-        "10": 396,
-        "100": 682,
-        "1000": 913
-      },
-      "method": "clean primary-family candidate index with DINOv2 and SigLIP2 rank ensemble",
-      "slot": "FEET",
-      "top1": 0.2,
-      "top10": 0.4258064516129032,
-      "top100": 0.7333333333333333,
-      "top1000": 0.9817204301075269
+      ]
     }
-  ],
-  "target_achieved_all_slots": false,
-  "target_top10": 0.8,
-  "version": 2
+  ]
 }
