@@ -70,6 +70,7 @@ class SlotInferenceConfig:
     ensemble_index_dirs: tuple[Path, ...] = ()
     ensemble_query_checkpoints: tuple[Path | None, ...] = ()
     morphology_checkpoint: Path | None = None
+    head_detail_recall: bool = False
     ensemble_rrf_k: int = 1
     ensemble_pool_branches: int | None = None
     ensemble_pool_rrf_k: int = 1
@@ -217,6 +218,7 @@ def current_best_configs() -> dict[str, SlotInferenceConfig]:
         ),
         "HEAD": SlotInferenceConfig(
             slot="HEAD",
+            head_detail_recall=True,
             index_dir=index("facebook-dinov2-base-head-multiscale-v4"),
             query_checkpoint=checkpoint("head_dinov2"),
             candidate_crop_routes=HEAD_PROMOTED_CANDIDATE_CROP_ROUTES,
@@ -250,7 +252,9 @@ def current_best_configs() -> dict[str, SlotInferenceConfig]:
             benchmark_scope=(
                 "strict three-fold pooled DINOv2+SigLIP2+DINOv3-query-adapted gated rank "
                 "ensemble with upper-query to face-candidate routing "
-                f"({eligible('HEAD')} images; DINOv2+SigLIP2 Top-1000 pool preserved)"
+                f"({eligible('HEAD')} images; DINOv2+SigLIP2 Top-1000 baseline pool). "
+                "Local-detail consensus recall is evaluated separately and is "
+                "not included in these registered benchmark values"
             ),
         ),
         "HANDS": SlotInferenceConfig(
@@ -577,6 +581,7 @@ def inspect_assets(
             "style_model_id": config.style_model_id,
             "style_query_crop_name": config.style_query_crop_name,
             "style_corroboration_crop_name": config.style_corroboration_crop_name,
+            "head_detail_recall": config.head_detail_recall,
             "style_rerank_k": (
                 config.style_rerank_k
                 if config.style_model_id is not None
@@ -1724,6 +1729,7 @@ def slot_result(
             "style_model_id": config.style_model_id,
             "style_query_crop_name": config.style_query_crop_name,
             "style_corroboration_crop_name": config.style_corroboration_crop_name,
+            "head_detail_recall": config.head_detail_recall,
             "style_rerank_k": (
                 config.style_rerank_k
                 if config.style_model_id is not None

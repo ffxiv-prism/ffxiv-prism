@@ -45,6 +45,9 @@ from ffxiv_prism.matching.head_morphology import (
     head_morphology_class,
     predict_ridge_probabilities,
 )
+from ffxiv_prism.matching.head_detail import (
+    HEAD_TYPE_PROMPTS, detail_presence_decision, detail_records, recall_detail_candidate,
+)
 from ffxiv_prism.model_assets import load_pretrained
 from ffxiv_prism.matching.garment_morphology import (
     LONG_BODY_COVERED_LEGWEAR_CANDIDATE_PROMPTS,
@@ -1343,6 +1346,12 @@ def _run_slot(
         candidates,
         appearance_equivalence,
     )
+    head_detail_diagnostic = None
+    if config.slot == "HEAD" and config.head_detail_recall:
+        candidates, head_detail_diagnostic = _recall_head_details(
+            candidates, records["query"], config,
+            device=device, batch_size=batch_size,
+        )
     hand_shape_diagnostic = None
     if config.slot == "HANDS" and config.no_equipment_model_id is not None:
         candidates, hand_shape_diagnostic = _rerank_hands_shape(
@@ -1439,6 +1448,8 @@ def _run_slot(
         pooled_candidates.append(row)
     result = slot_result(config, slot_records["query"], pooled_candidates)
     result["slot_presence_diagnostic"] = slot_presence_diagnostic
+    if head_detail_diagnostic is not None:
+        result["head_detail_diagnostic"] = head_detail_diagnostic
     if hand_shape_diagnostic is not None:
         result["hand_shape_diagnostic"] = hand_shape_diagnostic
     if no_equipment_diagnostic is not None:
@@ -1575,6 +1586,60 @@ def _rerank_hands_shape(
     )
     diagnostic.update(decision)
     return output, diagnostic
+
+
+def _recall_head_details(candidates, records, config, *, device, batch_size):
+    from scripts.evaluate_glamour_embedding_model import build_encoder, search_crops
+
+    rows = detail_records(records)
+    eq = _load_appearance_equivalence()
+    if not rows:
+        return recall_detail_candidate(candidates, {}, eq)
+    paths = [resolve_project_path(r["path"]) for r in rows]
+    if any(p is None or not p.is_file() for p in paths):
+        result, diagnostic = recall_detail_candidate(candidates, {}, eq)
+        diagnostic["reason"] = "detail_image_unavailable"
+        return result, diagnostic
+    model_id = "google/siglip2-base-patch16-224"
+    profiles = _classify_style_paths(
+        model_id, HEAD_TYPE_PROMPTS, paths, device=device, batch_size=batch_size,
+    )
+    presence = detail_presence_decision(dict(zip((r["name"] for r in rows), profiles, strict=True)))
+    if not presence["active"]:
+        return list(candidates), {
+            "active": False, "ranking_changed": False,
+            "reason": "local_accessory_uncertain", "presence": presence,
+        }
+    index = config.ensemble_index_dirs[config.ensemble_model_ids.index(model_id)]
+    metadata, vectors = select_slot_candidate_index_rows(
+        read_jsonl(index / "metadata.jsonl"),
+        np.load(index / "embeddings.npy", mmap_mode="r"), "HEAD",
+    )
+    encoder = build_encoder(model_id, "auto", str(device), "color")
+    queries = encoder.encode_paths(paths, batch_size)
+    del encoder
+    searches = search_crops(
+        metadata, vectors, {"query": rows},
+        dict(zip((str(r["path"]) for r in rows), queries, strict=True)),
+        100, device=str(device),
+    )
+    views = {}
+    for row in rows:
+        ranking = fuse_crop_results([row], searches, top_k=100)
+        ranking = attach_appearance_equivalent_candidates(
+            ranking, eq, piece_catalog=_load_appearance_equivalence_catalog(),
+            max_equivalents_per_anchor=None,
+        )
+        views[row["name"]] = collapse_appearance_equivalent_candidates(
+            filter_candidates_for_slot(ranking, "HEAD", load_official_slots()), eq,
+        )
+    result, diagnostic = recall_detail_candidate(candidates, views, eq)
+    diagnostic.update(
+        model_id=model_id, index_dir=portable_path(index), presence=presence,
+        query_crops=[dict(r, path=portable_path(r["path"])) for r in rows],
+    )
+    _release_memory()
+    return result, diagnostic
 
 
 def _classify_style_paths(
