@@ -9,6 +9,7 @@ from ffxiv_prism.matching.garment_morphology import (
     LEGS_STYLE_PROMPTS,
     StylePrediction,
     apply_style_crop_multipliers,
+    body_style_consensus_policy,
     long_body_legwear_decision,
     long_top_probability,
     rerank_candidates_with_legwear_profile,
@@ -18,6 +19,28 @@ from ffxiv_prism.matching.garment_morphology import (
 
 
 class GarmentMorphologyTests(unittest.TestCase):
+    def test_body_context_cannot_route_without_confident_torso_agreement(self) -> None:
+        context = StylePrediction.from_probabilities("BODY", (.90, .02, .04, .04))
+        for core in (
+            None,
+            StylePrediction.from_probabilities("BODY", (.68, .06, .02, .24)),
+            StylePrediction.from_probabilities("BODY", (.03, .02, .05, .90)),
+            StylePrediction.from_probabilities("BODY", (.03, .02, .90, .05)),
+        ):
+            with self.subTest(core=core):
+                policy = body_style_consensus_policy(context, core)
+                self.assertFalse(policy.active)
+                records = [{"name": "body_context", "role": "context"}]
+                self.assertEqual(apply_style_crop_multipliers(records, policy), records)
+
+    def test_body_agreement_preserves_both_short_and_long_policies(self) -> None:
+        for values in ((.90, .02, .04, .04), (.02, .90, .04, .04), (.02, .04, .04, .90)):
+            prediction = StylePrediction.from_probabilities("BODY", values)
+            self.assertEqual(
+                body_style_consensus_policy(prediction, prediction),
+                style_policy(prediction, minimum_confidence=.75),
+            )
+
     def test_body_split_short_long_probability_cannot_enable_style_reranking(self) -> None:
         # Saved cross-host regression: target mass .756 used to pass the gate,
         # although the incorrectly predicted crop-top class was only .499.

@@ -403,6 +403,37 @@ def style_policy(
     )
 
 
+def body_style_consensus_policy(
+    prediction: StylePrediction,
+    corroboration: StylePrediction | None,
+    *,
+    minimum_confidence: float = 0.75,
+) -> StylePolicy:
+    """Require torso and context to independently support the same BODY route.
+
+    Exposed skin beside an open vest, separate sleeves and the lower garment
+    can dominate the context classifier. A single confident contextual label
+    must not override the identity retriever in those cases.
+    """
+    if prediction.slot != "BODY" or (
+        corroboration is not None and corroboration.slot != "BODY"
+    ):
+        raise ValueError("BODY style consensus requires BODY predictions")
+    policy = style_policy(prediction, minimum_confidence=minimum_confidence)
+    if not policy.active:
+        return policy
+    if corroboration is None:
+        reason = "body_style_corroboration_unavailable"
+    elif (
+        not style_policy(corroboration, minimum_confidence=minimum_confidence).active
+        or prediction.predicted_class != corroboration.predicted_class
+    ):
+        reason = "body_style_views_disagree_or_uncertain"
+    else:
+        return policy
+    return StylePolicy(False, {}, {}, {}, reason)
+
+
 def apply_style_crop_multipliers(
     records: Sequence[Mapping[str, Any]],
     policy_or_multipliers: StylePolicy | Mapping[str, float],

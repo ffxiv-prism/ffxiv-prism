@@ -91,6 +91,7 @@ class SlotInferenceConfig:
     spatial_blend: float = 0.35
     style_model_id: str | None = None
     style_query_crop_name: str | None = None
+    style_corroboration_crop_name: str | None = None
     style_rerank_k: int = 50
     style_blend: float = 0.35
     style_min_confidence: float = 0.5
@@ -194,6 +195,7 @@ def current_best_configs() -> dict[str, SlotInferenceConfig]:
             ensemble_top1_gate_min_last_branch_rank_ratio=body_gate[3],
             style_model_id="google/siglip2-base-patch16-224",
             style_query_crop_name="body_context",
+            style_corroboration_crop_name="body_upper_core",
             style_rerank_k=100,
             style_blend=0.70,
             style_min_confidence=0.75,
@@ -568,6 +570,7 @@ def inspect_assets(
             ),
             "style_model_id": config.style_model_id,
             "style_query_crop_name": config.style_query_crop_name,
+            "style_corroboration_crop_name": config.style_corroboration_crop_name,
             "style_rerank_k": (
                 config.style_rerank_k
                 if config.style_model_id is not None
@@ -1714,6 +1717,7 @@ def slot_result(
             ),
             "style_model_id": config.style_model_id,
             "style_query_crop_name": config.style_query_crop_name,
+            "style_corroboration_crop_name": config.style_corroboration_crop_name,
             "style_rerank_k": (
                 config.style_rerank_k
                 if config.style_model_id is not None

@@ -112,7 +112,7 @@ class OutfitRegionTests(unittest.TestCase):
             self.assertGreater(right, left)
             self.assertGreater(bottom, top)
         self.assertEqual(set(by_slot), {"HEAD", "BODY", "HANDS", "LEGS", "FEET"})
-        self.assertEqual(len(by_slot["HEAD"]), 5)
+        self.assertEqual(len(by_slot["HEAD"]), 8)
         self.assertEqual(len(by_slot["BODY"]), 4)
         self.assertEqual(len(by_slot["HANDS"]), 7)
         self.assertEqual(len(by_slot["LEGS"]), 6)

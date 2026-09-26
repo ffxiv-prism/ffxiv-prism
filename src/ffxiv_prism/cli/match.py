@@ -63,6 +63,7 @@ from ffxiv_prism.matching.garment_morphology import (
     TARGET_STYLE_CLASSES,
     StylePrediction,
     apply_style_crop_multipliers,
+    body_style_consensus_policy,
     long_body_legwear_decision,
     long_top_probability,
     rerank_candidates_with_legwear_profile,
@@ -731,21 +732,54 @@ def _run_slot(
                 raise FileNotFoundError(
                     f"Style query crop does not exist: {style_record.get('path')}"
                 )
-            style_probabilities = _classify_style_paths(
+            style_paths = [style_path]
+            requires_corroboration = (
+                config.slot == "BODY"
+                and config.style_corroboration_crop_name is not None
+            )
+            if requires_corroboration:
+                corroboration_record = next(
+                    (
+                        row for row in slot_records["query"]
+                        if row.get("name") == config.style_corroboration_crop_name
+                        and row.get("visibility") == "visible"
+                        and float(row.get("confidence", 0.0)) >= config.style_min_confidence
+                    ),
+                    None,
+                )
+                corroboration_path = (
+                    resolve_project_path(corroboration_record.get("path"))
+                    if corroboration_record is not None
+                    else None
+                )
+                if corroboration_path is not None and corroboration_path.is_file():
+                    style_paths.append(corroboration_path)
+            style_profiles = _classify_style_paths(
                 config.style_model_id,
                 STYLE_PROMPTS_BY_SLOT[config.slot],
-                [style_path],
+                style_paths,
                 device=device,
+                # Preserve the original context classifier's batch shape.
                 batch_size=1,
-            )[0]
+            )
             style_prediction = StylePrediction.from_probabilities(
                 config.slot,
-                style_probabilities,
+                style_profiles[0],
             )
             style_policy_result = style_policy(
                 style_prediction,
                 minimum_confidence=config.style_min_confidence,
             )
+            corroboration_prediction = None
+            if requires_corroboration:
+                if len(style_profiles) == 2:
+                    corroboration_prediction = StylePrediction.from_probabilities(
+                        "BODY", style_profiles[1],
+                    )
+                style_policy_result = body_style_consensus_policy(
+                    style_prediction, corroboration_prediction,
+                    minimum_confidence=config.style_min_confidence,
+                )
             if style_policy_result.active:
                 slot_records = {
                     example_id: apply_style_crop_multipliers(
@@ -798,6 +832,21 @@ def _run_slot(
                 "blend": config.style_blend,
                 "ranking_changed": False,
             }
+            if requires_corroboration:
+                style_diagnostic["corroboration"] = {
+                    "query_crop": config.style_corroboration_crop_name,
+                    "available": corroboration_prediction is not None,
+                    "probabilities": (
+                        dict(zip(
+                            corroboration_prediction.classes,
+                            corroboration_prediction.probabilities,
+                            strict=True,
+                        ))
+                        if corroboration_prediction is not None
+                        else None
+                    ),
+                    "minimum_confidence": config.style_min_confidence,
+                }
     if config.query_crop_names is not None:
         allowed_names = set(config.query_crop_names)
         slot_records = {

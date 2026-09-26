@@ -14,7 +14,7 @@ if "torch" not in sys.modules:
     np.linalg.inv(np.eye(2, dtype=np.float32))
 
 import torch
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 
 from ffxiv_prism.model_assets import load_pretrained
 from ffxiv_prism.torch_device import resolve_torch_device
@@ -294,6 +294,99 @@ def estimate_person_box(
     )
 
 
+def build_lower_face_regions(
+    keypoints: list[Keypoint],
+    image_size: tuple[int, int],
+    threshold: float = 0.35,
+) -> list[CropRegion]:
+    """Cover mouth/jaw and ear-side accessories in a face-relative frame.
+
+    COCO has no mouth/chin landmarks. Use the eye line for head tilt and the
+    eye/ear span for scale, independent of canvas padding and shoulder width.
+    Keep these views diagnostic until a matching candidate route is validated;
+    changing the trained upper-head query in place would alter its distribution.
+    """
+    nose, left_eye, right_eye, left_ear, right_ear = keypoints[:5]
+    eyes = (left_eye, right_eye)
+    eye_distance = distance(*eyes)
+    reliable_frame = (
+        eye_distance >= 1.0
+        and min(point.score for point in (nose, *eyes)) >= threshold
+    )
+    if eye_distance >= 1.0:
+        ux = (left_eye.x - right_eye.x) / eye_distance
+        uy = (left_eye.y - right_eye.y) / eye_distance
+        if ux < 0:
+            ux, uy = -ux, -uy
+    else:
+        ux, uy = 1.0, 0.0
+    vx, vy = -uy, ux
+    eye_center = midpoint(*eyes)
+    face_width = max(eye_distance * 2.4, 1.0)
+    compressed_eye_line = False
+    if min(left_ear.score, right_ear.score) >= threshold:
+        ear_distance = distance(left_ear, right_ear)
+        face_width = max(face_width, ear_distance)
+        compressed_eye_line = eye_distance < ear_distance * 0.20
+    nose_lateral = abs(
+        (nose.x - eye_center.x) * ux + (nose.y - eye_center.y) * uy
+    )
+    # Severely foreshortened eyes make roll and face scale unstable even when
+    # the pose model is confident. A nose far outside the eye span is another
+    # warning that this near-frontal face projection is unsuitable. Still save
+    # the envelope for inspection, but exclude it from experimental retrieval.
+    projected_profile = compressed_eye_line or nose_lateral > eye_distance
+
+    def view(
+        name: str,
+        center: Keypoint,
+        local_box: tuple[float, float, float, float],
+        points: list[Keypoint],
+    ) -> CropRegion:
+        corners = [
+            (
+                center.x + face_width * (x * ux + y * vx),
+                center.y + face_width * (x * uy + y * vy),
+            )
+            for x in (local_box[0], local_box[2])
+            for y in (local_box[1], local_box[3])
+        ]
+        raw = (
+            min(p[0] for p in corners), min(p[1] for p in corners),
+            max(p[0] for p in corners), max(p[1] for p in corners),
+        )
+        confidence, visibility = assess_visibility(points, image_size, threshold)
+        tags = ("lower_face_or_ear_accessory", "eye_line_aligned_envelope")
+        if not reliable_frame or min(p.score for p in points) < threshold:
+            visibility = downgrade_visibility(visibility, "pose_uncertain")
+            tags += ("unreliable_face_landmarks",)
+        if projected_profile:
+            visibility = downgrade_visibility(visibility, "pose_uncertain")
+            tags += ("foreshortened_face_geometry",)
+        if box_exceeds_source(raw, image_size):
+            visibility = downgrade_visibility(visibility, "partially_visible")
+            tags += ("source_edge_truncation_risk",)
+        return CropRegion(
+            "HEAD", name, clamp_box(raw, image_size),
+            confidence, visibility, "diagnostic", tags,
+        )
+
+    return [
+        view(
+            "head_lower_face", eye_center, (-0.65, 0.05, 0.65, 1.05),
+            [nose, *eyes],
+        ),
+        view(
+            "head_ear_left", left_ear, (-0.48, -0.18, 0.48, 0.80),
+            [nose, *eyes, left_ear],
+        ),
+        view(
+            "head_ear_right", right_ear, (-0.48, -0.18, 0.48, 0.80),
+            [nose, *eyes, right_ear],
+        ),
+    ]
+
+
 def build_outfit_regions(
     keypoints: list[Keypoint], image_size: tuple[int, int], threshold: float = 0.35
 ) -> list[CropRegion]:
@@ -419,6 +512,8 @@ def build_outfit_regions(
         "context",
         ("may_include_face_hair_shoulders",),
     )
+
+    regions.extend(build_lower_face_regions(keypoints, image_size, threshold))
 
     add("BODY", "body_torso", (5, 6, 11, 12), shoulder_width * 0.28, torso_length * 0.16)
     upper_core_points = [keypoints[index] for index in (5, 6, 11, 12)]

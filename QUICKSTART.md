@@ -78,11 +78,17 @@ FEET 的 `feet_full_left`、`feet_full_right`、`feet_full_context` 专门用于
 
 HEAD 的 `head_full_accessory` 用于完整显示宽檐帽、高帽和大型头饰，也属于
 `diagnostic`，不会参与当前模型排名。
+新增 `head_lower_face`、`head_ear_left/right` 覆盖下半脸、下颌及两侧耳部的小饰品，
+裁剪尺度取自面部关键点，边界随双眼连线倾斜调整。它们目前也是零权重质检裁剪；
+关键点不可信、极端侧脸或原图截断时会标记风险。
+实验效果及限制见 [头部局部裁剪验证](docs/head_crop_optimization_2026-09-24_zh.md)。
 
 候选 `score` 只用于相对排序，不是准确率或概率。请先检查 `overlay.jpg` 和 `crops.jpg`，再人工确认候选，尤其是 HEAD、HANDS、LEGS、FEET。
 
 BODY 的样式路由和二次排序仅在单个目标样式置信度达到 0.75 时启用，
-不会把短上衣、无袖和长外套的概率相加作为确定判断。HANDS 新增
+且 `body_context` 与 `body_upper_core` 必须都以至少 0.75 的置信度支持同一样式；
+躯干裁剪缺失、不可见或判断不确定时保留原始视觉检索。不会把短上衣、无袖和长外套的概率相加作为确定判断。
+验证结果和未解决问题见 [2026-09-24 识别诊断](docs/recognition_regression_2026-09-24_zh.md)。HANDS 新增
 `hands_palm_left/right` 完整手掌裁剪，用于双手连指手套形状校验，
 不会直接输入原有手臂查询适配器。只有双手形状判断均通过、原第一名
 明显不符且候选预览齐全时，才从现有候选池提升最多五种匹配外观；

@@ -1,3 +1,5 @@
+# Project imports follow the standalone script's sys.path bootstrap.
+# ruff: noqa: E402
 from __future__ import annotations
 
 import argparse
@@ -74,9 +76,12 @@ def main() -> int:
     )
     parser.add_argument(
         "--head-crop-policy",
-        choices=("full", "upper", "face", "multiscale"),
+        choices=("full", "upper", "face", "multiscale", "lower-face"),
         default="full",
-        help="Optionally add upper-accessory and face-accessory HEAD views.",
+        help=(
+            "Optionally add upper/face HEAD views. lower-face is an experimental "
+            "mouth/jaw and ear policy for centered canonical renders only."
+        ),
     )
     parser.add_argument(
         "--hands-crop-policy",
@@ -331,6 +336,14 @@ def crop_variants_for_slot(
                 full,
                 ("head_upper_accessory", (0.0, 0.0, 1.0, 0.68)),
                 ("head_face_accessory", (0.08, 0.20, 0.92, 0.80)),
+            )
+        if head_crop_policy == "lower-face":
+            # Experimental companion index for centered canonical HEAD renders.
+            # Leave the promoted multiscale index and trained query unchanged.
+            return (
+                ("head_lower_face", (0.18, 0.48, 0.82, 0.88)),
+                ("head_ear_left", (0.45, 0.38, 0.85, 0.85)),
+                ("head_ear_right", (0.15, 0.38, 0.55, 0.85)),
             )
         raise ValueError(f"unsupported HEAD crop policy: {head_crop_policy}")
 
