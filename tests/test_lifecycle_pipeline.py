@@ -30,7 +30,7 @@ class LifecyclePipelineTests(unittest.TestCase):
         self.assertEqual(
             names[:3], ["build-index", "validate-images", "build-sqlite"]
         )
-        candidate = stages[-1]
+        candidate = next(stage for stage in stages if stage.name == "candidate-indexes")
         self.assertEqual(candidate.name, "candidate-indexes")
         self.assertIn("--dry-run", candidate.command)
 
