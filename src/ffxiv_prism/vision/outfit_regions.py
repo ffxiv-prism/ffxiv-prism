@@ -387,6 +387,25 @@ def build_lower_face_regions(
     ]
 
 
+def build_head_detail_regions(regions: list[CropRegion]) -> list[CropRegion]:
+    """Lower 60% of each local face/ear box, excluding dominant eye/hair context.
+
+    Keep the parent quality flags: tightening a truncated or uncertain view
+    must never turn it into a trusted query. These views bypass trained
+    upper-head adapters and are consumed only by the zero-shot detail branch.
+    """
+    result = []
+    for region in regions:
+        left, top, right, bottom = region.box
+        result.append(CropRegion(
+            region.slot, region.name + "_detail",
+            (left, top + round((bottom - top) * 0.4), right, bottom),
+            region.confidence, region.visibility, "diagnostic",
+            region.tags + ("local_detail_recall",),
+        ))
+    return result
+
+
 def build_outfit_regions(
     keypoints: list[Keypoint], image_size: tuple[int, int], threshold: float = 0.35
 ) -> list[CropRegion]:
@@ -513,7 +532,9 @@ def build_outfit_regions(
         ("may_include_face_hair_shoulders",),
     )
 
-    regions.extend(build_lower_face_regions(keypoints, image_size, threshold))
+    local_head = build_lower_face_regions(keypoints, image_size, threshold)
+    regions.extend(local_head)
+    regions.extend(build_head_detail_regions(local_head))
 
     add("BODY", "body_torso", (5, 6, 11, 12), shoulder_width * 0.28, torso_length * 0.16)
     upper_core_points = [keypoints[index] for index in (5, 6, 11, 12)]
