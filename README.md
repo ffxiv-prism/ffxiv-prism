@@ -64,6 +64,10 @@ python scripts\recognize_glamour.py reference.png `
 - `overlay.jpg`：姿态点与部位包络；
 - `crops.jpg` 和 `crops/`：实际查询裁剪。
 
+候选装备存在同模装备时，HTML 和 JSON 报告会列出其名称。同模关系快照位于
+`data/processed/piece_appearance_equivalence_huiji_exact_models.json`，属于随仓库
+发布并校验的运行资产，无需克隆用户另行生成。
+
 ## 本地网页
 
 项目自带无需前端构建工具的本地工作台：
@@ -72,7 +76,7 @@ python scripts\recognize_glamour.py reference.png `
 python scripts\web_app.py
 ```
 
-默认地址为 `http://127.0.0.1:8765`。网页支持拖拽上传、五部位选择、Top-k 设置、CPU/GPU 运行环境选择、结果查看和本地数据更新。服务只监听回环地址；如不希望自动打开浏览器，添加 `--no-open`。
+默认地址为 `http://127.0.0.1:8765`。网页支持点击选择、拖拽或按 `Ctrl+V` 从剪贴板粘贴图片，并提供五部位选择、Top-k 设置、CPU/GPU 运行环境选择、结果查看和本地数据更新。服务只监听回环地址；如不希望自动打开浏览器，添加 `--no-open`。
 
 WebUI 会检测启动它的 Python/PyTorch 环境：GPU 环境可在每次任务前手动选择 GPU 或 CPU；CPU-only 环境会禁用 GPU 选项并显示原因。选择 CPU 时，推断子进程会显式使用 `--device cpu` 并隐藏 CUDA；选择 GPU 时，后端会先确认 CUDA 可用，再使用 `--device cuda`，不会静默回退到 CPU。
 
@@ -82,22 +86,26 @@ WebUI 会检测启动它的 Python/PyTorch 环境：GPU 环境可在每次任务
 
 | 部位 | 样本数 | Top-1 | Top-10 | 状态 |
 | --- | ---: | ---: | ---: | --- |
-| BODY | 987 | 63.53% | 82.88% | Top-10 达标 |
-| HEAD | 899 | 27.36% | 47.50% | 未达标 |
-| HANDS | 945 | 3.07% | 8.78% | 最差、优先处理 |
-| LEGS | 955 | 13.93% | 31.94% | 未达标 |
-| FEET | 967 | 19.34% | 41.16% | 未达标 |
+| BODY | 1,013 | 59.72% | 82.03% | Top-10 达标；适配 DINOv3 因折内域回退未发布 |
+| HEAD | 927 | 28.69% | 49.41% | 未达标 |
+| HANDS | 959 | 3.02% | 8.97% | 最差、优先处理 |
+| LEGS | 970 | 12.89% | 31.34% | 未达标 |
+| FEET | 930 | 20.00% | 42.58% | 未达标 |
 
-机器可读快照位于 `data/processed/current_recognition_metrics.json`，并已标记为 `refresh_required_after_candidate_coverage_repair`。目标是所有部位 Top-10 ≥ 80%，不是用 Top-1000 候选覆盖代替 Top-10 成绩。
+机器可读快照位于 `data/processed/current_recognition_metrics.json`，已登记为
+`release_ready`，对应候选快照 `20260829-024239`。目标仍是所有部位 Top-10 ≥ 80%；
+本次经明确的 `--allow-below-target` 发布现有最佳模型，不用 Top-1000 候选覆盖代替
+Top-10 成绩。
 
 ## 训练数据准入
 
 新的训练不得直接读取任意历史中间文件。规范本地输入固定为：
 
 - 标签：`data/processed/glamour_examples_huiji_models_closed.jsonl`
-- 最终质量清单：`data/processed/front_fullbody_quality_final_v46.jsonl`
-- BODY 严格三折：`data/interim/appearance-disjoint-cv-v52-huiji-closed`
-- 其他部位严格三折：`data/interim/appearance-disjoint-cv-v54-{slot}-huiji-closed`
+- 逐槽准入清单：`data/processed/slot_quality_eligibility_20260801.jsonl`
+- 可见性复核：`data/processed/training_visibility_reviews_20260801.jsonl`
+- 裁剪：`data/debug/outfit-regions/slot-quality-20260801`
+- 五槽严格三折：`data/interim/appearance-disjoint-cv-v55-slot-recovery-{slot}`
 
 这些玩家派生资产只保留在获授权的本机环境，不随代码仓库上传。
 
@@ -114,31 +122,102 @@ WebUI 会检测启动它的 Python/PyTorch 环境：GPU 环境可在每次任务
 运行当前训练准入审计：
 
 ```powershell
-python scripts\audit_glamour_training_readiness.py
+python scripts\audit_slot_quality_folds.py
 ```
 
-该命令在未通过时返回非零退出码，并把本地证据写到 `data/outputs/training-readiness-audit-20260730`。当前仍因逐槽可见性复核不完整和候选修复后的评估分母尚未重跑而阻塞训练。
+该命令在未通过时返回非零退出码，并把本地证据写到
+`data/outputs/slot-quality-fold-audit-20260801/summary.json`。当前审计状态为
+`ready_for_training`：五槽三折无身份或内容泄漏，裁剪与候选覆盖完整。
 
 ## 数据库与候选索引
 
-规范装备库为 `data/processed/eorzea.sqlite`。2026-07-30 快照包含 2,443 个套装、11,739 个装备部件和 19,810 张已关联槽位图；活动索引引用缺图为 0。玩家最终质量集的五部位标签均已达到 100% 活动候选覆盖。
+规范装备库为 `data/processed/eorzea.sqlite`。2026-08-29 生命周期快照包含
+2,456 个套装、11,796 个装备部件和 40,048 张图片，其中 39,947 张通过 QA；
+发布预览所需的 19,807 张图片全部可用。玩家逐槽准入集的五部位标签均已达到
+100% 活动候选覆盖。
 
-更新本地数据：
+## 更新装备图片库
+
+网页和命令行使用同一套图片优先流程。默认执行远端图片发现与采集、质量校验、
+必要标签关联和检索索引扩展，随后补充名称、染色等展示资料，不自动训练或发布模型：
 
 ```powershell
-python scripts\run_data_pipeline.py
+python scripts/run_lifecycle_pipeline.py
 ```
 
-强制刷新远端目录发现：
+网页只提供“更新装备图片库”和“修复本地图片库与索引”。命令行离线修复：
 
 ```powershell
-python scripts\run_data_pipeline.py --refresh-source
+python scripts/run_lifecycle_pipeline.py --source-mode local
 ```
 
-装备图片、远端页面、公共模型缓存、训练缓存、调试图与运行输出均属于本地可再
-生成资产，不进入 Git。已发布 `current-best` 所需的候选向量索引、推理检查点和
-DINOv3 权重属于版本化运行资产，通过 Git LFS 随仓库提供；文件清单和哈希位于
-`data/current_best_assets.json`。
+流程依次执行：来源发现 → 图片 URL 发现与验证 → 图片下载 → 装备/部位标签关联
+→ 图片去重与完整解码检查 → SQLite → 样本准入清单 → 特征提取与检索索引激活
+→ 中文名、染色、装备限制和同模关系补充。现有装备新增的图片同样会被发现；
+历史不可用 URL 按冷却期和每次最多 200 个的预算重试，损坏的本地缓存图片会重新下载。
+报告补充资料失败只记录警告，不阻断合格图片的检索更新。
+
+来源扫描默认 `--discovery-mode auto`：仅无历史装备记录时自动全扫；已有库即使缺少
+本机网页缓存也采用增量。每类列表检查 3–8 页首页，再轮查 3 页历史，男女合计通常
+12 页、最多 22 页。游标按页持久化，较旧页面的新增图片可能延后至轮查时发现。
+需要人工全量核对时使用 `--discovery-mode full`。扫描预算及图片重试规则见
+[增量扫描说明](docs/data_update_flow.md#增量扫描与请求预算)。
+
+候选扩展以当前活动索引为基础，不再固定从旧日期索引开始。所有分支完成并验证后，
+通过 `data/current_best_selection.json` 的 `candidate_indexes` 映射一次切换；
+无新增图片的分支继续使用原索引。模型权重保持不变，旧评估指标标记为需要刷新。
+任一分支失败时不切换，已有索引仍可用；SQLite 也在新库构建成功后才原子替换。
+
+`data/processed/equipment_image_samples.jsonl` 记录每张图片是否合格、重复、缺标签、
+质量失败或不属于当前支持的视图。缺少中文名或染色字段不会影响图片准入。
+合格图片同时成为训练候选，但仍需质量审核、防泄漏划分和训练流程；
+**图片入库不代表模型已经训练，也不代表通过了训练准入。**
+
+结束报告列出新发现、下载成功、下载失败、质检通过、新增合格样本、实际新增检索图片，
+以及待标签和重复图片数量。无新增可用图片会明确显示“无新增有效检索样本”，
+不会把单纯元数据更新称为样本扩充。JSON 报告及各阶段证据位于
+`data/outputs/lifecycle-reports/`，每完成一个阶段都会保存恢复点。
+
+中断后恢复（沿用来源快照、更新前图片基线和候选索引后缀）：
+
+```powershell
+python scripts/run_lifecycle_pipeline.py --resume-report data/outputs/lifecycle-reports/<上次运行时间>.json
+```
+
+恢复时应使用与原任务一致的来源和候选模式。`--restart-stage <阶段名>` 可从指定阶段
+重做。旧版本流程报告会重新执行新流程，避免跳过新增图片准入与索引激活步骤。
+
+高级参数：`--source-mode cached` 复用目录缓存并下载缺失图片；
+`--candidate-mode check` 只检查新增候选，`skip` 不更新索引；两者都不保证新增图片
+可检索。`--device auto` 为默认，可指定 `cpu` / `cuda`。
+`--dry-run` 只显示计划。`run_data_pipeline.py` 的无参数和 `--all` 旧调用转交统一入口，
+显式 `--stage` 仅用于内部执行或单阶段维护。
+
+### 染色资料
+
+refresh 更新在图片流程之后请求 Item 的 `DyeCount`，写入受 Git 管理的
+`data/raw/game_data/cafemaker_item_names_raw.jsonl`，装备精简表也保留 `dye_count`。
+0 表示不可染色，正数为通道数，null 表示未知；旧 CSV 仅作为旧数据兼容回退。
+仅补充报告资料时可单独运行：
+
+```powershell
+python scripts/download_cafemaker_item_names.py
+python scripts/filter_cafemaker_item_names_for_gear_pieces.py
+```
+
+### 模型训练与发布
+
+训练与数据更新独立。重新评估并登记有效指标后，才可执行模型发布门禁：
+
+```powershell
+python scripts/run_lifecycle_pipeline.py --workflow model-release --release-mode check
+```
+
+显式 `--release-mode publish` 才导出资产。`--workflow all` 为高级串联模式；
+如果刚扩展图片库而未重新评估，发布门禁会因指标过期阻止发布。
+公开模型与图片缓存仍由各主机准备；已发布运行资产由 Git LFS 提供。
+
+具体字段、恢复语义和分支核对记录见[数据更新流程说明](docs/data_update_flow.md)。
 
 ## 项目结构
 
@@ -172,3 +251,10 @@ python scripts\recognize_glamour.py --check
 - 染色、遮挡、动作、宽檐头饰、小型饰品和多槽占用会显著影响排序；
 - 排名分数是相对检索信号，不是校准概率；
 - 装备图片、训练数据、训练检查点、调试输出和公共模型缓存不进入 Git；仅发布清单中登记的 `current-best` 推理资产通过 Git LFS 提供。
+当 Eorzea Collection 出现 Cloudflare 验证时，可启用可见浏览器。流程会先用
+普通 Chrome 打开验证页；手工验证成功后回到命令行按 Enter，程序才会接管同一
+会话。后续的页面缓存、图片下载、QA、SQLite、候选索引和发布门禁会自动继续：
+
+```powershell
+python scripts/run_lifecycle_pipeline.py --workflow all --source-mode refresh --browser-verification --candidate-mode extend --release-mode publish --device cuda
+```

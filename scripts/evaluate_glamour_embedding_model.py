@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import re
 import sys
 from collections import defaultdict
@@ -21,7 +20,6 @@ from ffxiv_prism.model_assets import load_pretrained
 from ffxiv_prism.paths import PROCESSED_DIR, portable_path, resolve_project_path
 from ffxiv_prism.torch_device import resolve_torch_device
 from ffxiv_prism.vision.evaluation_split import load_split_assignments
-from ffxiv_prism.vision.retrieval import DEFAULT_INDEX_DIR, load_index
 
 from scripts.evaluate_glamour_matching import (
     ROLE_PROFILES,
@@ -384,36 +382,12 @@ def load_or_build_candidate_embeddings(
 ) -> np.ndarray:
     if not metadata:
         raise ValueError("Refusing to build or overwrite an index from empty metadata")
+    cached = load_existing_candidate_embeddings(metadata, index_dir)
+    if cached is not None:
+        return cached
     embeddings_path = index_dir / "embeddings.npy"
     metadata_path = index_dir / "metadata.jsonl"
     manifest_path = index_dir / "manifest.json"
-    expected_paths = [row["local_path"] for row in metadata]
-    existing_artifacts = (embeddings_path.is_file(), metadata_path.is_file())
-    if any(existing_artifacts) and not all(existing_artifacts):
-        raise ValueError(
-            "Candidate index is incomplete; refusing to overwrite existing "
-            f"artifacts in {index_dir}. Rebuild into a new directory."
-        )
-    if all(existing_artifacts):
-        cached_metadata = read_jsonl(metadata_path)
-        cached_paths = [row["local_path"] for row in cached_metadata]
-        if cached_paths != expected_paths:
-            raise ValueError(
-                "Candidate metadata does not match the existing index; refusing "
-                f"to overwrite {index_dir} ({len(cached_paths)} cached rows vs "
-                f"{len(expected_paths)} requested rows). Pass the metadata used "
-                "to build this index or choose a new index directory."
-            )
-        cached_embeddings = np.load(embeddings_path, mmap_mode="r")
-        if cached_embeddings.ndim != 2 or cached_embeddings.shape[0] != len(
-            cached_metadata
-        ):
-            raise ValueError(
-                "Candidate index row mismatch; refusing to use or overwrite "
-                f"{index_dir}: embeddings={cached_embeddings.shape}, "
-                f"metadata_rows={len(cached_metadata)}"
-            )
-        return cached_embeddings
 
     valid_rows = []
     paths = []
@@ -444,32 +418,62 @@ def load_or_build_candidate_embeddings(
     return embeddings
 
 
+def load_existing_candidate_embeddings(
+    metadata: list[dict[str, Any]],
+    index_dir: Path,
+) -> np.ndarray | None:
+    embeddings_path = index_dir / "embeddings.npy"
+    metadata_path = index_dir / "metadata.jsonl"
+    existing_artifacts = (embeddings_path.is_file(), metadata_path.is_file())
+    if not any(existing_artifacts):
+        return None
+    if not all(existing_artifacts):
+        raise ValueError(
+            "Candidate index is incomplete; refusing to overwrite existing "
+            f"artifacts in {index_dir}. Rebuild into a new directory."
+        )
+    expected_paths = [row["local_path"] for row in metadata]
+    cached_metadata = read_jsonl(metadata_path)
+    cached_paths = [row["local_path"] for row in cached_metadata]
+    if cached_paths != expected_paths:
+        raise ValueError(
+            "Candidate metadata does not match the existing index; refusing "
+            f"to overwrite {index_dir} ({len(cached_paths)} cached rows vs "
+            f"{len(expected_paths)} requested rows). Pass the metadata used "
+            "to build this index or choose a new index directory."
+        )
+    cached_embeddings = np.load(embeddings_path, mmap_mode="r")
+    if cached_embeddings.ndim != 2 or cached_embeddings.shape[0] != len(
+        cached_metadata
+    ):
+        raise ValueError(
+            "Candidate index row mismatch; refusing to use or overwrite "
+            f"{index_dir}: embeddings={cached_embeddings.shape}, "
+            f"metadata_rows={len(cached_metadata)}"
+        )
+    return cached_embeddings
+
+
 def load_or_build_crop_embeddings(
     encoder: EmbeddingEncoder,
     crop_records: dict[str, list[dict[str, Any]]],
     cache_path: Path,
     batch_size: int,
     limit_crops: int | None = None,
+    rebuild: bool = False,
 ) -> dict[str, np.ndarray]:
-    crop_paths = sorted({str(record["path"]) for records in crop_records.values() for record in records})
-    if limit_crops is not None:
-        crop_paths = crop_paths[:limit_crops]
-    if cache_path.is_file():
-        cached = np.load(cache_path, allow_pickle=False)
-        cached_paths = [str(path) for path in cached["paths"].tolist()]
-        if (
-            cached_paths == crop_paths
-            and str(cached["model_id"].tolist()) == encoder.model_id
-            and str(cached["preprocess"].tolist()) == encoder.preprocess
-            and (
-                str(cached["pooling"].tolist())
-                if "pooling" in cached.files
-                else "cls"
-            )
-            == getattr(encoder, "pooling", "cls")
-        ):
-            embeddings = cached["embeddings"]
-            return {path: embeddings[index] for index, path in enumerate(crop_paths)}
+    crop_paths = expected_crop_paths(crop_records, limit_crops=limit_crops)
+    if not rebuild:
+        cached = load_crop_embedding_cache(
+            crop_records,
+            cache_path,
+            model_id=encoder.model_id,
+            preprocess=encoder.preprocess,
+            pooling=getattr(encoder, "pooling", "cls"),
+            limit_crops=limit_crops,
+        )
+        if cached is not None:
+            return cached
 
     embeddings = encoder.encode_paths([Path(path) for path in crop_paths], batch_size)
     cache_path.parent.mkdir(parents=True, exist_ok=True)
@@ -482,6 +486,57 @@ def load_or_build_crop_embeddings(
         pooling=np.asarray(getattr(encoder, "pooling", "cls")),
     )
     return {path: embeddings[index] for index, path in enumerate(crop_paths)}
+
+
+def expected_crop_paths(
+    crop_records: dict[str, list[dict[str, Any]]],
+    *,
+    limit_crops: int | None = None,
+) -> list[str]:
+    paths = sorted(
+        {
+            str(record["path"])
+            for records in crop_records.values()
+            for record in records
+        }
+    )
+    return paths[:limit_crops] if limit_crops is not None else paths
+
+
+def load_crop_embedding_cache(
+    crop_records: dict[str, list[dict[str, Any]]],
+    cache_path: Path,
+    *,
+    model_id: str,
+    preprocess: str,
+    pooling: str,
+    limit_crops: int | None = None,
+) -> dict[str, np.ndarray] | None:
+    if not cache_path.is_file():
+        return None
+    crop_paths = expected_crop_paths(crop_records, limit_crops=limit_crops)
+    with np.load(cache_path, allow_pickle=False) as cached:
+        required = {"paths", "embeddings", "model_id", "preprocess"}
+        if not required.issubset(cached.files):
+            return None
+        cached_paths = [str(path) for path in cached["paths"].tolist()]
+        cached_pooling = (
+            str(cached["pooling"].tolist())
+            if "pooling" in cached.files
+            else "cls"
+        )
+        embeddings = cached["embeddings"]
+        if (
+            cached_paths != crop_paths
+            or str(cached["model_id"].tolist()) != model_id
+            or str(cached["preprocess"].tolist()) != preprocess
+            or cached_pooling != pooling
+            or embeddings.ndim != 2
+            or embeddings.shape[0] != len(crop_paths)
+        ):
+            return None
+        matrix = np.asarray(embeddings, dtype=np.float32)
+    return {path: matrix[index] for index, path in enumerate(crop_paths)}
 
 
 def search_crops(

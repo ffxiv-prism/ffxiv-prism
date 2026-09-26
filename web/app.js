@@ -47,9 +47,8 @@ const slotLabels = {
 };
 
 const updateNotes = {
-  standard: "读取已有发现列表，更新详情、中文名称、图片索引与 SQLite 数据库。",
-  "local-index": "不访问远程来源，只根据已有本地数据重建索引、图片校验和 SQLite 数据库。",
-  full: "包含重新发现全部装备来源，耗时最长，且中文名称补全阶段可能打开浏览器验证窗口。",
+  standard: "发现新增装备图片 → 下载与质量校验 → 关联装备标签 → 更新检索索引；随后补充中文名和染色信息。首次补齐图片与索引可能耗时较长。",
+  "local-index": "不采集远程图片或资料，使用已有图片重新校验、关联标签，并补齐本地检索索引。训练需要另行审核与执行。",
 };
 
 let selectedImage = null;
@@ -182,14 +181,14 @@ function renderDatasetStatus(dataset) {
 }
 
 function selectImage(file) {
-  if (!file) return;
+  if (!file) return false;
   if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
     showToast("请选择 PNG、JPG/JPEG 或 WebP 图片。");
-    return;
+    return false;
   }
   if (file.size > 25 * 1024 * 1024) {
     showToast("图片不能超过 25 MB。");
-    return;
+    return false;
   }
   selectedImage = file;
   if (previewUrl) URL.revokeObjectURL(previewUrl);
@@ -200,6 +199,16 @@ function selectImage(file) {
   elements.dropZone.hidden = true;
   elements.selectedFile.hidden = false;
   updateRecognizeAvailability();
+  return true;
+}
+
+function clipboardImage(clipboardData) {
+  const imageItem = Array.from(clipboardData?.items || []).find(
+    (item) => item.kind === "file" && item.type.startsWith("image/"),
+  );
+  return imageItem?.getAsFile()
+    || Array.from(clipboardData?.files || []).find((file) => file.type.startsWith("image/"))
+    || null;
 }
 
 for (const dropTarget of [elements.dropZone, elements.selectedFile]) {
@@ -231,6 +240,12 @@ elements.dropZone.addEventListener("keydown", (event) => {
 
 elements.input.addEventListener("change", () => selectImage(elements.input.files[0]));
 elements.changeImage.addEventListener("click", () => elements.input.click());
+document.addEventListener("paste", (event) => {
+  const file = clipboardImage(event.clipboardData);
+  if (!file) return;
+  event.preventDefault();
+  if (selectImage(file)) showToast("已从剪贴板粘贴图片。");
+});
 for (const input of elements.deviceInputs) {
   input.addEventListener("change", () => {
     updateDeviceNote();
@@ -274,6 +289,12 @@ function renderJob(job) {
     ? `${job.title} · ${deviceLabel(job.device)}`
     : job.title;
   elements.jobStage.textContent = job.error || job.stage || "等待中";
+  const datasetResult = $("#dataset-result");
+  datasetResult.hidden = !job.dataset_result;
+  if (job.dataset_result) {
+    const result = job.dataset_result;
+    datasetResult.textContent = `新发现 ${result.new_discovered_images} 张 · 下载 ${result.images_downloaded ?? "未执行"} 张 · 新通过质检 ${result.new_qa_ready_images} 张 · 新进入检索 ${result.new_indexed_images} 张 · 待标签 ${result.pending_label_images} 张 · 下载待补齐 ${result.missing_download_images} 张 · 训练准入尚未执行`;
+  }
   elements.jobLog.textContent = (job.logs || []).join("\n");
   elements.jobLog.scrollTop = elements.jobLog.scrollHeight;
   elements.jobState.className = `job-state ${job.status}`;
@@ -305,7 +326,7 @@ function startPolling(jobId) {
         const result = await api(job.result_url);
         renderResults(result, job.report_url);
       } else if (job.status === "succeeded" && job.kind === "dataset") {
-        showToast("本地数据集更新完成。");
+        showToast(job.dataset_result?.message || "任务结束，请查看图片更新结果。");
       } else if (job.status === "failed") {
         showToast(job.error || "任务运行失败，请展开日志查看。");
       }

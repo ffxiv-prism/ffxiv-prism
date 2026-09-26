@@ -304,16 +304,17 @@ def apply_official_equip_slots(
     row["official_occupied_slots"] = occupied_slots
     row["official_blocked_slots"] = blocked_slots
     row["official_equip_slot_source"] = "cafemaker_equip_slot_category"
-    if occupied_slots:
-        row["occupied_slots"] = occupied_slots
-        row["blocked_slots"] = blocked_slots
-        row["equip_conflict_source"] = "cafemaker_equip_slot_category" if blocked_slots else None
-        row["equip_conflict_note"] = (
-            "Official EquipSlotCategory marks this item as incompatible with "
-            f"{', '.join(blocked_slots)}."
-            if blocked_slots
-            else None
-        )
+    # Known weapons/accessories have no core armour slots. Do not retain the
+    # parser's inferred FEET assignment when official evidence is empty.
+    row["occupied_slots"] = occupied_slots
+    row["blocked_slots"] = blocked_slots
+    row["equip_conflict_source"] = "cafemaker_equip_slot_category" if blocked_slots else None
+    row["equip_conflict_note"] = (
+        "Official EquipSlotCategory marks this item as incompatible with "
+        f"{', '.join(blocked_slots)}."
+        if blocked_slots
+        else None
+    )
 
 
 def normalize_int(value: object) -> int | None:

@@ -4,6 +4,8 @@ from __future__ import annotations
 import hashlib
 import json
 import time
+
+from PIL import Image
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -287,27 +289,7 @@ class EorzeaCollectionCollector:
     def _download_image_record(self, candidate: ImageCandidate) -> DownloadedImageRecord | None:
         try:
             local_path, from_cache = self._download_image(candidate)
-            digest = sha256_file(local_path)
-            return DownloadedImageRecord(
-                source_image_url=candidate.source_image_url,
-                source_page_url=candidate.source_page_url,
-                local_path=portable_path(local_path) or str(local_path),
-                sha256=digest,
-                byte_size=local_path.stat().st_size,
-                from_cache=from_cache,
-                image_kind=candidate.image_kind,
-                slot=candidate.slot,
-                gearset_slug=candidate.gearset_slug,
-                model_gender=candidate.model_gender,
-                race=candidate.race,
-                dye_state=candidate.dye_state,
-                source_type=candidate.source_type,
-                source_path=candidate.source_path,
-                collection_slug=candidate.collection_slug,
-                role_slug=candidate.role_slug,
-                family_slug=candidate.family_slug,
-                image_part=candidate.image_part,
-            )
+            return self.downloaded_image_record(candidate, local_path, from_cache)
         except Exception as exc:
             if "HTTP 404" not in str(exc):
                 self._log_error("download_image", candidate.source_image_url, exc)
@@ -382,12 +364,55 @@ class EorzeaCollectionCollector:
         return text, result.from_cache
 
     def _download_image(self, candidate: ImageCandidate) -> tuple[Path, bool]:
+        target = self.image_target(candidate)
+        result = self.http.fetch_bytes(candidate.source_image_url, target, force_refresh=target.is_file() and not self.image_is_readable(target))
+        return result.local_path, result.from_cache
+
+    @staticmethod
+    def image_is_readable(path: Path) -> bool:
+        try:
+            with Image.open(path) as image:
+                image.verify()
+            with Image.open(path) as image:
+                image.load()
+            return True
+        except (OSError, ValueError, SyntaxError):
+            return False
+
+    def image_target(self, candidate: ImageCandidate) -> Path:
         group = candidate.gearset_slug or "misc"
         suffix = extension_from_url(candidate.source_image_url, ".img")
         semantic_name = self._semantic_image_filename(candidate, suffix)
-        target = self.image_dir / candidate.image_kind / group / semantic_name
-        result = self.http.fetch_bytes(candidate.source_image_url, target)
-        return result.local_path, result.from_cache
+        return self.image_dir / candidate.image_kind / group / semantic_name
+
+    def downloaded_image_record(
+        self,
+        candidate: ImageCandidate,
+        local_path: Path,
+        from_cache: bool,
+    ) -> DownloadedImageRecord:
+        if not self.image_is_readable(local_path):
+            raise ValueError(f"Downloaded image cannot be decoded: {local_path}")
+        return DownloadedImageRecord(
+            source_image_url=candidate.source_image_url,
+            source_page_url=candidate.source_page_url,
+            local_path=portable_path(local_path) or str(local_path),
+            sha256=sha256_file(local_path),
+            byte_size=local_path.stat().st_size,
+            from_cache=from_cache,
+            image_kind=candidate.image_kind,
+            slot=candidate.slot,
+            gearset_slug=candidate.gearset_slug,
+            model_gender=candidate.model_gender,
+            race=candidate.race,
+            dye_state=candidate.dye_state,
+            source_type=candidate.source_type,
+            source_path=candidate.source_path,
+            collection_slug=candidate.collection_slug,
+            role_slug=candidate.role_slug,
+            family_slug=candidate.family_slug,
+            image_part=candidate.image_part,
+        )
 
     def _semantic_image_filename(self, candidate: ImageCandidate, suffix: str) -> str:
         pieces = [

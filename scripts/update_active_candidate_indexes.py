@@ -3,7 +3,9 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from dataclasses import dataclass
+import tempfile
+from dataclasses import dataclass, replace
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -199,9 +201,31 @@ def main() -> int:
         default=None,
         help="Optional legacy base index metadata; SQLite is used by default.",
     )
-    parser.add_argument("--source-suffix", default="20260730")
+    parser.add_argument("--source-suffix", default=None, help="Legacy explicit source version; otherwise use the active selection.")
+    parser.add_argument("--source-selection", type=Path, default=Path("data/current_best_selection.json"))
+    parser.add_argument("--selection", type=Path, default=Path("data/current_best_selection.json"))
+    parser.add_argument("--activate", action="store_true", help="Atomically activate all validated outputs after every branch succeeds.")
+    parser.add_argument("--sample-manifest", type=Path, help="Only append eligible images from this audited manifest.")
+    parser.add_argument("--summary", type=Path, help="Write this run's candidate counts and activation result.")
     parser.add_argument("--suffix", required=True)
-    parser.add_argument("--expected-gearset-slug", required=True)
+    expected_group = parser.add_mutually_exclusive_group(required=True)
+    expected_group.add_argument(
+        "--expected-gearset-slug",
+        action="append",
+        dest="expected_gearset_slugs",
+        help=(
+            "Expected new gearset slug. May be repeated when one release adds "
+            "multiple gearsets."
+        ),
+    )
+    expected_group.add_argument(
+        "--allow-any-new-gearsets",
+        action="store_true",
+        help=(
+            "Accept every gearset newly present in SQLite. Intended for the "
+            "audited sample-library lifecycle pipeline."
+        ),
+    )
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--device", default="cuda")
     parser.add_argument(
@@ -218,6 +242,19 @@ def main() -> int:
             "versioned targets have already been written."
         ),
     )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help=(
+            "Reuse target outputs that have a completed, structurally valid "
+            "summary and build only missing targets."
+        ),
+    )
+    parser.add_argument(
+        "--skip-empty",
+        action="store_true",
+        help="Do not create a versioned copy for targets with no new rows.",
+    )
     args = parser.parse_args()
 
     base_rows = (
@@ -225,7 +262,16 @@ def main() -> int:
         if args.base_index is not None
         else load_candidate_images(db_path=args.db)
     )
-    targets = target_plan(args.source_suffix, args.suffix)
+    selection = json.loads(args.source_selection.read_text(encoding="utf-8"))
+    targets = active_target_plan(selection, args.suffix, source_suffix=args.source_suffix)
+    if args.sample_manifest:
+        if not args.sample_manifest.is_file():
+            raise FileNotFoundError(args.sample_manifest)
+        allowed = {row["source_image_url"] for row in read_jsonl(args.sample_manifest)
+                   if row.get("eligibility_status") == "eligible"}
+        base_rows = [row for row in base_rows if row.get("source_image_url") in allowed]
+    if args.activate and args.targets:
+        raise ValueError("Activation requires all candidate branches; omit --targets")
     if args.targets:
         known_names = {target.name for target in targets}
         unknown_names = sorted(set(args.targets) - known_names)
@@ -235,12 +281,16 @@ def main() -> int:
         targets = [
             target for target in targets if target.name in selected_names
         ]
-    validate_output_dirs(targets)
+    expected_gearset_slugs = (
+        None
+        if args.allow_any_new_gearsets
+        else frozenset(args.expected_gearset_slugs or [])
+    )
     additions = {
         target.name: build_additions(
             target,
             base_rows,
-            expected_gearset_slug=args.expected_gearset_slug,
+            expected_gearset_slugs=expected_gearset_slugs,
         )
         for target in targets
     }
@@ -262,9 +312,56 @@ def main() -> int:
         )
         return 0
 
+    writable_targets = [
+        target
+        for target in targets
+        if additions[target.name] or not args.skip_empty
+    ]
     encoders: dict[str, Any] = {}
     results = []
+    resumed_names: set[str] = set()
+    if args.resume:
+        for target in writable_targets:
+            if target.output.exists() and any(target.output.iterdir()):
+                result = load_completed_target(
+                    target,
+                    additions[target.name],
+                )
+                results.append(result)
+                resumed_names.add(target.name)
+                print(
+                    f"reused target={target.name} rows={result['candidate_count']}",
+                    flush=True,
+                )
+    pending_targets = [
+        target for target in writable_targets if target.name not in resumed_names
+    ]
+    validate_output_dirs(pending_targets)
+
     for target in targets:
+        rows = additions[target.name]
+        if target.name in resumed_names:
+            continue
+        if not rows and args.skip_empty:
+            result = {
+                "target": target.name,
+                "source_candidate_count": len(
+                    read_jsonl(target.source / "metadata.jsonl")
+                ),
+                "new_candidate_count": 0,
+                "candidate_count": len(
+                    read_jsonl(target.source / "metadata.jsonl")
+                ),
+                "output": portable_path(target.source),
+                "skipped": True,
+                "reason": "no_new_candidates",
+            }
+            results.append(result)
+            print(
+                f"skipped target={target.name} reason=no_new_candidates",
+                flush=True,
+            )
+            continue
         if target.encoder_group not in encoders:
             print(
                 f"loading encoder={target.encoder_group} model={target.model_id}",
@@ -284,8 +381,6 @@ def main() -> int:
                     "color",
                     target.pooling,
                 )
-
-        rows = additions[target.name]
         encoder = encoders[target.encoder_group]
         if target.encoder_group in {"dinov2", "dinov3"}:
             new_embeddings = encoder.encode_rows(
@@ -307,8 +402,120 @@ def main() -> int:
             flush=True,
         )
 
-    print(json.dumps(results, ensure_ascii=False, indent=2))
+    activated = False
+    if args.activate:
+        activated = activate_targets(targets, results, selection, args.selection)
+    summary = {
+        "activated": activated,
+        "new_indexed_images": len({row["source_image_url"] for rows in additions.values() for row in rows}),
+        "new_candidate_rows": sum(len(rows) for rows in additions.values()),
+        "indexes": results,
+    }
+    if args.summary:
+        write_json(args.summary, summary)
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
     return 0
+
+
+def active_target_plan(selection: dict[str, Any], suffix: str, *, source_suffix: str | None = None) -> list[Target]:
+    base_suffix = source_suffix or str(selection["candidate_suffix"])
+    targets = target_plan(base_suffix, suffix)
+    if source_suffix:
+        return targets
+    overrides = selection.get("candidate_indexes") or {}
+    return [replace(target, source=Path(overrides.get(
+        target.source.name.removesuffix("-" + base_suffix), target.source))) for target in targets]
+
+
+def activate_targets(targets: list[Target], results: list[dict[str, Any]],
+                     source_selection: dict[str, Any], selection_path: Path) -> bool:
+    """Commit the selection only after every branch is complete; preserve weights."""
+    if len(results) != len(targets) or {r["target"] for r in results} != {t.name for t in targets}:
+        raise ValueError("Cannot activate an incomplete candidate update")
+    destinations = {r["target"]: Path(r["output"]) for r in results}
+    overrides = dict(source_selection.get("candidate_indexes") or {})
+    for target in targets:
+        destination = destinations[target.name]
+        rows = read_jsonl(destination / "metadata.jsonl")
+        matrix = np.load(destination / "embeddings.npy", mmap_mode="r")
+        if not rows or matrix.ndim != 2 or len(rows) != matrix.shape[0]:
+            raise ValueError(f"{target.name}: invalid activation metadata/embedding shape")
+        if destination != target.source:
+            summary = json.loads((destination / "summary.json").read_text(encoding="utf-8"))
+            if summary.get("completed") is not True:
+                raise ValueError(f"{target.name}: output is not complete")
+        # Output suffix can contain dashes; derive the stable prefix from the plan.
+        template = next(t for t in target_plan("source", "output") if t.name == target.name)
+        prefix = template.output.name.removesuffix("-output")
+        overrides[prefix] = portable_path(destination)
+    current = json.loads(selection_path.read_text(encoding="utf-8"))
+    if current.get("candidate_indexes") == overrides:
+        return True  # A resumed, already committed update.
+    if current != source_selection:
+        raise ValueError("Active selection changed during update; refusing to overwrite it")
+    if not any(not row.get("skipped") for row in results):
+        return False
+    updated = {**current, "candidate_indexes": overrides,
+               "candidate_indexes_updated_at": datetime.now(UTC).isoformat(timespec="seconds")}
+    # Existing metrics describe the previous candidate corpus, not this expansion.
+    metrics_path = selection_path.parent / "processed/current_recognition_metrics.json"
+    if metrics_path.is_file():
+        metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+        metrics.update(metric_status="refresh_required", candidate_update_reason="image_library_expanded")
+        write_json(metrics_path, metrics)
+    write_json(selection_path, updated)
+    return True
+
+
+def load_completed_target(
+    target: Target,
+    additions: Sequence[dict[str, Any]],
+) -> dict[str, Any]:
+    summary_path = target.output / "summary.json"
+    metadata_path = target.output / "metadata.jsonl"
+    embeddings_path = target.output / "embeddings.npy"
+    required = (summary_path, metadata_path, embeddings_path)
+    missing = [str(path) for path in required if not path.is_file()]
+    if missing:
+        raise ValueError(
+            f"{target.name}: incomplete resume output; missing {missing}"
+        )
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    source_rows = read_jsonl(target.source / "metadata.jsonl")
+    output_rows = read_jsonl(metadata_path)
+    embeddings = np.load(embeddings_path, mmap_mode="r")
+    expected_count = len(source_rows) + len(additions)
+    problems: list[str] = []
+    if summary.get("completed") is not True:
+        problems.append("summary is not completed")
+    if int(summary.get("source_candidate_count", -1)) != len(source_rows):
+        problems.append("source candidate count changed")
+    if int(summary.get("new_candidate_count", -1)) != len(additions):
+        problems.append("new candidate count changed")
+    if int(summary.get("candidate_count", -1)) != expected_count:
+        problems.append("total candidate count changed")
+    if len(output_rows) != expected_count:
+        problems.append("metadata row count mismatch")
+    if embeddings.ndim != 2 or embeddings.shape[0] != expected_count:
+        problems.append("embedding row count mismatch")
+    if len(output_rows) == expected_count:
+        if output_rows[: len(source_rows)] != source_rows:
+            problems.append("source metadata prefix changed")
+        if additions and output_rows[len(source_rows) :] != list(additions):
+            problems.append("appended metadata changed")
+    if problems:
+        raise ValueError(
+            f"{target.name}: existing output cannot be resumed: "
+            + "; ".join(problems)
+        )
+    return {
+        "target": target.name,
+        "source_candidate_count": len(source_rows),
+        "new_candidate_count": len(additions),
+        "candidate_count": expected_count,
+        "output": portable_path(target.output),
+        "reused": True,
+    }
 
 
 class DinoRowEncoder:
@@ -386,8 +593,18 @@ def build_additions(
     target: Target,
     base_rows: list[dict[str, Any]],
     *,
-    expected_gearset_slug: str,
+    expected_gearset_slugs: frozenset[str] | None = None,
+    expected_gearset_slug: str | None = None,
 ) -> list[dict[str, Any]]:
+    # ``expected_gearset_slug`` remains as a compatibility shim for callers
+    # outside the CLI while the lifecycle pipeline supports multi-gearset
+    # releases.
+    if expected_gearset_slug is not None:
+        if expected_gearset_slugs is not None:
+            raise ValueError(
+                "Use expected_gearset_slug or expected_gearset_slugs, not both"
+            )
+        expected_gearset_slugs = frozenset((expected_gearset_slug,))
     source_rows = read_jsonl(target.source / "metadata.jsonl")
     known_images = {canonical_image_key(row) for row in source_rows}
     new_base_rows = [
@@ -396,13 +613,16 @@ def build_additions(
         if str(row.get("slot")) in set(target.slots)
         and canonical_image_key(row) not in known_images
     ]
+    new_gearset_slugs = {
+        str(piece.get("gearset_slug"))
+        for row in new_base_rows
+        for piece in row.get("pieces") or []
+        if piece.get("gearset_slug")
+    }
     unexpected_slugs = sorted(
-        {
-            str(piece.get("gearset_slug"))
-            for row in new_base_rows
-            for piece in row.get("pieces") or []
-            if piece.get("gearset_slug") != expected_gearset_slug
-        }
+        new_gearset_slugs - expected_gearset_slugs
+        if expected_gearset_slugs is not None
+        else ()
     )
     if unexpected_slugs:
         raise ValueError(
@@ -430,7 +650,31 @@ def build_additions(
     return additions
 
 
-def extend_index(
+def extend_index(target: Target, additions: list[dict[str, Any]], new_embeddings: np.ndarray) -> dict[str, Any]:
+    # A stopped build leaves only a private staging directory, never a published
+    # half-built version that prevents --resume from trying this branch again.
+    validate_output_dirs([target])
+    target.output.parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix=f".partial-{target.output.name}-", dir=target.output.parent))
+    result = _write_extended_index(replace(target, output=staging), additions, new_embeddings)
+    for filename in ("summary.json", "manifest.json"):
+        path = staging / filename
+        if path.is_file():
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            if filename == "summary.json":
+                payload["output"] = portable_path(target.output)
+            else:
+                payload["embeddings"] = portable_path(target.output / "embeddings.npy")
+                payload["metadata"] = portable_path(target.output / "metadata.jsonl")
+            write_json(path, payload)
+    if target.output.exists():
+        target.output.rmdir()  # Only an empty directory is permitted.
+    staging.rename(target.output)
+    result["output"] = portable_path(target.output)
+    return result
+
+
+def _write_extended_index(
     target: Target,
     additions: list[dict[str, Any]],
     new_embeddings: np.ndarray,
@@ -445,6 +689,8 @@ def extend_index(
             f"{source_embeddings.shape} vs {len(source_rows)}"
         )
     expected_shape = (len(additions), int(source_embeddings.shape[1]))
+    if not np.isfinite(new_embeddings).all():
+        raise ValueError(f"{target.name}: non-finite embeddings")
     if new_embeddings.shape != expected_shape:
         raise ValueError(
             f"{target.name}: new embedding shape {new_embeddings.shape} "

@@ -37,7 +37,7 @@ DEFAULT_ELIGIBILITY = Path(
 DEFAULT_OUTPUT = Path(
     "data/outputs/slot-quality-fold-audit-20260801/summary.json"
 )
-DEFAULT_REGIONS = Path("data/debug/outfit-regions/overlap-final-201")
+DEFAULT_REGIONS = Path("data/debug/outfit-regions/slot-quality-20260801")
 DEFAULT_FOLD_DIRS = {
     slot: Path(
         f"data/interim/appearance-disjoint-cv-v55-slot-recovery-{slot.lower()}"

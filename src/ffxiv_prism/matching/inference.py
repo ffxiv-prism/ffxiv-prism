@@ -2,14 +2,21 @@ from __future__ import annotations
 
 import html
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
+from urllib.parse import quote
 
 import numpy as np
 from PIL import Image, UnidentifiedImageError
 
+from ffxiv_prism.huiji_same_models import normalize_item_url
+from ffxiv_prism.matching.item_names import enrich_report_item_names
+from ffxiv_prism.matching.item_dyes import enrich_report_dye_counts
+from ffxiv_prism.matching.equipment_slots import candidate_matches_slot, load_official_slots
 from ffxiv_prism.paths import (
+    APPEARANCE_EQUIVALENCE_PATH,
     INDEXES_DIR,
     PROJECT_ROOT,
     portable_path,
@@ -20,6 +27,9 @@ from ffxiv_prism.vision.outfit_regions import CropRegion
 
 
 SLOTS = ("HEAD", "BODY", "HANDS", "LEGS", "FEET")
+CURRENT_BEST_SELECTION_PATH = (
+    PROJECT_ROOT / "data" / "current_best_selection.json"
+)
 VISIBLE_WEIGHTS = {
     "visible": 1.0,
     "partially_visible": 0.72,
@@ -81,6 +91,7 @@ class SlotInferenceConfig:
     spatial_blend: float = 0.35
     style_model_id: str | None = None
     style_query_crop_name: str | None = None
+    style_corroboration_crop_name: str | None = None
     style_rerank_k: int = 50
     style_blend: float = 0.35
     style_min_confidence: float = 0.5
@@ -92,60 +103,122 @@ class SlotInferenceConfig:
     benchmark_scope: str = ""
 
 
+def load_current_best_selection(
+    path: Path = CURRENT_BEST_SELECTION_PATH,
+) -> dict[str, Any]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if int(payload.get("version", 0)) != 1:
+        raise ValueError("Unsupported current-best selection version")
+    suffix = str(payload.get("candidate_suffix") or "")
+    if not suffix or any(char not in "0123456789-" for char in suffix):
+        raise ValueError("Invalid current-best candidate suffix")
+    checkpoints = payload.get("checkpoints")
+    benchmarks = payload.get("benchmarks")
+    if not isinstance(checkpoints, dict) or not isinstance(benchmarks, dict):
+        raise ValueError("Current-best selection is missing checkpoints or benchmarks")
+    missing_slots = sorted(set(SLOTS) - set(benchmarks))
+    if missing_slots:
+        raise ValueError(
+            "Current-best selection is missing benchmark slots: "
+            + ", ".join(missing_slots)
+        )
+    return payload
+
+
 def current_best_configs() -> dict[str, SlotInferenceConfig]:
     models = PROJECT_ROOT / "data" / "models" / "current-best"
+    selection = load_current_best_selection()
+    suffix = str(selection["candidate_suffix"])
+    checkpoints = selection["checkpoints"]
+    benchmarks = selection["benchmarks"]
+    body_policy = str(selection.get("body_policy") or "baseline")
+    if body_policy not in {"baseline", "safe-gate"}:
+        raise ValueError(f"Unsupported BODY current-best policy: {body_policy}")
+
+    def index(name: str) -> Path:
+        override = (selection.get("candidate_indexes") or {}).get(name)
+        if override:
+            path = resolve_project_path(override)
+            if path is None:
+                raise ValueError(f"Invalid candidate index override: {name}")
+            return path
+        return INDEXES_DIR / f"{name}-{suffix}"
+
+    def checkpoint(name: str) -> Path:
+        value = checkpoints.get(name)
+        if not value:
+            raise ValueError(f"Current-best checkpoint is missing: {name}")
+        return models / str(value)
+
+    def benchmark(slot: str, metric: str) -> float:
+        return float(benchmarks[slot][metric])
+
+    def eligible(slot: str) -> int:
+        return int(benchmarks[slot]["eligible"])
+
+    body_ensemble_model_ids = ("var/models/dinov3-vitb16-pretrain-lvd1689m",)
+    body_ensemble_indexes = (
+        index("facebook-dinov3-vitb16-body-multiscale-v3"),
+    )
+    body_ensemble_checkpoints: tuple[Path | None, ...] = (None,)
+    body_weights = (1.0, 1.0)
+    body_baseline_weights: tuple[float, ...] = ()
+    body_gate: tuple[int | None, int | None, int | None, float | None] = (
+        None,
+        None,
+        None,
+        None,
+    )
+    if body_policy == "safe-gate":
+        body_ensemble_model_ids += (
+            "var/models/dinov3-vitb16-pretrain-lvd1689m",
+        )
+        body_ensemble_indexes += (
+            index("facebook-dinov3-vitb16-body-multiscale-v3"),
+        )
+        body_ensemble_checkpoints = (None, checkpoint("body_dinov3"))
+        body_weights = (1.0, 0.0, 1.25)
+        body_baseline_weights = (1.0, 1.0, 0.0)
+        body_gate = (10, 1, 10, 1.0)
     return {
         "BODY": SlotInferenceConfig(
             slot="BODY",
-            index_dir=INDEXES_DIR
-            / "facebook-dinov2-base-slot-aligned-v3-body-multiscale-20260730",
-            query_checkpoint=models
-            / "appearance_disjoint_cv_v52_fold01_qv64_closed_e10.pt",
-            ensemble_model_ids=(
-                "var/models/dinov3-vitb16-pretrain-lvd1689m",
-                "var/models/dinov3-vitb16-pretrain-lvd1689m",
+            index_dir=index(
+                "facebook-dinov2-base-slot-aligned-v3-body-multiscale"
             ),
-            ensemble_index_dirs=(
-                INDEXES_DIR
-                / "facebook-dinov3-vitb16-body-multiscale-v3-20260730",
-                INDEXES_DIR
-                / "facebook-dinov3-vitb16-body-multiscale-v3-20260730",
-            ),
-            ensemble_query_checkpoints=(
-                None,
-                models / "appearance_disjoint_cv_v97_body_fold01_dinov3_e10.pt",
-            ),
+            query_checkpoint=checkpoint("body_dinov2"),
+            ensemble_model_ids=body_ensemble_model_ids,
+            ensemble_index_dirs=body_ensemble_indexes,
+            ensemble_query_checkpoints=body_ensemble_checkpoints,
             ensemble_rrf_k=1,
             ensemble_final_pool_branches=1,
             ensemble_fusion_order="crop_then_branch",
-            ensemble_branch_weights=(1.0, 0.0, 1.25),
-            ensemble_gate_baseline_branch_weights=(1.0, 1.0, 0.0),
-            ensemble_top1_gate_max_base_rank=10,
-            ensemble_top1_gate_max_last_branch_rank=1,
-            ensemble_top1_gate_max_base_last_branch_rank=10,
-            ensemble_top1_gate_min_last_branch_rank_ratio=1.0,
+            ensemble_branch_weights=body_weights,
+            ensemble_gate_baseline_branch_weights=body_baseline_weights,
+            ensemble_top1_gate_max_base_rank=body_gate[0],
+            ensemble_top1_gate_max_last_branch_rank=body_gate[1],
+            ensemble_top1_gate_max_base_last_branch_rank=body_gate[2],
+            ensemble_top1_gate_min_last_branch_rank_ratio=body_gate[3],
             style_model_id="google/siglip2-base-patch16-224",
-            style_query_crop_name="body_upper_core",
+            style_query_crop_name="body_context",
+            style_corroboration_crop_name="body_upper_core",
             style_rerank_k=100,
             style_blend=0.70,
-            style_min_confidence=0.45,
-            benchmark_top1=0.6353,
-            benchmark_top10=0.8288,
+            style_min_confidence=0.75,
+            benchmark_top1=benchmark("BODY", "top1"),
+            benchmark_top10=benchmark("BODY", "top10"),
             benchmark_scope=(
-                "strict three-fold pooled BODY v99 (987 images): v96 DINOv2 + "
-                "zero-shot DINOv3 baseline, DINOv3 e10 replacement candidate "
-                "at weight 1.25, and a frozen label-agnostic Top-1-only "
-                "agreement gate; DINOv2 Top-1000 and the complete v96 tail stay "
-                "frozen. The confidence-gated coverage-style reranker is not "
-                "included in this identity benchmark"
+                "strict item-disjoint three-fold pooled BODY v110 baseline "
+                f"({eligible('BODY')} images): refreshed DINOv2 plus zero-shot DINOv3 with "
+                "the final DINOv2 Top-1000 pool frozen. The adapted DINOv3 "
+                "candidate was excluded after a fold-level domain regression; "
+                "the confidence-gated style reranker is not included"
             ),
         ),
         "HEAD": SlotInferenceConfig(
             slot="HEAD",
-            index_dir=INDEXES_DIR
-            / "facebook-dinov2-base-head-multiscale-v4-20260730",
-            query_checkpoint=models
-            / "appearance_disjoint_cv_v54_head_fold01_qv65_e10.pt",
+            index_dir=index("facebook-dinov2-base-head-multiscale-v4"),
+            query_checkpoint=checkpoint("head_dinov2"),
             candidate_crop_routes=HEAD_PROMOTED_CANDIDATE_CROP_ROUTES,
             query_crop_names=("head_upper_accessory",),
             ensemble_model_ids=(
@@ -153,14 +226,12 @@ def current_best_configs() -> dict[str, SlotInferenceConfig]:
                 "var/models/dinov3-vitb16-pretrain-lvd1689m",
             ),
             ensemble_index_dirs=(
-                INDEXES_DIR
-                / "google-siglip2-base-patch16-224-head-multiscale-v4-20260730",
-                INDEXES_DIR
-                / "facebook-dinov3-vitb16-head-multiscale-v4-20260730",
+                index("google-siglip2-base-patch16-224-head-multiscale-v4"),
+                index("facebook-dinov3-vitb16-head-multiscale-v4"),
             ),
             ensemble_query_checkpoints=(
                 None,
-                models / "appearance_disjoint_cv_v71_head_fold01_dinov3_e3.pt",
+                checkpoint("head_dinov3"),
             ),
             morphology_checkpoint=(
                 models / "head_morphology_v73_fold01_qv65_upper_binary_ridge.npz"
@@ -174,20 +245,18 @@ def current_best_configs() -> dict[str, SlotInferenceConfig]:
             ensemble_rrf_k=10,
             ensemble_pool_branches=2,
             ensemble_pool_rrf_k=1,
-            benchmark_top1=0.2736,
-            benchmark_top10=0.4750,
+            benchmark_top1=benchmark("HEAD", "top1"),
+            benchmark_top10=benchmark("HEAD", "top10"),
             benchmark_scope=(
                 "strict three-fold pooled DINOv2+SigLIP2+DINOv3-query-adapted gated rank "
                 "ensemble with upper-query to face-candidate routing "
-                "(899 images; DINOv2+SigLIP2 Top-1000 pool preserved)"
+                f"({eligible('HEAD')} images; DINOv2+SigLIP2 Top-1000 pool preserved)"
             ),
         ),
         "HANDS": SlotInferenceConfig(
             slot="HANDS",
-            index_dir=INDEXES_DIR
-            / "facebook-dinov2-base-hands-multiscale-v5-20260730",
-            query_checkpoint=models
-            / "appearance_disjoint_cv_v59_hands_fold01_qv71_v5_e10.pt",
+            index_dir=index("facebook-dinov2-base-hands-multiscale-v5"),
+            query_checkpoint=checkpoint("hands_dinov2"),
             fusion="rrf",
             rrf_k=1,
             candidate_crop_routes=HANDS_CANDIDATE_CROP_ROUTES,
@@ -198,28 +267,27 @@ def current_best_configs() -> dict[str, SlotInferenceConfig]:
             no_equipment_model_id="google/siglip2-base-patch16-224",
             no_equipment_query_crop_names=("hands_left", "hands_right"),
             no_equipment_min_probability=0.80,
-            benchmark_top1=0.0307,
-            benchmark_top10=0.0878,
+            benchmark_top1=benchmark("HANDS", "top1"),
+            benchmark_top10=benchmark("HANDS", "top10"),
             benchmark_scope=(
-                "strict three-fold pooled benchmark (945 images); frozen "
+                f"strict item-disjoint three-fold pooled benchmark ({eligible('HANDS')} images); frozen "
                 "occupied-slot Top-1 gate demotes multi-slot outfit pieces only "
-                "when an exact HANDS piece is already in the base Top-3"
+                "when an exact HANDS piece is already in the base Top-3. "
+                "The bilateral mitten-shape recovery gate is not included "
+                "in this identity benchmark"
             ),
         ),
         "LEGS": SlotInferenceConfig(
             slot="LEGS",
-            index_dir=INDEXES_DIR
-            / "facebook-dinov2-base-legs-multiscale-v6-20260730",
-            query_checkpoint=models
-            / "appearance_disjoint_cv_v60_legs_fold01_qv72_e10.pt",
+            index_dir=index("facebook-dinov2-base-legs-multiscale-v6"),
+            query_checkpoint=checkpoint("legs_dinov2"),
             fusion="rrf",
             rrf_k=1,
             ensemble_model_ids=(
                 "var/models/dinov3-vitb16-pretrain-lvd1689m",
             ),
             ensemble_index_dirs=(
-                INDEXES_DIR
-                / "facebook-dinov3-vitb16-legs-multiscale-v6-20260730",
+                index("facebook-dinov3-vitb16-legs-multiscale-v6"),
             ),
             ensemble_query_checkpoints=(None,),
             ensemble_rrf_k=1,
@@ -231,36 +299,41 @@ def current_best_configs() -> dict[str, SlotInferenceConfig]:
             style_rerank_k=100,
             style_blend=0.30,
             style_min_confidence=0.50,
-            benchmark_top1=0.1393,
-            benchmark_top10=0.3194,
+            benchmark_top1=benchmark("LEGS", "top1"),
+            benchmark_top10=benchmark("LEGS", "top10"),
             benchmark_scope=(
                 "strict three-fold pooled DINOv2+DINOv3 branch RRF(k=1), "
                 "query-crop RRF(k=1), with the final DINOv2 Top-1000 "
-                "piece pool frozen (955 images). The confidence-gated "
+                f"piece pool frozen ({eligible('LEGS')} images). The confidence-gated "
                 "coverage-style reranker is not included in this identity benchmark"
             ),
         ),
         "FEET": SlotInferenceConfig(
             slot="FEET",
-            index_dir=INDEXES_DIR
-            / "facebook-dinov2-base-feet-multiscale-v7-clean-20260730",
-            query_checkpoint=models
-            / "appearance_disjoint_cv_v61_feet_fold01_qv73_e10.pt",
+            index_dir=index("facebook-dinov2-base-feet-multiscale-v7-clean"),
+            query_checkpoint=checkpoint("feet_dinov2"),
             ensemble_model_ids=("google/siglip2-base-patch16-224",),
             ensemble_index_dirs=(
-                INDEXES_DIR
-                / "google-siglip2-base-patch16-224-feet-multiscale-v7-clean-20260730",
+                index(
+                    "google-siglip2-base-patch16-224-feet-multiscale-v7-clean"
+                ),
             ),
             ensemble_query_checkpoints=(None,),
             ensemble_rrf_k=1,
             fusion="rrf",
             rrf_k=1,
-            benchmark_top1=0.1934,
-            benchmark_top10=0.4116,
+            style_model_id="google/siglip2-base-patch16-224",
+            style_query_crop_name="feet_height_context",
+            style_rerank_k=50,
+            style_blend=0.70,
+            style_min_confidence=0.70,
+            benchmark_top1=benchmark("FEET", "top1"),
+            benchmark_top10=benchmark("FEET", "top10"),
             benchmark_scope=(
                 "strict three-fold pooled DINOv2+SigLIP2 rank ensemble "
                 "with query-crop RRF(k=1), after primary visual-piece "
-                "metadata cleanup (967 images)"
+                f"metadata cleanup ({eligible('FEET')} images); the confidence-gated "
+                "footwear-height reranker is reported separately"
             ),
         ),
     }
@@ -318,6 +391,9 @@ def inspect_assets(
     downloadable_models: set[str] = set()
     cached_models: set[str] = set()
     slot_details: dict[str, Any] = {}
+
+    if not APPEARANCE_EQUIVALENCE_PATH.is_file():
+        missing.append(str(APPEARANCE_EQUIVALENCE_PATH))
 
     def inspect_model(model_id: str) -> None:
         if model_weight_files(model_id):
@@ -500,6 +576,7 @@ def inspect_assets(
             ),
             "style_model_id": config.style_model_id,
             "style_query_crop_name": config.style_query_crop_name,
+            "style_corroboration_crop_name": config.style_corroboration_crop_name,
             "style_rerank_k": (
                 config.style_rerank_k
                 if config.style_model_id is not None
@@ -687,44 +764,58 @@ def attach_appearance_equivalent_candidates(
     candidates: Sequence[Mapping[str, Any]],
     direct_equivalents: Mapping[int, Sequence[int]],
     *,
-    max_equivalents_per_anchor: int = 1,
+    piece_catalog: Mapping[int, Mapping[str, Any]] | None = None,
+    max_equivalents_per_anchor: int | None = 1,
 ) -> list[dict[str, Any]]:
-    """Attach lower-ranked same-model alternatives without reducing diversity."""
+    """Attach same-model alternatives without changing candidate order."""
 
-    if max_equivalents_per_anchor < 0:
+    if (
+        max_equivalents_per_anchor is not None
+        and max_equivalents_per_anchor < 0
+    ):
         raise ValueError("max_equivalents_per_anchor must be non-negative")
     source = [dict(row) for row in candidates]
     by_piece = {int(row["piece_id"]): row for row in source}
-    position_by_piece = {
-        int(row["piece_id"]): position
-        for position, row in enumerate(source)
-    }
-    for anchor_position, anchor in enumerate(source):
+    catalog = piece_catalog or {}
+    for anchor in source:
         anchor_id = int(anchor["piece_id"])
         if max_equivalents_per_anchor == 0:
             continue
         alternatives = []
+        attached_ids: set[int] = set()
         for equivalent_id in direct_equivalents.get(anchor_id, ()):
             parsed_id = int(equivalent_id)
-            equivalent = by_piece.get(parsed_id)
-            if (
-                equivalent is None
-                or position_by_piece[parsed_id] <= anchor_position
-            ):
+            if parsed_id == anchor_id or parsed_id in attached_ids:
                 continue
-            alternatives.append(
-                {
-                    "piece_id": parsed_id,
-                    "name_en": equivalent.get("name_en"),
-                    "name_zh": equivalent.get("name_zh"),
-                    "original_rank": int(equivalent.get("rank", 0)),
-                    "score": float(equivalent.get("score", 0.0)),
-                    "source_image_url": equivalent.get("source_image_url"),
-                    "local_preview": equivalent.get("local_preview"),
-                    "relation": "same_model",
-                }
-            )
-            if len(alternatives) >= max_equivalents_per_anchor:
+            ranked_equivalent = by_piece.get(parsed_id)
+            equivalent = ranked_equivalent or catalog.get(parsed_id)
+            if equivalent is None:
+                continue
+            name_en = equivalent.get("name_en") or equivalent.get("name")
+            name_zh = equivalent.get("name_zh")
+            if not name_en and not name_zh:
+                continue
+            alternative = {
+                "piece_id": parsed_id,
+                "name_en": name_en,
+                "name_zh": name_zh,
+                "relation": "same_model",
+            }
+            if ranked_equivalent is not None:
+                alternative.update(
+                    {
+                        "original_rank": int(ranked_equivalent.get("rank", 0)),
+                        "score": float(ranked_equivalent.get("score", 0.0)),
+                        "source_image_url": ranked_equivalent.get("source_image_url"),
+                        "local_preview": ranked_equivalent.get("local_preview"),
+                    }
+                )
+            alternatives.append(alternative)
+            attached_ids.add(parsed_id)
+            if (
+                max_equivalents_per_anchor is not None
+                and len(alternatives) >= max_equivalents_per_anchor
+            ):
                 break
         if alternatives:
             anchor["appearance_alternatives"] = alternatives
@@ -736,10 +827,64 @@ def attach_appearance_equivalent_candidates(
     return source
 
 
+def collapse_appearance_equivalent_candidates(
+    candidates: Sequence[Mapping[str, Any]],
+    direct_equivalents: Mapping[int, Sequence[int]],
+) -> list[dict[str, Any]]:
+    """Keep only the highest-ranked candidate from each same-model group.
+
+    Equivalence data is treated as an undirected, transitive relationship so
+    incomplete one-way links cannot leave duplicate appearances in the final
+    Top-K.  Candidate order is otherwise stable, and ranks are compacted after
+    duplicate rows are removed.
+    """
+
+    parent: dict[int, int] = {}
+
+    def find(piece_id: int) -> int:
+        parent.setdefault(piece_id, piece_id)
+        root = piece_id
+        while parent[root] != root:
+            root = parent[root]
+        while parent[piece_id] != piece_id:
+            next_piece = parent[piece_id]
+            parent[piece_id] = root
+            piece_id = next_piece
+        return root
+
+    def union(left: int, right: int) -> None:
+        left_root = find(left)
+        right_root = find(right)
+        if left_root != right_root:
+            parent[right_root] = left_root
+
+    for raw_piece_id, raw_equivalents in direct_equivalents.items():
+        piece_id = int(raw_piece_id)
+        find(piece_id)
+        for raw_equivalent_id in raw_equivalents:
+            union(piece_id, int(raw_equivalent_id))
+
+    output: list[dict[str, Any]] = []
+    seen_groups: set[int] = set()
+    for candidate in candidates:
+        copied = dict(candidate)
+        group = find(int(copied["piece_id"]))
+        if group in seen_groups:
+            continue
+        seen_groups.add(group)
+        output.append(copied)
+
+    for rank, row in enumerate(output, start=1):
+        row["rank"] = rank
+    return output
+
+
 def select_slot_candidate_index_rows(
     metadata: Sequence[dict[str, Any]],
     embeddings: np.ndarray,
     slot: str,
+    *,
+    official_slots: Mapping[str, frozenset[str]] | None = None,
 ) -> tuple[list[dict[str, Any]], np.ndarray]:
     """Select one slot without breaking metadata/embedding row alignment."""
 
@@ -748,14 +893,25 @@ def select_slot_candidate_index_rows(
             "Candidate index row mismatch: "
             f"embeddings={embeddings.shape}, metadata_rows={len(metadata)}"
         )
-    indices = [
-        index
-        for index, row in enumerate(metadata)
-        if str(row.get("slot")) == slot
-    ]
+    if official_slots is None:
+        official_slots = load_official_slots()
+    indices = []
+    selected_metadata = []
+    for index, row in enumerate(metadata):
+        if str(row.get("slot")) != slot:
+            continue
+        selected = dict(row)
+        if "pieces" in row:
+            selected["pieces"] = [
+                piece for piece in row["pieces"]
+                if candidate_matches_slot(piece, slot, official_slots)
+            ]
+            if not selected["pieces"]:
+                continue
+        indices.append(index)
+        selected_metadata.append(selected)
     if not indices:
         raise ValueError(f"Candidate index contains no {slot} rows")
-    selected_metadata = [metadata[index] for index in indices]
     if len(indices) == len(metadata):
         return selected_metadata, embeddings
     return selected_metadata, np.asarray(embeddings[indices], dtype=np.float32)
@@ -1288,11 +1444,24 @@ def apply_multislot_consistency_gate(
     occupied_slots_by_piece: Mapping[int, Sequence[str]],
     *,
     support_top_k: int,
+    display_top_k: int | None = None,
 ) -> list[dict[str, Any]]:
-    """Demote multi-slot candidates unsupported by their other visible slots."""
+    """Keep multi-slot appearances only when every occupied slot supports them.
 
+    Support uses the original Top-K, including the current slot. Missing slots
+    fail closed. Same-model alternatives can supply appearance evidence, but
+    must pass the gate themselves. Iterate removals so rejected candidates
+    cannot remain evidence for another candidate, without promoting weaker
+    matches into the support pool as ranks are compacted. Only truncate the
+    surviving pool at the end, so later eligible candidates fill removed rows.
+    """
     if support_top_k < 1:
         raise ValueError("support_top_k must be positive")
+    if display_top_k is not None:
+        if display_top_k < 1:
+            raise ValueError("display_top_k must be positive")
+        # Evidence must fit in the final report even for Top-1/Top-3 requests.
+        support_top_k = min(support_top_k, display_top_k)
     output = [
         {
             **dict(result),
@@ -1301,107 +1470,140 @@ def apply_multislot_consistency_gate(
         for result in slot_results
     ]
     by_slot = {str(result.get("slot")): result for result in output}
-    original_candidates = {
-        slot: [dict(row) for row in result.get("candidates", [])]
-        for slot, result in by_slot.items()
+    original_counts = {
+        slot: len(result["candidates"]) for slot, result in by_slot.items()
     }
+    removed_alternative_counts = dict.fromkeys(by_slot, 0)
 
     def normalized_name(row: Mapping[str, Any]) -> str:
         return " ".join(str(row.get("name_en") or "").casefold().split())
 
-    for slot, result in by_slot.items():
-        unsupported_count = 0
-        for original_index, candidate in enumerate(result["candidates"]):
-            piece_id = int(candidate["piece_id"])
-            occupied_slots = tuple(
-                occupied_slot
-                for occupied_slot in (
-                    str(value).upper()
-                    for value in occupied_slots_by_piece.get(piece_id, ())
-                )
-                if occupied_slot in SLOTS
-            )
-            if len(set(occupied_slots)) <= 1:
-                continue
-
-            candidate_name = normalized_name(candidate)
-            required_slots = [
-                occupied_slot
-                for occupied_slot in dict.fromkeys(occupied_slots)
-                if occupied_slot != slot and occupied_slot in by_slot
-            ]
-            support: dict[str, dict[str, Any]] = {}
-            unsupported_slots: list[str] = []
-            for occupied_slot in required_slots:
-                matched = next(
-                    (
-                        row
-                        for row in original_candidates[occupied_slot]
-                        if int(row.get("piece_id", -1)) == piece_id
-                        or (
-                            candidate_name
-                            and normalized_name(row) == candidate_name
-                        )
-                    ),
-                    None,
-                )
-                matched_rank = (
-                    int(matched.get("rank", 0)) if matched is not None else None
-                )
-                supported = (
-                    matched_rank is not None
+    def consistency(
+        item: Mapping[str, Any], slot: str, rank: int,
+    ) -> dict[str, Any] | None:
+        piece_id = int(item["piece_id"])
+        occupied_slots = list(dict.fromkeys(
+            str(value).upper()
+            for value in occupied_slots_by_piece.get(piece_id, ())
+            if str(value).upper() in SLOTS
+        ))
+        if len(occupied_slots) <= 1:
+            return None
+        candidate_name = normalized_name(item)
+        support = {}
+        for occupied_slot in occupied_slots:
+            matched_rank = rank if occupied_slot == slot else None
+            other_result = by_slot.get(occupied_slot, {})
+            if occupied_slot != slot:
+                evidence = evidence_by_slot.get(occupied_slot, {})
+                matches = [
+                    evidence[key]
+                    for key in [("piece", piece_id), ("name", candidate_name)]
+                    if key in evidence
+                ]
+                matched_rank = min(matches) if matches else None
+            support[occupied_slot] = {
+                "rank": matched_rank,
+                "supported": (
+                    other_result.get("status", "ok") == "ok"
+                    and matched_rank is not None
                     and 1 <= matched_rank <= support_top_k
-                )
-                support[occupied_slot] = {
-                    "rank": matched_rank,
-                    "supported": supported,
-                }
-                if not supported:
-                    unsupported_slots.append(occupied_slot)
-
-            if not required_slots:
-                state = "unchecked"
-                reliable = True
-            elif unsupported_slots:
-                state = "unsupported"
-                reliable = False
-                unsupported_count += 1
-            else:
-                state = "supported"
-                reliable = True
-            candidate["recommendation_reliable"] = reliable
-            candidate["cross_slot_consistency"] = {
-                "state": state,
-                "occupied_slots": list(dict.fromkeys(occupied_slots)),
-                "checked_slots": required_slots,
-                "support_top_k": support_top_k,
-                "support": support,
-                "unsupported_slots": unsupported_slots,
+                ),
             }
-            candidate["_cross_slot_original_index"] = original_index
+        unsupported = [
+            key for key, value in support.items() if not value["supported"]
+        ]
+        return {
+            "state": "unsupported" if unsupported else "supported",
+            "occupied_slots": occupied_slots,
+            "checked_slots": occupied_slots,
+            "support_top_k": support_top_k,
+            "support": support,
+            "unsupported_slots": unsupported,
+        }
 
-        result["candidates"].sort(
-            key=lambda row: (
-                not bool(row.get("recommendation_reliable", True)),
-                int(row.get("_cross_slot_original_index", row.get("rank", 0))),
-            )
-        )
-        reordered = any(
-            int(row.get("rank", index)) != index
-            for index, row in enumerate(result["candidates"], start=1)
-        )
+    while True:
+        # Index the pool once per round; full candidate pools can contain
+        # thousands of rows and same-model alternatives.
+        evidence_by_slot = {}
+        for slot, result in by_slot.items():
+            evidence = {}
+            for row in result["candidates"]:
+                rank = int(row.get("rank", 0))
+                for appearance in [row, *row.get("appearance_alternatives", [])]:
+                    keys = [("piece", int(appearance["piece_id"]))]
+                    name = normalized_name(appearance)
+                    if name:
+                        keys.append(("name", name))
+                    for key in keys:
+                        evidence[key] = min(evidence.get(key, rank), rank)
+            evidence_by_slot[slot] = evidence
+        changed = False
+        pending = {}
+        for slot, result in by_slot.items():
+            retained = []
+            for candidate in result["candidates"]:
+                rank = int(candidate.get("rank", 0))
+                diagnostic = consistency(candidate, slot, rank)
+                if diagnostic and diagnostic["unsupported_slots"]:
+                    changed = True
+                    continue
+                copied = dict(candidate)
+                if diagnostic:
+                    copied["recommendation_reliable"] = True
+                    copied["cross_slot_consistency"] = diagnostic
+                if "appearance_alternatives" in copied:
+                    alternatives = []
+                    for alternative in copied["appearance_alternatives"]:
+                        check = consistency(alternative, slot, rank)
+                        if check and check["unsupported_slots"]:
+                            changed = True
+                            removed_alternative_counts[slot] += 1
+                        else:
+                            alternatives.append(dict(alternative))
+                    copied["appearance_alternatives"] = alternatives
+                retained.append(copied)
+            pending[slot] = retained
+        # Apply each round together, independent of the slot iteration order.
+        for slot, retained in pending.items():
+            by_slot[slot]["candidates"] = retained
+        if not changed:
+            break
+
+    for slot, result in by_slot.items():
+        eligible_count = len(result["candidates"])
+        removed_count = original_counts[slot] - eligible_count
+        if display_top_k is not None:
+            result["candidates"] = result["candidates"][:display_top_k]
+        backfilled_count = sum(
+            int(row.get("rank", 0)) > display_top_k
+            for row in result["candidates"]
+        ) if display_top_k is not None else 0
         for rank, row in enumerate(result["candidates"], start=1):
             row["rank"] = rank
-            row.pop("_cross_slot_original_index", None)
         result["cross_slot_consistency"] = {
             "support_top_k": support_top_k,
-            "unsupported_candidate_count": unsupported_count,
-            "ranking_changed": reordered,
+            "unsupported_candidate_count": removed_count,
+            "removed_candidate_count": removed_count,
+            "removed_alternative_count": removed_alternative_counts[slot],
+            "ranking_changed": removed_count > 0,
+            "candidate_pool_count": original_counts[slot],
+            "eligible_candidate_count": eligible_count,
+            "backfilled_candidate_count": backfilled_count,
+            "requested_candidate_count": display_top_k,
+            "unfilled_candidate_count": (
+                max(0, display_top_k - len(result["candidates"]))
+                if display_top_k is not None else 0
+            ),
         }
-        if reordered:
+        if removed_count or len(result["candidates"]) < 2:
             result["top_score_margin"] = None
+        if removed_count and not result["candidates"]:
+            result["status"] = "no_usable_candidates"
         reference = result.get("reference")
         if isinstance(reference, dict):
+            reference = dict(reference)
+            result["reference"] = reference
             reference_rank = next(
                 (
                     int(row["rank"])
@@ -1427,6 +1629,7 @@ def slot_result(
     if candidates and (
         candidates[0].get("occupied_slot_gate")
         or candidates[0].get("ensemble_top1_gate")
+        or candidates[0].get("hand_shape_gate")
         or candidates[0].get("is_no_equipment")
     ):
         score_margin = None
@@ -1520,6 +1723,7 @@ def slot_result(
             ),
             "style_model_id": config.style_model_id,
             "style_query_crop_name": config.style_query_crop_name,
+            "style_corroboration_crop_name": config.style_corroboration_crop_name,
             "style_rerank_k": (
                 config.style_rerank_k
                 if config.style_model_id is not None
@@ -1574,16 +1778,83 @@ def slot_result(
         "candidates": list(candidates),
     }
 
+_REPORT_FIXED_NOTICES = {
+    "Candidate scores are ranking signals, not calibrated probabilities.",
+    "The system assumes one main person and works best on clear front/full-body FFXIV screenshots.",
+}
+_REPORT_WARNING_TRANSLATIONS = {
+    "Top head candidates are nearly tied; hair, ears, or occlusion may dominate the crop.":
+        "头部候选得分非常接近；裁剪区域可能主要受到头发、耳朵或遮挡的影响。",
+    "The source image probably cuts through the full shoe area; footwear ranking may be incomplete.":
+        "原图可能截断了鞋靴区域，鞋靴候选排序可能不完整。",
+    "The source image probably cuts through the full headwear area; headwear ranking may be incomplete.":
+        "原图可能截断了头饰区域，头饰候选排序可能不完整。",
+    "The source image probably truncates part of this equipment area; ranking may be incomplete.":
+        "原图可能截断了部分装备区域，候选排序可能不完整。",
+    "Legwear style confidence is insufficient under a long top; no fixed legwear prior was applied. Please review the legwear candidates.":
+        "长上衣场景中的下装样式置信度不足；未加入固定下装先验，请人工复核腿部候选。",
+    "Not enough legwear is visible under the long top; the original retrieval ranking is retained without guessing shorts, skirts, or trousers.":
+        "长上衣场景中没有足够可见的下装区域；系统保留原始检索排序，不猜测短裤、裙子或长裤。",
+}
+for _predicted_en, _predicted_zh in (
+    ("enclosing headwear", "包覆式头具"),
+    ("open or small head accessories", "开放式或小型头饰"),
+):
+    for _top_en, _top_zh in (
+        ("enclosing headwear", "包覆式头具"),
+        ("open or small head accessories", "开放式或小型头饰"),
+    ):
+        _REPORT_WARNING_TRANSLATIONS[
+            f"The headwear shape classifier predicts {_predicted_en}, but the Top-1 "
+            f"candidate is {_top_en}; please review the headwear candidates carefully."
+        ] = (
+            f"头饰形态分类器判断查询更接近{_predicted_zh}，"
+            f"但 Top-1 是{_top_zh}；建议重点复核头部候选。"
+        )
+
+
+def _report_warning_text(value: Any) -> tuple[str, str]:
+    text = str(value)
+    for english, chinese in _REPORT_WARNING_TRANSLATIONS.items():
+        if text in (english, chinese):
+            return chinese, english
+    pose_match = re.fullmatch(
+        r"Pose quality is low \(([^)]+)\); inspect overlay.jpg before trusting candidates\.",
+        text,
+    )
+    if pose_match:
+        return (
+            f"人体姿态识别质量较低（{pose_match[1]}）；请先检查人体与区域质检图（overlay.jpg），再确认候选结果。",
+            text,
+        )
+    # Preserve unrecognized diagnostics, including reports from other versions.
+    if re.search(r"[\u4e00-\u9fff]", text):
+        return text, "Please review the diagnostic above and visually verify the candidates."
+    return "请查看下方诊断信息，并人工复核候选结果。", text
+
+
+def _bilingual_report_text(chinese: str, english: str) -> str:
+    return (
+        f'<span lang="zh-CN">{html.escape(chinese)}</span><br>'
+        f'<span lang="en">{html.escape(english)}</span>'
+    )
+
+
 def write_html_report(path: Path, payload: Mapping[str, Any]) -> None:
+    payload = enrich_report_dye_counts(enrich_report_item_names(payload))
     path.parent.mkdir(parents=True, exist_ok=True)
     source_path = resolve_project_path(payload.get("input", {}).get("path"))
     source_uri = _file_uri(source_path)
     artifacts = payload.get("artifacts", {})
     overlay_uri = _file_uri(resolve_project_path(artifacts.get("overlay")))
     contact_uri = _file_uri(resolve_project_path(artifacts.get("contact_sheet")))
+    pose_quality = payload.get("pose_quality")
+    pose_quality_text = f"{float(pose_quality):.1%}" if pose_quality is not None else "暂无数据"
     slot_sections = "".join(_slot_html(row) for row in payload.get("slots", []))
     warnings = "".join(
-        f"<li>{html.escape(str(value))}</li>" for value in payload.get("warnings", [])
+        f"<li>{_bilingual_report_text(*_report_warning_text(value))}</li>"
+        for value in payload.get("warnings", [])
+        if str(value) not in _REPORT_FIXED_NOTICES
     )
     document = f"""<!doctype html>
 <html lang="zh-CN">
@@ -1593,51 +1864,105 @@ def write_html_report(path: Path, payload: Mapping[str, Any]) -> None:
   <title>FFXIV Prism 识别结果</title>
   <style>
     :root {{ color-scheme: dark; --bg:#11151c; --panel:#1a202b; --muted:#9ba7b7; --accent:#76b7ff; }}
-    * {{ box-sizing:border-box; }} body {{ margin:0; font:15px/1.5 system-ui,sans-serif; background:var(--bg); color:#eef3f8; }}
-    main {{ max-width:1280px; margin:auto; padding:28px; }} h1,h2,h3 {{ margin:.2em 0 .6em; }}
-    .notice {{ background:#2b2517; border:1px solid #6e5b25; padding:12px 16px; border-radius:10px; }}
-    .visuals,.cards {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:14px; }}
-    .panel,.card {{ background:var(--panel); border:1px solid #30394a; border-radius:12px; padding:14px; }}
+    * {{ box-sizing:border-box; }} body {{ margin:0; font:14px/1.5 system-ui,sans-serif; background:var(--bg); color:#eef3f8; }}
+    main {{ max-width:1280px; margin:auto; padding:24px; }} h1,h2,h3 {{ margin:.2em 0 .6em; }}
+    .notice {{ background:#2b2517; border:1px solid #6e5b25; padding:10px 14px; border-radius:8px; }}
+    .report-disclaimer {{ color:#c9b987; }}
+    .equipment-name {{ font-weight:400; }}
+    .equipment-name.dyeable {{ font-weight:700; }}
+    .dye-unknown-note {{ font-size:12px; font-weight:400; }}
+    .visuals,.cards {{ display:grid; gap:12px; }}
+    .visuals {{ grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); }}
+    .cards {{ grid-template-columns:repeat(5,minmax(0,1fr)); }}
+    .panel,.card {{ background:var(--panel); border:1px solid #30394a; border-radius:10px; padding:12px; min-width:0; overflow-wrap:anywhere; }}
     .card.reference {{ border-color:#48c78e; box-shadow:0 0 0 1px #48c78e inset; }}
-    .reference-note {{ background:#153327; border:1px solid #2f8f64; padding:12px 16px; border-radius:10px; }}
-    .visuals img {{ width:100%; max-height:480px; object-fit:contain; background:#0b0e13; border-radius:8px; }}
-    .card img {{ width:100%; height:220px; object-fit:contain; background:#0b0e13; border-radius:8px; }}
+    .reference-note {{ background:#153327; border:1px solid #2f8f64; padding:10px 14px; border-radius:8px; }}
+    .visuals img {{ width:100%; max-height:400px; object-fit:contain; background:#0b0e13; border-radius:8px; }}
+    .card img {{ width:100%; height:180px; object-fit:contain; background:#0b0e13; border-radius:8px; }}
+    .same-models {{ margin:-.35em 0 .8em; color:#c8d2de; }}
+    .same-models-text {{ margin:0; }}
+    .same-models.is-collapsed .same-models-text {{ display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:5; overflow:hidden; }}
+    .same-models-toggle {{ margin-top:4px; padding:0; border:0; background:none; color:var(--accent); font:inherit; cursor:pointer; }}
+    .same-models-toggle:focus-visible {{ outline:2px solid var(--accent); outline-offset:3px; }}
     .rank {{ color:var(--accent); font-weight:700; }} .muted {{ color:var(--muted); }}
+    .slot-results {{ margin:20px 0; }}
+    .slot-results > summary {{ cursor:pointer; padding:6px 0; color:var(--accent); }}
+    .slot-results > summary h2 {{ display:inline; margin:0; color:#eef3f8; }}
+    .slot-results > summary:focus-visible {{ outline:2px solid var(--accent); outline-offset:4px; border-radius:4px; }}
+    .collapse-hint {{ margin-left:10px; font-size:12px; font-weight:400; }}
+    .slot-results[open] .expand-label,.slot-results:not([open]) .collapse-label {{ display:none; }}
     a {{ color:#8dc6ff; }} code {{ overflow-wrap:anywhere; }}
+    @media (max-width:1100px) {{ .cards {{ grid-template-columns:repeat(4,minmax(0,1fr)); }} }}
+    @media (max-width:900px) {{ .cards {{ grid-template-columns:repeat(3,minmax(0,1fr)); }} }}
+    @media (max-width:640px) {{ main {{ padding:16px; }} .cards {{ grid-template-columns:repeat(2,minmax(0,1fr)); }} }}
+    @media (max-width:400px) {{ .cards {{ grid-template-columns:minmax(0,1fr); }} }}
   </style>
 </head>
 <body><main>
   <h1>FFXIV Prism 识别结果</h1>
-  <p class="notice">候选分数是相对排序信号，不是准确率或概率。请结合裁剪质检图与候选预览人工确认，尤其是 HEAD/HANDS/LEGS/FEET。</p>
+  <p class="notice report-disclaimer">识别结果仅供参考，请结合图片进行核对，更准确结果请求助能工智人。</p>
   {f'<ul class="notice">{warnings}</ul>' if warnings else ''}
+  <p class="dye-legend muted"><strong>加粗表示可染色</strong>，非加粗表示不可染色</p>
+  <p class="pose-quality muted">输入图片姿态质量：<strong>{pose_quality_text}</strong></p>
   <section class="visuals">
     {_visual_panel('输入截图', source_uri)}
     {_visual_panel('人体与区域质检', overlay_uri)}
     {_visual_panel('槽位裁剪', contact_uri)}
   </section>
   {slot_sections}
-</main></body></html>"""
+</main>
+<script>
+  const sameModelBlocks = [...document.querySelectorAll('.same-models')];
+  sameModelBlocks.forEach((block, index) => {{
+    const text = block.querySelector('.same-models-text');
+    const button = block.querySelector('.same-models-toggle');
+    text.id = `same-models-${{index}}`;
+    button.setAttribute('aria-controls', text.id);
+    button.addEventListener('click', () => {{
+      const expanded = button.getAttribute('aria-expanded') !== 'true';
+      button.setAttribute('aria-expanded', String(expanded));
+      button.textContent = expanded ? '收起' : '展开';
+      block.classList.toggle('is-collapsed', !expanded);
+    }});
+  }});
+  function updateSameModels() {{
+    sameModelBlocks.forEach(block => {{
+      const text = block.querySelector('.same-models-text');
+      if (!text.clientWidth) return;
+      const button = block.querySelector('.same-models-toggle');
+      const overflowing = text.scrollHeight > parseFloat(getComputedStyle(text).lineHeight) * 5 + 1;
+      button.hidden = !overflowing;
+      if (!overflowing) {{
+        button.setAttribute('aria-expanded', 'false');
+        button.textContent = '展开';
+      }}
+      block.classList.toggle('is-collapsed', overflowing && button.getAttribute('aria-expanded') !== 'true');
+    }});
+  }}
+  window.addEventListener('resize', updateSameModels);
+  document.addEventListener('toggle', updateSameModels, true);
+  document.fonts.ready.then(updateSameModels);
+  updateSameModels();
+</script>
+</body></html>"""
     path.write_text(document, encoding="utf-8")
 
 
 def _slot_html(result: Mapping[str, Any]) -> str:
     slot = html.escape(str(result.get("slot", "")))
-    benchmark = result.get("benchmark", {})
-    top1 = benchmark.get("top1")
-    top10 = benchmark.get("top10")
-    benchmark_text = html.escape(str(benchmark.get("scope", "")))
-    metrics = (
-        f"Top-1 {float(top1):.1%} / Top-10 {float(top10):.1%}"
-        if top1 is not None and top10 is not None
-        else "No registered benchmark"
-    )
     ranking_quality = result.get("ranking_quality", {})
     quality_reasons = ranking_quality.get("reasons", [])
+    translated_reasons = [_report_warning_text(value) for value in quality_reasons]
     quality_note = (
-        '<p class="notice">Low-confidence ranking: '
-        + html.escape(" ".join(str(value) for value in quality_reasons))
-        + " Visual review is recommended.</p>"
-        if quality_reasons
+        '<p class="notice">'
+        + _bilingual_report_text(
+            "低置信度排序：" + " ".join(zh for zh, _ in translated_reasons)
+            + " 建议人工复核。",
+            "Low-confidence ranking: " + " ".join(en for _, en in translated_reasons)
+            + " Visual review is recommended.",
+        )
+        + "</p>"
+        if quality_reasons or ranking_quality.get("level") == "low"
         else ""
     )
     reference = result.get("reference")
@@ -1657,35 +1982,63 @@ def _slot_html(result: Mapping[str, Any]) -> str:
         )
     cards = "".join(_candidate_html(row) for row in result.get("candidates", []))
     if not cards:
-        cards = '<div class="panel">No usable candidates; check crop visibility.</div>'
-    return f"""<section>
-  <h2>{slot}</h2>
-  <p class="muted">Reference benchmark: {metrics}; {benchmark_text}. This is not per-image confidence.</p>
+        cards = '<div class="panel">' + _bilingual_report_text(
+            "没有可用候选；请检查裁剪区域是否清晰可见。",
+            "No usable candidates; check crop visibility.",
+        ) + '</div>'
+    return f"""<details class="slot-results" open>
+  <summary><h2>{slot}</h2><span class="collapse-hint muted"><span class="collapse-label">收起候选结果</span><span class="expand-label">展开候选结果</span></span></summary>
   {reference_note}
   {quality_note}
   <div class="cards">{cards}</div>
-</section>"""
+</details>"""
+
+
+def _dye_name_html(name: str, item: Mapping[str, Any]) -> str:
+    count = item.get("dye_count")
+    if count is None:
+        return (
+            f'<span class="equipment-name dye-unknown">{name}</span>'
+            '<span class="dye-unknown-note muted">（染色信息未知）</span>'
+        )
+    state = "dyeable" if count > 0 else "undyeable"
+    return f'<span class="equipment-name {state}">{name}</span>'
 
 
 def _candidate_html(candidate: Mapping[str, Any]) -> str:
     preview = _file_uri(resolve_project_path(candidate.get("local_preview")))
-    source = str(
-        candidate.get("source_image_url")
-        or candidate.get("source_item_url")
-        or ""
+    item_name_zh = str(candidate.get("name_zh") or "").strip()
+    details_url = (
+        "https://ff14.huijiwiki.com/wiki/" + quote("物品:" + item_name_zh, safe=":")
+        if item_name_zh
+        else normalize_item_url(str(candidate.get("source_item_url") or ""))
     )
     name_en = html.escape(str(candidate.get("name_en") or "未知装备"))
     name_zh = html.escape(str(candidate.get("name_zh") or ""))
     name = f"{name_zh}<br><span class=\"muted\">{name_en}</span>" if name_zh else name_en
-    source_link = (
-        f'<a href="{html.escape(source, quote=True)}">来源图片</a>' if source else "无来源链接"
+    name = _dye_name_html(name, candidate)
+    details_link = (
+        f'<a href="{html.escape(details_url, quote=True)}" '
+        'target="_blank" rel="noopener noreferrer">详细信息</a>'
+        if details_url else "暂无详细信息"
     )
-    alternatives = ", ".join(
-        html.escape(str(row.get("name_zh") or row.get("name_en") or ""))
-        for row in candidate.get("appearance_alternatives", [])
-    )
+    alternative_names = []
+    for row in candidate.get("appearance_alternatives", []):
+        alternative_name_zh = html.escape(str(row.get("name_zh") or ""))
+        alternative_name_en = html.escape(str(row.get("name_en") or ""))
+        if alternative_name_zh and alternative_name_en:
+            alternative_names.append(_dye_name_html(
+                f'{alternative_name_zh} <span class="muted">'
+                f'({alternative_name_en})</span>', row,
+            ))
+        elif alternative_name_zh or alternative_name_en:
+            alternative_names.append(_dye_name_html(alternative_name_zh or alternative_name_en, row))
+    alternatives = "、".join(alternative_names)
     alternatives_note = (
-        f'<p class="muted">Same-model alternatives: {alternatives}</p>'
+        '<div class="same-models">'
+        f'<p class="same-models-text"><strong>同模：</strong>{alternatives}</p>'
+        '<button class="same-models-toggle" type="button" aria-expanded="false" hidden>展开</button>'
+        '</div>'
         if alternatives
         else ""
     )
@@ -1693,8 +2046,10 @@ def _candidate_html(candidate: Mapping[str, Any]) -> str:
     reference_badge = " · Known ground truth" if candidate.get("reference_match") else ""
     no_equipment = bool(candidate.get("is_no_equipment"))
     no_equipment_badge = (
-        '<p class="notice"><strong>未检测到可见装备</strong>：'
-        "以皇帝系列的隐形外观表示。</p>"
+        '<p class="notice">' + _bilingual_report_text(
+            "未检测到可见装备：以皇帝系列的隐形外观表示。",
+            "No visible equipment detected; represented by the Emperor's invisible equipment.",
+        ) + '</p>'
         if no_equipment
         else ""
     )
@@ -1711,10 +2066,10 @@ def _candidate_html(candidate: Mapping[str, Any]) -> str:
     return f"""<article class="card{reference_class}">
   {f'<img src="{html.escape(preview, quote=True)}" alt="{name_en}">' if preview else ''}
   <h3><span class="rank">#{int(candidate.get('rank', 0))}</span> {name}{reference_badge}</h3>
+  {alternatives_note}
   {no_equipment_badge}
   <p>{identifier} · {score_label}</p>
-  {alternatives_note}
-  <p>{source_link}</p>
+  <p>{details_link}</p>
 </article>"""
 
 

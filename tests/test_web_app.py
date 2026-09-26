@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -10,6 +11,23 @@ from scripts import web_app
 
 
 class WebAppTests(unittest.TestCase):
+    def test_dataset_status_preserves_zero_missing_images_after_refresh(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            processed = root / "data" / "processed"
+            processed.mkdir(parents=True)
+            (processed / "eorzea_image_qa_summary.json").write_text(
+                json.dumps({"missing_rows": 0, "ready_rows": 40048}), encoding="utf-8"
+            )
+            (processed / "eorzea_sqlite_summary.json").write_text(
+                json.dumps({"missing_or_invalid_images": 101, "ready_images": 39947}),
+                encoding="utf-8",
+            )
+            with mock.patch.object(web_app, "PROJECT_ROOT", root):
+                status = web_app.dataset_status()
+            self.assertEqual(status["missing_images"], 0)
+            self.assertEqual(status["ready_images"], 40048)
+
     def test_build_recognition_command_contains_selected_options(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -87,6 +105,41 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(runtime["gpu"]["device_name"], "Test GPU")
         self.assertEqual(runtime["logical_processors"], 20)
 
+    def test_loading_weights_progress_replaces_the_same_log_line(self) -> None:
+        job = web_app.Job(id="test", kind="recognition", title="测试")
+
+        web_app._append_job_log(job, "stage=retrieve slot=BODY")
+        web_app._append_job_log(job, "Loading weights: 0%| | 0/201")
+        web_app._append_job_log(job, "Loading weights: 42%| | 85/201")
+        web_app._append_job_log(job, "Loading weights: 100%|#| 201/201")
+
+        self.assertEqual(
+            job.logs,
+            [
+                "stage=retrieve slot=BODY",
+                "Loading weights: 100%|#| 201/201",
+            ],
+        )
+
+    def test_loading_weights_progress_keeps_separate_model_loads(self) -> None:
+        job = web_app.Job(id="test", kind="recognition", title="测试")
+
+        for line in (
+            "Loading weights: 0%| | 0/201",
+            "Loading weights: 100%|#| 201/201",
+            "Loading weights: 0%| | 0/197",
+            "Loading weights: 100%|#| 197/197",
+        ):
+            web_app._append_job_log(job, line)
+
+        self.assertEqual(
+            job.logs,
+            [
+                "Loading weights: 100%|#| 201/201",
+                "Loading weights: 100%|#| 197/197",
+            ],
+        )
+
     def test_frontend_offers_top_20_and_replacement_drop_target(self) -> None:
         html = (web_app.WEB_ROOT / "index.html").read_text(encoding="utf-8")
         javascript = (web_app.WEB_ROOT / "app.js").read_text(encoding="utf-8")
@@ -102,6 +155,16 @@ class WebAppTests(unittest.TestCase):
         self.assertIn('form.append("device", selectedDevice())', javascript)
         self.assertIn("renderExecutionRuntime(payload.execution)", javascript)
         self.assertIn(".device-option-card", stylesheet)
+
+    def test_frontend_accepts_clipboard_image_paste(self) -> None:
+        html = (web_app.WEB_ROOT / "index.html").read_text(encoding="utf-8")
+        javascript = (web_app.WEB_ROOT / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn("按 Ctrl+V 粘贴", html)
+        self.assertIn('document.addEventListener("paste"', javascript)
+        self.assertIn("event.clipboardData", javascript)
+        self.assertIn('item.type.startsWith("image/")', javascript)
+        self.assertIn("selectImage(file)", javascript)
 
     def test_detect_image_extension(self) -> None:
         cases = [

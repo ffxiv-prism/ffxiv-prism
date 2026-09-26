@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 from PIL import Image
@@ -22,6 +23,7 @@ from ffxiv_prism.matching.inference import (
     inspect_assets,
     no_visible_equipment_decision,
     attach_appearance_equivalent_candidates,
+    collapse_appearance_equivalent_candidates,
     prepend_no_equipment_candidate,
     rerank_occupied_slot_search_results,
     restore_body_supported_occupied_hands_top1,
@@ -49,6 +51,46 @@ class GlamourInferenceTests(unittest.TestCase):
         record = self.record("legs-context.jpg")
         record["style_weight_multiplier"] = 0.25
         self.assertAlmostEqual(crop_weight(record), 0.25)
+
+    def test_short_legwear_policy_activates_waist_thigh_retrieval_crop(
+        self,
+    ) -> None:
+        from ffxiv_prism.matching.garment_morphology import (
+            StylePrediction,
+            apply_style_crop_multipliers,
+            style_policy,
+        )
+
+        prediction = StylePrediction.from_probabilities(
+            "LEGS",
+            (0.80, 0.05, 0.05, 0.05, 0.05),
+        )
+        record = {
+            "name": "legs_waist_thighs",
+            "role": "diagnostic",
+            "visibility": "visible",
+            "confidence": 0.9,
+        }
+
+        adjusted = apply_style_crop_multipliers(
+            [record],
+            style_policy(prediction, minimum_confidence=0.5),
+        )[0]
+
+        self.assertEqual(adjusted["role"], "auxiliary")
+        self.assertGreater(crop_weight(adjusted), 0.0)
+        self.assertEqual(record["role"], "diagnostic")
+
+        long_prediction = StylePrediction.from_probabilities(
+            "LEGS",
+            (0.02, 0.02, 0.02, 0.02, 0.92),
+        )
+        unchanged = apply_style_crop_multipliers(
+            [record],
+            style_policy(long_prediction, minimum_confidence=0.5),
+        )[0]
+        self.assertEqual(unchanged["role"], "diagnostic")
+        self.assertEqual(crop_weight(unchanged), 0.0)
 
     def test_source_edge_risk_is_reported_as_low_ranking_quality(self) -> None:
         record = self.record("shoe.jpg")
@@ -154,39 +196,25 @@ class GlamourInferenceTests(unittest.TestCase):
         )
         self.assertEqual([row["piece_id"] for row in fused], [2, 1])
 
-    def test_body_uses_validated_crop_then_branch_dinov3_gate(self) -> None:
+    def test_body_uses_validated_crop_then_branch_safe_baseline(self) -> None:
         config = current_best_configs()["BODY"]
         self.assertEqual(config.ensemble_fusion_order, "crop_then_branch")
         self.assertEqual(config.ensemble_final_pool_branches, 1)
         self.assertEqual(config.ensemble_model_ids, (
             "var/models/dinov3-vitb16-pretrain-lvd1689m",
-            "var/models/dinov3-vitb16-pretrain-lvd1689m",
         ))
-        self.assertEqual(config.ensemble_query_checkpoints[0], None)
-        self.assertEqual(
-            config.ensemble_query_checkpoints[1],
-            PROJECT_ROOT
-            / "data"
-            / "models"
-            / "current-best"
-            / "appearance_disjoint_cv_v97_body_fold01_dinov3_e10.pt",
-        )
-        self.assertEqual(config.ensemble_branch_weights, (1.0, 0.0, 1.25))
-        self.assertEqual(
-            config.ensemble_gate_baseline_branch_weights,
-            (1.0, 1.0, 0.0),
-        )
-        self.assertEqual(config.ensemble_top1_gate_max_base_rank, 10)
-        self.assertEqual(config.ensemble_top1_gate_max_last_branch_rank, 1)
-        self.assertEqual(config.ensemble_top1_gate_max_base_last_branch_rank, 10)
+        self.assertEqual(config.ensemble_query_checkpoints, (None,))
+        self.assertEqual(config.ensemble_branch_weights, (1.0, 1.0))
+        self.assertEqual(config.ensemble_gate_baseline_branch_weights, ())
+        self.assertIsNone(config.ensemble_top1_gate_max_base_rank)
         self.assertEqual(
             config.style_model_id,
             "google/siglip2-base-patch16-224",
         )
-        self.assertEqual(config.style_query_crop_name, "body_upper_core")
+        self.assertEqual(config.style_query_crop_name, "body_context")
         self.assertEqual(config.style_rerank_k, 100)
         self.assertAlmostEqual(config.style_blend, 0.70)
-        self.assertAlmostEqual(config.benchmark_top1 or 0.0, 0.6353)
+        self.assertAlmostEqual(config.benchmark_top1 or 0.0, 0.5972359328726555)
 
     def test_ensemble_top1_gate_promotes_supported_candidate_only(self) -> None:
         baseline = [
@@ -262,12 +290,23 @@ class GlamourInferenceTests(unittest.TestCase):
                 self.assertEqual(configs[slot].fusion, "rrf")
                 self.assertEqual(configs[slot].rrf_k, 1)
 
+    def test_feet_uses_confidence_gated_height_reranker(self) -> None:
+        config = current_best_configs()["FEET"]
+        self.assertEqual(
+            config.style_model_id,
+            "google/siglip2-base-patch16-224",
+        )
+        self.assertEqual(config.style_query_crop_name, "feet_height_context")
+        self.assertEqual(config.style_rerank_k, 50)
+        self.assertAlmostEqual(config.style_blend, 0.70)
+        self.assertAlmostEqual(config.style_min_confidence, 0.70)
+
     def test_hands_uses_frozen_occupied_slot_top1_gate(self) -> None:
         config = current_best_configs()["HANDS"]
         self.assertEqual(config.occupied_slot_multiplier, 0.25)
         self.assertEqual(config.occupied_slot_gate_max_base_rank, 3)
         self.assertEqual(config.occupied_slot_body_support_top_k, 3)
-        self.assertAlmostEqual(config.benchmark_top1 or 0.0, 0.0307)
+        self.assertAlmostEqual(config.benchmark_top1 or 0.0, 0.03023983315954119)
 
     def test_occupied_slot_gate_promotes_nearby_exact_hands_piece(self) -> None:
         occupied = {
@@ -344,7 +383,7 @@ class GlamourInferenceTests(unittest.TestCase):
         )[1]
         self.assertEqual(result["candidates"][0]["piece_id"], 2)
 
-    def test_multislot_candidate_is_demoted_when_another_slot_lacks_support(
+    def test_multislot_candidate_is_removed_when_another_slot_lacks_support(
         self,
     ) -> None:
         body = {
@@ -378,13 +417,13 @@ class GlamourInferenceTests(unittest.TestCase):
 
         self.assertEqual(
             [row["piece_id"] for row in results[0]["candidates"]],
-            [20, 10],
+            [20],
         )
-        demoted = results[0]["candidates"][1]
-        self.assertFalse(demoted["recommendation_reliable"])
         self.assertEqual(
-            demoted["cross_slot_consistency"]["unsupported_slots"],
-            ["HANDS"],
+            [row["piece_id"] for row in results[1]["candidates"]], [30]
+        )
+        self.assertEqual(
+            results[0]["cross_slot_consistency"]["removed_candidate_count"], 1
         )
         self.assertTrue(
             results[0]["cross_slot_consistency"]["ranking_changed"]
@@ -509,7 +548,7 @@ class GlamourInferenceTests(unittest.TestCase):
                 / "data"
                 / "models"
                 / "current-best"
-                / "appearance_disjoint_cv_v71_head_fold01_dinov3_e3.pt",
+                / "refresh_v110_head_fold01_dinov3_e3.pt",
             ),
         )
         self.assertEqual(configs["HEAD"].ensemble_rrf_k, 10)
@@ -563,23 +602,108 @@ class GlamourInferenceTests(unittest.TestCase):
         candidates = [
             self.candidate(1, 1.0, 1),
             self.candidate(2, 0.9, 2),
-            self.candidate(3, 0.2, 40),
         ]
 
         result = attach_appearance_equivalent_candidates(
             candidates,
-            {1: (3,), 3: (1,)},
+            {1: (3, 4), 3: (1,), 4: (1,)},
+            piece_catalog={
+                3: {
+                    "piece_id": 3,
+                    "name_en": "Equivalent Piece",
+                    "name_zh": "同模装备",
+                },
+                4: {
+                    "piece_id": 4,
+                    "name_en": "Another Equivalent Piece",
+                    "name_zh": "另一件同模装备",
+                },
+            },
+            max_equivalents_per_anchor=None,
         )
 
-        self.assertEqual([row["piece_id"] for row in result], [1, 2, 3])
+        self.assertEqual([row["piece_id"] for row in result], [1, 2])
+        self.assertEqual(
+            [
+                row["piece_id"]
+                for row in result[0]["appearance_alternatives"]
+            ],
+            [3, 4],
+        )
         self.assertEqual(
             result[0]["appearance_alternatives"][0]["piece_id"],
             3,
         )
         self.assertEqual(
+            result[0]["appearance_alternatives"][0]["name_zh"],
+            "同模装备",
+        )
+        self.assertEqual(
             result[0]["appearance_alternatives"][0]["relation"],
             "same_model",
         )
+
+    def test_same_model_candidates_collapse_to_highest_ranked_anchor(self) -> None:
+        candidates = [
+            self.candidate(10, 0.95, 1),
+            self.candidate(20, 0.90, 2),
+            self.candidate(30, 0.85, 3),
+            self.candidate(40, 0.80, 4),
+        ]
+        equivalence = {
+            10: (20,),
+            # Deliberately one-way and transitive to exercise normalization.
+            20: (30,),
+        }
+        attached = attach_appearance_equivalent_candidates(
+            candidates,
+            equivalence,
+            max_equivalents_per_anchor=None,
+        )
+
+        result = collapse_appearance_equivalent_candidates(
+            attached,
+            equivalence,
+        )
+
+        self.assertEqual([row["piece_id"] for row in result], [10, 40])
+        self.assertEqual([row["rank"] for row in result], [1, 2])
+        self.assertEqual(
+            result[0]["appearance_alternatives"][0]["piece_id"],
+            20,
+        )
+        self.assertEqual(
+            result[0]["appearance_alternatives"][0]["original_rank"],
+            2,
+        )
+
+    def test_versioned_same_model_equivalence_is_loadable(self) -> None:
+        from ffxiv_prism.cli import match as match_cli
+
+        with patch.object(match_cli, "_APPEARANCE_EQUIVALENCE", None):
+            equivalents = match_cli._load_appearance_equivalence()
+
+        self.assertIn(247, equivalents[236])
+        self.assertIn(4079, equivalents[4064])
+
+    def test_missing_same_model_equivalence_fails_closed(self) -> None:
+        from ffxiv_prism.cli import match as match_cli
+
+        with tempfile.TemporaryDirectory() as directory:
+            missing = Path(directory) / "missing-equivalence.json"
+            with (
+                patch.object(
+                    match_cli,
+                    "APPEARANCE_EQUIVALENCE_PATH",
+                    missing,
+                ),
+                patch.object(match_cli, "_APPEARANCE_EQUIVALENCE", None),
+                self.assertRaisesRegex(
+                    FileNotFoundError,
+                    "Required same-model equivalence asset is missing",
+                ),
+            ):
+                match_cli._load_appearance_equivalence()
 
     def test_spatial_profile_can_correct_adjacent_retrieval_order(self) -> None:
         candidates = [
@@ -708,6 +832,51 @@ class GlamourInferenceTests(unittest.TestCase):
             self.assertIn("未检测到可见装备", content)
             self.assertIn("game_item_id=10032", content)
             self.assertNotIn("piece_id=-10032", content)
+
+    def test_html_report_displays_same_model_names_below_candidate_name(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "report.html"
+            write_html_report(
+                path,
+                {
+                    "input": {},
+                    "artifacts": {},
+                    "warnings": [],
+                    "slots": [
+                        {
+                            "slot": "BODY",
+                            "benchmark": {},
+                            "candidates": [
+                                {
+                                    "rank": 1,
+                                    "piece_id": 1,
+                                    "name_en": "Current Piece",
+                                    "name_zh": "当前装备",
+                                    "score": 0.88,
+                                    "appearance_alternatives": [
+                                        {
+                                            "piece_id": 2,
+                                            "name_en": "Equivalent <Coat>",
+                                            "name_zh": "同模<外套>",
+                                        }
+                                    ],
+                                }
+                            ],
+                        }
+                    ],
+                },
+            )
+
+            content = path.read_text(encoding="utf-8")
+            name_position = content.index("当前装备")
+            same_model_position = content.index("同模：")
+            identifier_position = content.index("piece_id=1")
+            self.assertLess(name_position, same_model_position)
+            self.assertLess(same_model_position, identifier_position)
+            self.assertIn("同模&lt;外套&gt;", content)
+            self.assertIn("Equivalent &lt;Coat&gt;", content)
 
     @staticmethod
     def record(path: str, confidence: float = 1.0) -> dict[str, object]:

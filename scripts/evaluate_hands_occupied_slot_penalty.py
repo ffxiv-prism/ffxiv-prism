@@ -4,7 +4,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Sequence
 
 import numpy as np
 
@@ -25,6 +25,7 @@ from scripts.evaluate_retrieval_funnel import (
     summarize_ranked_cases,
     validate_cutoffs,
 )
+from scripts.train_glamour_query_encoder import load_slot_eligibility
 
 
 def exact_slot_piece_ids(metadata: Sequence[dict[str, Any]]) -> set[int]:
@@ -102,7 +103,9 @@ def main() -> int:
     parser.add_argument("--metadata", type=Path, required=True)
     parser.add_argument("--search-cache", type=Path, required=True)
     parser.add_argument("--examples", type=Path, required=True)
-    parser.add_argument("--quality-manifest", type=Path, required=True)
+    quality_group = parser.add_mutually_exclusive_group(required=True)
+    quality_group.add_argument("--quality-manifest", type=Path)
+    quality_group.add_argument("--slot-eligibility-manifest", type=Path)
     parser.add_argument("--regions-dir", type=Path, required=True)
     parser.add_argument("--fold", type=int, required=True)
     parser.add_argument("--fold-manifest", type=Path, required=True)
@@ -138,10 +141,20 @@ def main() -> int:
     }
     occupied_only_ids = all_ids - exact_ids
     examples = read_jsonl(args.examples)
-    quality = {
-        str(row["example_id"]): bool(row.get("passed"))
-        for row in read_jsonl(args.quality_manifest)
-    }
+    if args.quality_manifest:
+        quality = {
+            str(row["example_id"]): bool(row.get("passed"))
+            for row in read_jsonl(args.quality_manifest)
+        }
+    else:
+        eligibility = load_slot_eligibility(args.slot_eligibility_manifest)
+        quality = {
+            str(example["example_id"]): (
+                "HANDS"
+                in eligibility.get(str(example["example_id"]), set())
+            )
+            for example in examples
+        }
     context = build_fold_context(
         fold=args.fold,
         fold_manifest=args.fold_manifest,

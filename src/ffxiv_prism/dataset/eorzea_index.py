@@ -6,7 +6,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
-from ffxiv_prism.jsonl import append_jsonl, read_jsonl, write_json
+from ffxiv_prism.jsonl import read_jsonl, write_json, write_jsonl_atomic
 from ffxiv_prism.paths import EORZEA_METADATA_DIR, PROCESSED_DIR, ensure_project_dirs, portable_path, resolve_project_path
 
 
@@ -25,9 +25,7 @@ def build_eorzea_image_index(
     rows = read_jsonl(manifest_path)
     deduped = dedupe_by_hash_and_url(rows)
 
-    if output_path.exists():
-        output_path.unlink()
-    append_jsonl(output_path, deduped)
+    write_jsonl_atomic(output_path, deduped)
 
     summary = summarize_image_index(deduped)
     write_json(summary_path, summary)

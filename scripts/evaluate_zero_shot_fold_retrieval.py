@@ -12,6 +12,8 @@ if str(PROJECT_ROOT) not in sys.path:
 from ffxiv_prism.paths import portable_path
 from scripts.evaluate_glamour_embedding_model import (
     build_encoder,
+    load_crop_embedding_cache,
+    load_existing_candidate_embeddings,
     load_or_build_candidate_embeddings,
     load_or_build_crop_embeddings,
     read_jsonl,
@@ -26,6 +28,7 @@ from scripts.evaluate_retrieval_funnel import (
     summarize_ranked_cases,
     validate_cutoffs,
 )
+from scripts.train_glamour_query_encoder import load_slot_eligibility
 
 
 def main() -> int:
@@ -43,8 +46,20 @@ def main() -> int:
     parser.add_argument("--metadata", type=Path, required=True)
     parser.add_argument("--index-dir", type=Path, required=True)
     parser.add_argument("--crop-cache", type=Path, required=True)
+    parser.add_argument(
+        "--cache-only",
+        action="store_true",
+        help="Encode and persist the fold query cache without running retrieval.",
+    )
+    parser.add_argument(
+        "--rebuild-crop-cache",
+        action="store_true",
+        help="Ignore a valid crop cache and encode it again.",
+    )
     parser.add_argument("--examples", type=Path, required=True)
-    parser.add_argument("--quality-manifest", type=Path, required=True)
+    quality_group = parser.add_mutually_exclusive_group(required=True)
+    quality_group.add_argument("--quality-manifest", type=Path)
+    quality_group.add_argument("--slot-eligibility-manifest", type=Path)
     parser.add_argument("--slot", choices=SLOTS, required=True)
     parser.add_argument("--regions-dir", type=Path, required=True)
     parser.add_argument("--fold", type=int, required=True)
@@ -68,25 +83,21 @@ def main() -> int:
     ]
     if not metadata:
         raise ValueError(f"No {args.slot} rows found in {args.metadata}")
-    encoder = build_encoder(
-        args.model_id,
-        args.encoder_kind,
-        args.device,
-        args.preprocess,
-        pooling=args.pooling,
-    )
-    candidate_embeddings = load_or_build_candidate_embeddings(
-        encoder,
-        metadata,
-        args.index_dir,
-        args.batch_size,
-    )
-
     examples = read_jsonl(args.examples)
-    quality_by_id = {
-        str(row["example_id"]): bool(row.get("passed"))
-        for row in read_jsonl(args.quality_manifest)
-    }
+    if args.quality_manifest:
+        quality_by_id = {
+            str(row["example_id"]): bool(row.get("passed"))
+            for row in read_jsonl(args.quality_manifest)
+        }
+    else:
+        eligibility = load_slot_eligibility(args.slot_eligibility_manifest)
+        quality_by_id = {
+            str(example["example_id"]): (
+                args.slot
+                in eligibility.get(str(example["example_id"]), set())
+            )
+            for example in examples
+        }
     context = build_fold_context(
         fold=args.fold,
         fold_manifest=args.fold_manifest,
@@ -95,12 +106,68 @@ def main() -> int:
         regions_dir=args.regions_dir,
         slot=args.slot,
     )
-    query_embeddings = load_or_build_crop_embeddings(
-        encoder,
+    query_embeddings = None if args.rebuild_crop_cache else load_crop_embedding_cache(
         context["records"],
         args.crop_cache,
-        args.batch_size,
+        model_id=args.model_id,
+        preprocess=args.preprocess,
+        pooling=args.pooling,
     )
+    if args.cache_only and query_embeddings is not None:
+        print(
+            json.dumps(
+                {
+                    "query_cache": portable_path(args.crop_cache),
+                    "crop_count": len(query_embeddings),
+                    "reused": True,
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 0
+
+    candidate_embeddings = (
+        None
+        if args.cache_only
+        else load_existing_candidate_embeddings(metadata, args.index_dir)
+    )
+    encoder = None
+    if query_embeddings is None or candidate_embeddings is None:
+        encoder = build_encoder(
+            args.model_id,
+            args.encoder_kind,
+            args.device,
+            args.preprocess,
+            pooling=args.pooling,
+        )
+    if candidate_embeddings is None and not args.cache_only:
+        candidate_embeddings = load_or_build_candidate_embeddings(
+            encoder,
+            metadata,
+            args.index_dir,
+            args.batch_size,
+        )
+    if query_embeddings is None:
+        query_embeddings = load_or_build_crop_embeddings(
+            encoder,
+            context["records"],
+            args.crop_cache,
+            args.batch_size,
+            rebuild=args.rebuild_crop_cache,
+        )
+    if args.cache_only:
+        print(
+            json.dumps(
+                {
+                    "query_cache": portable_path(args.crop_cache),
+                    "crop_count": len(query_embeddings),
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 0
 
     candidate_crop_routes = None
     if args.candidate_crop_routing:
@@ -148,6 +215,10 @@ def main() -> int:
         "metadata": portable_path(args.metadata),
         "index_dir": portable_path(args.index_dir),
         "crop_cache": portable_path(args.crop_cache),
+        "quality_manifest": portable_path(args.quality_manifest),
+        "slot_eligibility_manifest": portable_path(
+            args.slot_eligibility_manifest
+        ),
         "candidate_k": args.candidate_k,
         "candidate_crop_routing": args.candidate_crop_routing,
         "candidate_gender_routing": args.candidate_gender_routing,

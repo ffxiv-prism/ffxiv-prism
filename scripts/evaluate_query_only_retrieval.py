@@ -32,6 +32,73 @@ from scripts.train_glamour_query_encoder import (
 )
 
 
+def expected_query_paths(
+    records: dict[str, list[dict[str, Any]]],
+) -> list[str]:
+    return sorted(
+        {
+            str(record["path"])
+            for rows in records.values()
+            for record in rows
+        }
+    )
+
+
+def load_query_embedding_cache(
+    cache_path: Path | None,
+    records: dict[str, list[dict[str, Any]]],
+    *,
+    checkpoint: Path | None,
+    model_id: str,
+    slot: str,
+    fold: int,
+    fold_role: str,
+    pose_normalize_hands: bool,
+) -> dict[str, np.ndarray] | None:
+    if cache_path is None or not cache_path.is_file():
+        return None
+    paths = expected_query_paths(records)
+    checkpoint_text = str(checkpoint) if checkpoint is not None else ""
+    with np.load(cache_path, allow_pickle=False) as cached:
+        required = {"paths", "embeddings", "checkpoint"}
+        if not required.issubset(cached.files):
+            return None
+        cached_paths = [str(path) for path in cached["paths"].tolist()]
+        embeddings = cached["embeddings"]
+        if (
+            cached_paths != paths
+            or str(cached["checkpoint"].tolist()) != checkpoint_text
+            or embeddings.ndim != 2
+            or embeddings.shape[0] != len(paths)
+        ):
+            return None
+        optional_values = {
+            "model_id": model_id,
+            "slot": slot,
+            "fold": fold,
+            "fold_role": fold_role,
+            "pose_normalize_hands": int(pose_normalize_hands),
+        }
+        for key, expected in optional_values.items():
+            if key in cached.files and cached[key].tolist() != expected:
+                return None
+        if checkpoint is not None and checkpoint.is_file():
+            stat = checkpoint.stat()
+            if (
+                "checkpoint_size" in cached.files
+                and int(cached["checkpoint_size"].tolist()) != stat.st_size
+            ):
+                return None
+            if (
+                "checkpoint_mtime_ns" in cached.files
+                and int(cached["checkpoint_mtime_ns"].tolist())
+                != stat.st_mtime_ns
+            ):
+                return None
+        matrix = np.asarray(embeddings, dtype=np.float32)
+    return {path: matrix[index] for index, path in enumerate(paths)}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
@@ -62,6 +129,16 @@ def main() -> int:
         default=False,
     )
     parser.add_argument("--query-cache", type=Path)
+    parser.add_argument(
+        "--cache-only",
+        action="store_true",
+        help="Encode and persist the fold query cache without running retrieval.",
+    )
+    parser.add_argument(
+        "--rebuild-query-cache",
+        action="store_true",
+        help="Ignore a valid query cache and encode it again.",
+    )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--device", default="auto")
     parser.add_argument("--batch-size", type=int, default=32)
@@ -102,8 +179,10 @@ def main() -> int:
     )
     parser.add_argument("--cutoffs", type=int, nargs="+", default=[1, 10, 100, 1000])
     args = parser.parse_args()
+    if args.cache_only and args.query_cache is None:
+        parser.error("--cache-only requires --query-cache")
 
-    device = resolve_torch_device(args.device)
+    device = None
     cutoffs = validate_cutoffs(args.cutoffs, args.candidate_k)
     examples = read_jsonl(args.examples)
     if args.quality_manifest:
@@ -120,8 +199,6 @@ def main() -> int:
             )
             for example in examples
         }
-    metadata = read_jsonl(args.index_dir / "metadata.jsonl")
-    candidate_embeddings = np.load(args.index_dir / "embeddings.npy", mmap_mode="r")
     context = build_fold_context(
         fold=args.fold,
         fold_manifest=args.fold_manifest,
@@ -130,6 +207,105 @@ def main() -> int:
         regions_dir=args.regions_dir,
         slot=args.slot,
         fold_role=args.fold_role,
+    )
+    query_embeddings = (
+        None
+        if args.rebuild_query_cache
+        else load_query_embedding_cache(
+            args.query_cache,
+            context["records"],
+            checkpoint=args.query_checkpoint,
+            model_id=args.model_id,
+            slot=args.slot,
+            fold=args.fold,
+            fold_role=args.fold_role,
+            pose_normalize_hands=args.pose_normalize_hands,
+        )
+    )
+    model = None
+    if query_embeddings is None:
+        from transformers import AutoModel
+
+        device = resolve_torch_device(args.device)
+        model = AutoModel.from_pretrained(
+            args.model_id,
+            cache_dir=CACHE_DIR / "huggingface" / "hub",
+            local_files_only=True,
+        ).to(device)
+        query_head = (
+            load_query_head_from_checkpoint(
+                args.query_checkpoint,
+                model,
+                device,
+            )
+            if args.query_checkpoint is not None
+            else None
+        )
+        query_embeddings = encode_records(
+            model,
+            query_head,
+            context["records"],
+            args.batch_size,
+            device,
+            pose_normalize_hands=args.pose_normalize_hands,
+        )
+    if args.query_cache and (
+        args.rebuild_query_cache
+        or not args.query_cache.is_file()
+        or model is not None
+    ):
+        paths = sorted(query_embeddings)
+        args.query_cache.parent.mkdir(parents=True, exist_ok=True)
+        checkpoint_stat = (
+            args.query_checkpoint.stat()
+            if args.query_checkpoint is not None
+            and args.query_checkpoint.is_file()
+            else None
+        )
+        np.savez_compressed(
+            args.query_cache,
+            paths=np.asarray(paths),
+            embeddings=np.stack([query_embeddings[path] for path in paths]).astype(
+                np.float32,
+                copy=False,
+            ),
+            checkpoint=np.asarray(
+                str(args.query_checkpoint)
+                if args.query_checkpoint is not None
+                else ""
+            ),
+            checkpoint_size=np.asarray(
+                checkpoint_stat.st_size if checkpoint_stat is not None else -1
+            ),
+            checkpoint_mtime_ns=np.asarray(
+                checkpoint_stat.st_mtime_ns if checkpoint_stat is not None else -1
+            ),
+            model_id=np.asarray(args.model_id),
+            slot=np.asarray(args.slot),
+            fold=np.asarray(args.fold),
+            fold_role=np.asarray(args.fold_role),
+            pose_normalize_hands=np.asarray(int(args.pose_normalize_hands)),
+        )
+
+    if args.cache_only:
+        print(
+            json.dumps(
+                {
+                    "query_cache": portable_path(args.query_cache),
+                    "crop_count": len(query_embeddings),
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        del model, query_embeddings
+        release_cuda()
+        return 0
+
+    metadata = read_jsonl(args.index_dir / "metadata.jsonl")
+    candidate_embeddings = np.load(
+        args.index_dir / "embeddings.npy",
+        mmap_mode="r",
     )
     candidate_crop_routes = None
     if args.candidate_crop_routing:
@@ -147,47 +323,8 @@ def main() -> int:
             str(example["example_id"]): str(example.get("model_gender", ""))
             for example in context["examples"]
         }
-
-    from transformers import AutoModel
-
-    model = AutoModel.from_pretrained(
-        args.model_id,
-        cache_dir=CACHE_DIR / "huggingface" / "hub",
-        local_files_only=True,
-    ).to(device)
-    query_head = (
-        load_query_head_from_checkpoint(
-            args.query_checkpoint,
-            model,
-            device,
-        )
-        if args.query_checkpoint is not None
-        else None
-    )
-    query_embeddings = encode_records(
-        model,
-        query_head,
-        context["records"],
-        args.batch_size,
-        device,
-        pose_normalize_hands=args.pose_normalize_hands,
-    )
-    if args.query_cache:
-        paths = sorted(query_embeddings)
-        args.query_cache.parent.mkdir(parents=True, exist_ok=True)
-        np.savez_compressed(
-            args.query_cache,
-            paths=np.asarray(paths),
-            embeddings=np.stack([query_embeddings[path] for path in paths]).astype(
-                np.float32,
-                copy=False,
-            ),
-            checkpoint=np.asarray(
-                str(args.query_checkpoint)
-                if args.query_checkpoint is not None
-                else ""
-            ),
-        )
+    if device is None:
+        device = resolve_torch_device(args.device)
 
     search = search_crops(
         metadata,

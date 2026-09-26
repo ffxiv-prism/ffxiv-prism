@@ -18,9 +18,14 @@ LEGS_STYLE_CLASSES = (
     "asymmetric_thigh_cut",
     "long_bottom",
 )
+FEET_STYLE_CLASSES = (
+    "short_footwear",
+    "tall_footwear",
+)
 STYLE_CLASSES_BY_SLOT = {
     "BODY": BODY_STYLE_CLASSES,
     "LEGS": LEGS_STYLE_CLASSES,
+    "FEET": FEET_STYLE_CLASSES,
 }
 
 # The descriptions are deliberately about silhouette and skin coverage instead
@@ -33,15 +38,38 @@ BODY_STYLE_PROMPTS = (
     "a long coat, tunic, robe, coverall, or one-piece outfit",
 )
 LEGS_STYLE_PROMPTS = (
-    "very short shorts or hot pants",
-    "knee-length shorts or long shorts",
-    "a short skirt or loincloth",
-    "asymmetric bottoms or thigh-high stockings with a diagonal cut exposing one thigh",
-    "long pants, tights, or leggings",
+    (
+        "close-fitting very short shorts or hot pants with a clearly divided "
+        "crotch and two separate leg openings"
+    ),
+    (
+        "knee-length shorts with a clearly divided crotch and two separate "
+        "trouser legs"
+    ),
+    (
+        "a short skirt or loincloth forming continuous hanging fabric between "
+        "the legs without a divided crotch"
+    ),
+    (
+        "asymmetric bottoms or thigh-high stockings with a diagonal hem "
+        "exposing one thigh"
+    ),
+    "long pants, tights, or leggings covering both legs",
+)
+FEET_STYLE_PROMPTS = (
+    (
+        "short footwear ending below the knee, including shoes, ankle boots, "
+        "and calf boots"
+    ),
+    (
+        "tall footwear reaching the knee or extending above the knee, "
+        "including knee-high and thigh-high boots"
+    ),
 )
 STYLE_PROMPTS_BY_SLOT = {
     "BODY": BODY_STYLE_PROMPTS,
     "LEGS": LEGS_STYLE_PROMPTS,
+    "FEET": FEET_STYLE_PROMPTS,
 }
 
 # Convenience aliases for callers that prefer shorter names.
@@ -49,10 +77,11 @@ STYLE_CLASSES = STYLE_CLASSES_BY_SLOT
 STYLE_PROMPTS = STYLE_PROMPTS_BY_SLOT
 
 TARGET_STYLE_CLASSES = {
-    "BODY": frozenset(("crop_top", "sleeveless")),
+    "BODY": frozenset(("crop_top", "sleeveless", "long_top")),
     "LEGS": frozenset(
         ("hot_shorts", "long_shorts", "short_skirt", "asymmetric_thigh_cut")
     ),
+    "FEET": frozenset(("tall_footwear",)),
 }
 
 BODY_STYLE_CROP_MULTIPLIERS = {
@@ -64,6 +93,19 @@ BODY_STYLE_CROP_MULTIPLIERS = {
 BODY_STYLE_CANDIDATE_CROP_ROUTES = {
     "body_torso": ("torso_core",),
     "body_upper_core": ("torso_core",),
+    "body_upper_arm_overlap": ("upper_body",),
+    "body_context": ("upper_body",),
+}
+
+LONG_BODY_STYLE_CROP_MULTIPLIERS = {
+    "body_torso": 0.75,
+    "body_upper_core": 0.35,
+    "body_upper_arm_overlap": 0.45,
+    "body_context": 1.35,
+}
+LONG_BODY_STYLE_CANDIDATE_CROP_ROUTES = {
+    "body_torso": ("upper_body",),
+    "body_upper_core": ("upper_body",),
     "body_upper_arm_overlap": ("upper_body",),
     "body_context": ("upper_body",),
 }
@@ -84,6 +126,66 @@ LEGS_STYLE_CANDIDATE_CROP_ROUTES = {
     "legs_context": ("full",),
     "legs_boot_overlap": ("legs_boot_overlap",),
 }
+
+LONG_BODY_LEGWEAR_QUERY_CROPS = (
+    "legs_waist_thighs",
+    "legs_thighs",
+    "legs_context",
+)
+LONG_BODY_LEGWEAR_VISIBILITY_CLASSES = (
+    "visible",
+    "hidden",
+)
+LONG_BODY_LEGWEAR_VISIBILITY_PROMPTS = (
+    (
+        "the separate lower-body clothing is clearly visible, such as pants, "
+        "shorts, or a skirt, even if framed by an open long coat"
+    ),
+    (
+        "the separate lower-body clothing cannot be seen because a closed long "
+        "coat, robe, or dress covers the hips and legs"
+    ),
+)
+LONG_BODY_LEGWEAR_COVERAGE_CLASSES = (
+    "exposed_legs",
+    "covered_legs",
+)
+LONG_BODY_LEGWEAR_COVERAGE_PROMPTS = (
+    (
+        "the center of the image shows exposed natural skin on the thighs or "
+        "legs below shorts or a short skirt"
+    ),
+    (
+        "the center of the image shows opaque fabric covering the thighs and "
+        "legs as full-length pants, trousers, tights, or leggings"
+    ),
+)
+LONG_BODY_COVERED_LEGWEAR_CLASSES = (
+    "plain_trousers",
+    "wide_trousers",
+    "complex_legwear",
+)
+LONG_BODY_COVERED_LEGWEAR_QUERY_PROMPTS = (
+    (
+        "plain simple straight-leg full-length tailored trousers or suit pants "
+        "visible between the open panels of a long coat"
+    ),
+    "wide or baggy trousers, culottes, bloomers, hakama, or heavily draped pants",
+    "ornate armored layered or asymmetric complex legwear",
+)
+LONG_BODY_COVERED_LEGWEAR_CANDIDATE_PROMPTS = (
+    (
+        "plain simple straight-leg tailored trousers or suit pants with a clean "
+        "narrow silhouette"
+    ),
+    "wide or baggy trousers, culottes, bloomers, hakama, or heavily draped pants",
+    "a skirt, layered panels, armored, or highly ornate complex legwear",
+)
+LONG_BODY_LEGWEAR_MIN_LONG_TOP_PROBABILITY = 0.75
+LONG_BODY_LEGWEAR_MIN_VISIBILITY = 0.55
+LONG_BODY_LEGWEAR_MIN_EXPOSED_PROBABILITY = 0.55
+LONG_BODY_LEGWEAR_MIN_STYLE_CONFIDENCE = 0.45
+LONG_BODY_COVERED_LEGWEAR_RERANK_BLEND = 0.55
 
 # Kept here as an optional dependency-free source for future index builders.
 STYLE_CANDIDATE_CROP_BOXES_NORMALIZED = {
@@ -201,6 +303,23 @@ class StylePolicy:
     active: bool
     crop_multipliers: Mapping[str, float]
     candidate_crop_routes: Mapping[str, tuple[str, ...]]
+    retrieval_role_overrides: Mapping[str, str]
+    reason: str
+
+
+@dataclass(frozen=True)
+class LongBodyLegwearDecision:
+    """Visibility-aware lower-garment routing under a long BODY garment."""
+
+    observable: bool
+    visible_probability: float
+    mode: str | None
+    mode_probability: float
+    classes: tuple[str, ...]
+    probabilities: tuple[float, ...]
+    predicted_class: str | None
+    confidence: float
+    crop_index: int | None
     reason: str
 
 
@@ -213,6 +332,21 @@ def style_policy(
 
     if not 0.0 <= minimum_confidence <= 1.0:
         raise ValueError("minimum_confidence must be between zero and one")
+    # BODY's short and long silhouettes require opposite crop policies. Their
+    # combined probability is not evidence for either one (nor is 1-P(regular)
+    # a confidence estimate). Unlike overlapping LEGS attributes, require one
+    # target class to win confidently before changing retrieval or reranking.
+    if prediction.slot == "BODY" and (
+        prediction.confidence < minimum_confidence
+        or prediction.predicted_class not in TARGET_STYLE_CLASSES["BODY"]
+    ):
+        return StylePolicy(
+            active=False,
+            crop_multipliers={},
+            candidate_crop_routes={},
+            retrieval_role_overrides={},
+            reason="body_style_ambiguous_or_regular",
+        )
     target_probability = sum(
         probability
         for class_name, probability in zip(
@@ -227,20 +361,77 @@ def style_policy(
             active=False,
             crop_multipliers={},
             candidate_crop_routes={},
+            retrieval_role_overrides={},
             reason="target_probability_below_threshold",
         )
-    if prediction.slot == "BODY":
+    if (
+        prediction.slot == "BODY"
+        and prediction.probabilities[
+            prediction.classes.index("long_top")
+        ] >= minimum_confidence
+    ):
+        multipliers = LONG_BODY_STYLE_CROP_MULTIPLIERS
+        routes = LONG_BODY_STYLE_CANDIDATE_CROP_ROUTES
+        reason = "high_confidence_long_top"
+    elif prediction.slot == "BODY":
         multipliers = BODY_STYLE_CROP_MULTIPLIERS
         routes = BODY_STYLE_CANDIDATE_CROP_ROUTES
+        reason = "high_confidence_target_style"
+    elif prediction.slot == "FEET":
+        # Footwear height is used only as a conservative reranking signal.
+        # The promoted identity retriever keeps its validated crop distribution
+        # and candidate pool unchanged.
+        multipliers = {}
+        routes = {}
+        reason = "high_confidence_tall_footwear"
     else:
         multipliers = LEGS_STYLE_CROP_MULTIPLIERS
         routes = LEGS_STYLE_CANDIDATE_CROP_ROUTES
+        # This waist-to-mid-thigh crop deliberately excludes most boots and
+        # lower-body occluders.  It is retrieval-active only after the style
+        # gate confirms that a short/exposed lower garment is observable.
+        role_overrides = {"legs_waist_thighs": "auxiliary"}
+        reason = "high_confidence_target_style"
+    if prediction.slot != "LEGS":
+        role_overrides = {}
     return StylePolicy(
         active=True,
         crop_multipliers=dict(multipliers),
         candidate_crop_routes=dict(routes),
-        reason="high_confidence_target_style",
+        retrieval_role_overrides=role_overrides,
+        reason=reason,
     )
+
+
+def body_style_consensus_policy(
+    prediction: StylePrediction,
+    corroboration: StylePrediction | None,
+    *,
+    minimum_confidence: float = 0.75,
+) -> StylePolicy:
+    """Require torso and context to independently support the same BODY route.
+
+    Exposed skin beside an open vest, separate sleeves and the lower garment
+    can dominate the context classifier. A single confident contextual label
+    must not override the identity retriever in those cases.
+    """
+    if prediction.slot != "BODY" or (
+        corroboration is not None and corroboration.slot != "BODY"
+    ):
+        raise ValueError("BODY style consensus requires BODY predictions")
+    policy = style_policy(prediction, minimum_confidence=minimum_confidence)
+    if not policy.active:
+        return policy
+    if corroboration is None:
+        reason = "body_style_corroboration_unavailable"
+    elif (
+        not style_policy(corroboration, minimum_confidence=minimum_confidence).active
+        or prediction.predicted_class != corroboration.predicted_class
+    ):
+        reason = "body_style_views_disagree_or_uncertain"
+    else:
+        return policy
+    return StylePolicy(False, {}, {}, {}, reason)
 
 
 def apply_style_crop_multipliers(
@@ -253,8 +444,10 @@ def apply_style_crop_multipliers(
         if not policy_or_multipliers.active:
             return [dict(record) for record in records]
         multipliers = policy_or_multipliers.crop_multipliers
+        role_overrides = policy_or_multipliers.retrieval_role_overrides
     else:
         multipliers = policy_or_multipliers
+        role_overrides = {}
 
     parsed_multipliers: dict[str, float] = {}
     for name, raw_multiplier in multipliers.items():
@@ -270,6 +463,9 @@ def apply_style_crop_multipliers(
             str(record.get("name")),
             1.0,
         )
+        role_override = role_overrides.get(str(record.get("name")))
+        if role_override is not None:
+            copied["role"] = role_override
         output.append(copied)
     return output
 
@@ -387,6 +583,258 @@ def rerank_candidates_with_style(
         row["style_normalized_score"] = normalized_style_score
         row["retrieval_percentile"] = retrieval_percentile
         row["style_percentile"] = style_percentile
+        row["score"] = (
+            (1.0 - blend) * retrieval_percentile
+            + blend * normalized_style_score
+        )
+
+    leading.sort(
+        key=lambda row: (
+            -float(row["score"]),
+            -float(row["retrieval_score"]),
+            original_positions[id(row)],
+        )
+    )
+    output[:pool_size] = leading
+    for rank, row in enumerate(output, start=1):
+        row["rank"] = rank
+    return output
+
+
+def long_top_probability(
+    style_diagnostic: Mapping[str, Any] | None,
+) -> float:
+    if not style_diagnostic:
+        return 0.0
+    probabilities = style_diagnostic.get("probabilities")
+    if not isinstance(probabilities, Mapping):
+        return 0.0
+    try:
+        probability = float(probabilities.get("long_top", 0.0))
+    except (TypeError, ValueError):
+        return 0.0
+    if not math.isfinite(probability):
+        return 0.0
+    return min(1.0, max(0.0, probability))
+
+
+def long_body_legwear_decision(
+    visibility_probabilities: Sequence[Sequence[float]],
+    coverage_probabilities: Sequence[Sequence[float]],
+    covered_style_probabilities: Sequence[Sequence[float]],
+    *,
+    minimum_visibility: float = LONG_BODY_LEGWEAR_MIN_VISIBILITY,
+    minimum_exposed_probability: float = (
+        LONG_BODY_LEGWEAR_MIN_EXPOSED_PROBABILITY
+    ),
+) -> LongBodyLegwearDecision:
+    """Choose an observable lower-garment profile without assuming trousers.
+
+    Several leg crops are evaluated because long coat panels can hide one crop
+    while leaving another useful.  A hidden result carries no style profile;
+    callers must keep retrieval unchanged rather than inventing an unseen item.
+    When the lower garment is visible, exposed-leg styles and covered-leg
+    styles use separate prompt spaces so shorts are not compared against a
+    fixed trouser prior.
+    """
+
+    if not 0.0 <= minimum_visibility <= 1.0:
+        raise ValueError("minimum_visibility must be between zero and one")
+    if not 0.0 <= minimum_exposed_probability <= 1.0:
+        raise ValueError(
+            "minimum_exposed_probability must be between zero and one"
+        )
+    profile_groups = (
+        visibility_probabilities,
+        coverage_probabilities,
+        covered_style_probabilities,
+    )
+    profile_count = len(visibility_probabilities)
+    if profile_count < 1 or any(
+        len(group) != profile_count for group in profile_groups
+    ):
+        raise ValueError(
+            "long-body legwear profile groups must align and be non-empty"
+        )
+
+    visibility_profiles = tuple(
+        _validated_probability_vector(profile)
+        for profile in visibility_probabilities
+    )
+    coverage_profiles = tuple(
+        _validated_probability_vector(profile)
+        for profile in coverage_probabilities
+    )
+    covered_profiles = tuple(
+        _validated_probability_vector(profile)
+        for profile in covered_style_probabilities
+    )
+    if any(
+        len(profile) != len(LONG_BODY_LEGWEAR_VISIBILITY_CLASSES)
+        for profile in visibility_profiles
+    ):
+        raise ValueError("visibility profiles have the wrong class count")
+    if any(
+        len(profile) != len(LONG_BODY_LEGWEAR_COVERAGE_CLASSES)
+        for profile in coverage_profiles
+    ):
+        raise ValueError("coverage profiles have the wrong class count")
+    if any(
+        len(profile) != len(LONG_BODY_COVERED_LEGWEAR_CLASSES)
+        for profile in covered_profiles
+    ):
+        raise ValueError("covered-leg style profiles have the wrong class count")
+
+    visible_index = LONG_BODY_LEGWEAR_VISIBILITY_CLASSES.index("visible")
+    visible_scores = tuple(
+        profile[visible_index] for profile in visibility_profiles
+    )
+    visible_probability = max(visible_scores)
+    if visible_probability < minimum_visibility:
+        return LongBodyLegwearDecision(
+            observable=False,
+            visible_probability=visible_probability,
+            mode=None,
+            mode_probability=0.0,
+            classes=(),
+            probabilities=(),
+            predicted_class=None,
+            confidence=0.0,
+            crop_index=None,
+            reason="lower_garment_not_observable",
+        )
+
+    exposed_index = LONG_BODY_LEGWEAR_COVERAGE_CLASSES.index("exposed_legs")
+    exposed_scores = tuple(
+        profile[exposed_index] for profile in coverage_profiles
+    )
+    maximum_exposed_probability = max(exposed_scores)
+    if maximum_exposed_probability >= minimum_exposed_probability:
+        mode = "exposed"
+        crop_index = max(
+            range(profile_count),
+            key=exposed_scores.__getitem__,
+        )
+        mode_probability = maximum_exposed_probability
+        classes = LONG_BODY_LEGWEAR_COVERAGE_CLASSES
+        probabilities = coverage_profiles[crop_index]
+        reason = "visible_exposed_legwear"
+    else:
+        covered_index = LONG_BODY_LEGWEAR_COVERAGE_CLASSES.index("covered_legs")
+        covered_scores = tuple(
+            profile[covered_index] for profile in coverage_profiles
+        )
+        mode = "covered"
+        crop_index = max(
+            range(profile_count),
+            key=covered_scores.__getitem__,
+        )
+        mode_probability = covered_scores[crop_index]
+        classes = LONG_BODY_COVERED_LEGWEAR_CLASSES
+        probabilities = covered_profiles[crop_index]
+        reason = "visible_covered_legwear"
+
+    predicted_index = max(
+        range(len(probabilities)),
+        key=probabilities.__getitem__,
+    )
+    return LongBodyLegwearDecision(
+        observable=True,
+        visible_probability=visible_probability,
+        mode=mode,
+        mode_probability=mode_probability,
+        classes=classes,
+        probabilities=probabilities,
+        predicted_class=classes[predicted_index],
+        confidence=probabilities[predicted_index],
+        crop_index=crop_index,
+        reason=reason,
+    )
+
+
+def rerank_candidates_with_legwear_profile(
+    candidates: Sequence[Mapping[str, Any]],
+    query_probabilities: Sequence[float],
+    candidate_probabilities_by_piece: Mapping[int, Sequence[float]],
+    *,
+    rerank_k: int,
+    blend: float,
+    minimum_confidence: float = LONG_BODY_LEGWEAR_MIN_STYLE_CONFIDENCE,
+) -> list[dict[str, Any]]:
+    """Rerank visible legwear by query/candidate style agreement."""
+
+    if rerank_k < 1:
+        raise ValueError("rerank_k must be positive")
+    if not 0.0 <= blend <= 1.0:
+        raise ValueError("blend must be between zero and one")
+    if not 0.0 <= minimum_confidence <= 1.0:
+        raise ValueError("minimum_confidence must be between zero and one")
+
+    output = [dict(row) for row in candidates]
+    query_profile = _validated_probability_vector(query_probabilities)
+    if max(query_profile) < minimum_confidence:
+        return output
+    pool_size = min(rerank_k, len(output))
+    if pool_size < 2:
+        return output
+    leading = output[:pool_size]
+    profiles: list[tuple[float, ...]] = []
+    for row in leading:
+        piece_id = int(row["piece_id"])
+        raw_profile = candidate_probabilities_by_piece.get(piece_id)
+        if raw_profile is None:
+            return output
+        profile = _validated_probability_vector(raw_profile)
+        if len(profile) != len(query_profile):
+            raise ValueError(
+                f"candidate legwear style profile for piece {piece_id} has "
+                f"{len(profile)} classes; expected {len(query_profile)}"
+            )
+        profiles.append(profile)
+
+    query_mass = sum(value**2 for value in query_profile)
+    normalized_query = tuple(value**2 / query_mass for value in query_profile)
+    style_scores = [
+        sum(
+            query_value * candidate_value
+            for query_value, candidate_value in zip(
+                normalized_query,
+                profile,
+                strict=True,
+            )
+        )
+        for profile in profiles
+    ]
+    maximum_style_score = max(style_scores)
+    if maximum_style_score <= 1e-8:
+        return output
+    normalized_style_scores = [
+        score / maximum_style_score for score in style_scores
+    ]
+    retrieval_scores = [float(row["score"]) for row in leading]
+    if any(not math.isfinite(score) for score in retrieval_scores):
+        raise ValueError("candidate retrieval scores must be finite")
+    retrieval_percentiles = _percentiles(retrieval_scores)
+
+    original_positions = {id(row): index for index, row in enumerate(leading)}
+    for (
+        row,
+        retrieval_score,
+        retrieval_percentile,
+        style_score,
+        normalized_style_score,
+    ) in zip(
+        leading,
+        retrieval_scores,
+        retrieval_percentiles,
+        style_scores,
+        normalized_style_scores,
+        strict=True,
+    ):
+        row["retrieval_score"] = retrieval_score
+        row["retrieval_percentile"] = retrieval_percentile
+        row["legwear_style_score"] = style_score
+        row["legwear_style_normalized_score"] = normalized_style_score
         row["score"] = (
             (1.0 - blend) * retrieval_percentile
             + blend * normalized_style_score

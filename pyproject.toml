@@ -16,6 +16,7 @@ dependencies = [
     "selenium>=4.20",
     "torch>=2.4",
     "transformers>=4.45,<6",
+    "websocket-client>=1.8",
 ]
 
 [tool.setuptools.packages.find]

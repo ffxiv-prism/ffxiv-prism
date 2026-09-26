@@ -4,15 +4,104 @@ import unittest
 
 from ffxiv_prism.matching.garment_morphology import (
     BODY_STYLE_CLASSES,
+    FEET_STYLE_CLASSES,
     LEGS_STYLE_CLASSES,
+    LEGS_STYLE_PROMPTS,
     StylePrediction,
     apply_style_crop_multipliers,
+    body_style_consensus_policy,
+    long_body_legwear_decision,
+    long_top_probability,
+    rerank_candidates_with_legwear_profile,
     rerank_candidates_with_style,
     style_policy,
 )
 
 
 class GarmentMorphologyTests(unittest.TestCase):
+    def test_body_context_cannot_route_without_confident_torso_agreement(self) -> None:
+        context = StylePrediction.from_probabilities("BODY", (.90, .02, .04, .04))
+        for core in (
+            None,
+            StylePrediction.from_probabilities("BODY", (.68, .06, .02, .24)),
+            StylePrediction.from_probabilities("BODY", (.03, .02, .05, .90)),
+            StylePrediction.from_probabilities("BODY", (.03, .02, .90, .05)),
+        ):
+            with self.subTest(core=core):
+                policy = body_style_consensus_policy(context, core)
+                self.assertFalse(policy.active)
+                records = [{"name": "body_context", "role": "context"}]
+                self.assertEqual(apply_style_crop_multipliers(records, policy), records)
+
+    def test_body_agreement_preserves_both_short_and_long_policies(self) -> None:
+        for values in ((.90, .02, .04, .04), (.02, .90, .04, .04), (.02, .04, .04, .90)):
+            prediction = StylePrediction.from_probabilities("BODY", values)
+            self.assertEqual(
+                body_style_consensus_policy(prediction, prediction),
+                style_policy(prediction, minimum_confidence=.75),
+            )
+
+    def test_body_split_short_long_probability_cannot_enable_style_reranking(self) -> None:
+        # Saved cross-host regression: target mass .756 used to pass the gate,
+        # although the incorrectly predicted crop-top class was only .499.
+        prediction = StylePrediction.from_probabilities("BODY", (.499, .026, .244, .231))
+        policy = style_policy(prediction, minimum_confidence=.75)
+        self.assertFalse(policy.active)
+        candidates = [{"rank": 1, "piece_id": 1, "score": .75},
+                      {"rank": 2, "piece_id": 2, "score": .33}]
+        result = rerank_candidates_with_style(
+            candidates, prediction, {1: (.01, .01, .08, .90), 2: (.95, .01, .03, .01)},
+            rerank_k=100, blend=.70, minimum_confidence=.75,
+        )
+        self.assertEqual(result, candidates)
+        self.assertEqual(apply_style_crop_multipliers([{"name": "body_context"}], policy),
+                         [{"name": "body_context"}])
+
+    def test_body_regular_winner_cannot_activate_short_garment_route(self) -> None:
+        prediction = StylePrediction.from_probabilities("BODY", (.2, .1, .5, .2))
+        self.assertFalse(style_policy(prediction, minimum_confidence=.45).active)
+
+    def test_legwear_prompts_distinguish_shorts_from_continuous_skirt(self) -> None:
+        hot_shorts_prompt = LEGS_STYLE_PROMPTS[
+            LEGS_STYLE_CLASSES.index("hot_shorts")
+        ]
+        skirt_prompt = LEGS_STYLE_PROMPTS[
+            LEGS_STYLE_CLASSES.index("short_skirt")
+        ]
+
+        self.assertIn("divided crotch", hot_shorts_prompt)
+        self.assertIn("separate leg openings", hot_shorts_prompt)
+        self.assertIn("continuous", skirt_prompt)
+        self.assertIn("without a divided crotch", skirt_prompt)
+
+    def test_feet_height_reranker_promotes_tall_boot_candidate(self) -> None:
+        prediction = StylePrediction.from_probabilities(
+            "FEET",
+            dict(zip(FEET_STYLE_CLASSES, (0.08, 0.92), strict=True)),
+        )
+        policy = style_policy(prediction, minimum_confidence=0.70)
+        candidates = [
+            {"rank": 1, "piece_id": 1, "score": 0.95, "name_en": "Ankle boots"},
+            {"rank": 2, "piece_id": 2, "score": 0.80, "name_en": "Thighboots"},
+        ]
+
+        reranked = rerank_candidates_with_style(
+            candidates,
+            prediction,
+            {
+                1: (0.88, 0.12),
+                2: (0.06, 0.94),
+            },
+            rerank_k=2,
+            blend=0.70,
+            minimum_confidence=0.70,
+        )
+
+        self.assertTrue(policy.active)
+        self.assertEqual(policy.reason, "high_confidence_tall_footwear")
+        self.assertEqual(policy.crop_multipliers, {})
+        self.assertEqual(reranked[0]["piece_id"], 2)
+
     def test_body_policy_prioritizes_waist_and_shoulder_style_crops(self) -> None:
         prediction = StylePrediction.from_probabilities(
             "BODY",
@@ -68,6 +157,112 @@ class GarmentMorphologyTests(unittest.TestCase):
         self.assertEqual(reranked[0]["retrieval_score"], 0.90)
         self.assertEqual([row["rank"] for row in reranked], [1, 2, 3])
 
+    def test_long_body_style_prioritizes_context_and_long_candidate(self) -> None:
+        prediction = StylePrediction.from_probabilities(
+            "BODY",
+            (0.02, 0.01, 0.02, 0.95),
+        )
+        policy = style_policy(prediction, minimum_confidence=0.75)
+        records = [
+            {"name": "body_torso"},
+            {"name": "body_upper_core"},
+            {"name": "body_context"},
+        ]
+
+        adjusted = apply_style_crop_multipliers(records, policy)
+        reranked = rerank_candidates_with_style(
+            [
+                {"rank": 1, "piece_id": 1, "score": 0.95},
+                {"rank": 2, "piece_id": 2, "score": 0.80},
+            ],
+            prediction,
+            {
+                1: (0.80, 0.02, 0.16, 0.02),
+                2: (0.02, 0.01, 0.02, 0.95),
+            },
+            rerank_k=2,
+            blend=0.70,
+            minimum_confidence=0.75,
+        )
+
+        self.assertTrue(policy.active)
+        self.assertEqual(policy.reason, "high_confidence_long_top")
+        self.assertGreater(
+            adjusted[2]["style_weight_multiplier"],
+            adjusted[0]["style_weight_multiplier"],
+        )
+        self.assertEqual(reranked[0]["piece_id"], 2)
+
+    def test_long_body_visible_covered_legwear_selects_plain_trousers(self) -> None:
+        decision = long_body_legwear_decision(
+            ((0.61, 0.39), (0.74, 0.26)),
+            ((0.08, 0.92), (0.16, 0.84)),
+            ((0.90, 0.06, 0.04), (0.95, 0.03, 0.02)),
+        )
+
+        self.assertTrue(decision.observable)
+        self.assertEqual(decision.mode, "covered")
+        self.assertEqual(decision.predicted_class, "plain_trousers")
+        self.assertEqual(decision.crop_index, 0)
+
+    def test_long_body_visible_exposed_legwear_keeps_short_style(self) -> None:
+        decision = long_body_legwear_decision(
+            ((0.60, 0.40), (0.70, 0.30)),
+            ((0.40, 0.60), (0.72, 0.28)),
+            ((0.80, 0.10, 0.10), (0.85, 0.10, 0.05)),
+        )
+
+        self.assertTrue(decision.observable)
+        self.assertEqual(decision.mode, "exposed")
+        self.assertEqual(decision.predicted_class, "exposed_legs")
+        self.assertEqual(decision.crop_index, 1)
+
+    def test_long_body_hidden_legwear_does_not_invent_a_style(self) -> None:
+        decision = long_body_legwear_decision(
+            ((0.20, 0.80), (0.42, 0.58)),
+            ((0.90, 0.10), (0.80, 0.20)),
+            ((0.90, 0.05, 0.05), (0.85, 0.10, 0.05)),
+        )
+
+        self.assertFalse(decision.observable)
+        self.assertIsNone(decision.mode)
+        self.assertEqual(decision.classes, ())
+        self.assertEqual(decision.probabilities, ())
+
+    def test_long_body_legwear_reranker_matches_query_instead_of_fixed_prior(self) -> None:
+        candidates = [
+            {"rank": 1, "piece_id": 1, "score": 0.95},
+            {"rank": 2, "piece_id": 2, "score": 0.80},
+            {"rank": 3, "piece_id": 3, "score": 0.70},
+        ]
+
+        reranked = rerank_candidates_with_legwear_profile(
+            candidates,
+            (0.90, 0.10),
+            {
+                1: (0.05, 0.95),
+                2: (0.95, 0.05),
+                3: (0.80, 0.20),
+            },
+            rerank_k=3,
+            blend=0.65,
+            minimum_confidence=0.45,
+        )
+
+        self.assertEqual(reranked[0]["piece_id"], 2)
+        self.assertGreater(
+            reranked[0]["legwear_style_score"],
+            reranked[1]["legwear_style_score"],
+        )
+
+    def test_long_top_probability_is_safe_for_missing_diagnostics(self) -> None:
+        self.assertEqual(long_top_probability(None), 0.0)
+        self.assertEqual(long_top_probability({"probabilities": {}}), 0.0)
+        self.assertAlmostEqual(
+            long_top_probability({"probabilities": {"long_top": 0.91}}),
+            0.91,
+        )
+
     def test_legs_style_can_outweigh_unmatched_lower_leg_coverage(self) -> None:
         prediction = StylePrediction.from_probabilities(
             "LEGS",
@@ -83,6 +278,7 @@ class GarmentMorphologyTests(unittest.TestCase):
         ]
         adjusted = apply_style_crop_multipliers(records, policy)
 
+        self.assertEqual(adjusted[0]["role"], "auxiliary")
         self.assertEqual(
             [row["style_weight_multiplier"] for row in adjusted],
             [1.25, 0.60, 0.60, 0.40, 0.20],

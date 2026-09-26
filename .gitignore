@@ -56,6 +56,7 @@ data/processed/glamour_exemplar_*.json
 data/processed/glamour_pair_reranker_*.json
 data/processed/glamour_query_encoder_v*.json
 data/processed/piece_appearance_equivalence_*.json
+!data/processed/piece_appearance_equivalence_huiji_exact_models.json
 data/processed/retrieval_eval_cross_view_results.latest.json
 data/samples/retrieval_eval_images/**
 data/processed/retrieval_eval_mild_results.json
@@ -119,6 +120,7 @@ data/outputs/**
 # portable source artifacts.
 var/models/**
 var/tmp/**
+work/
 *.orig
 *.rej
 
@@ -145,6 +147,28 @@ var/tmp/**
 !data/indexes/google-siglip2-base-patch16-224-feet-multiscale-v7-clean-20260730/
 !data/indexes/google-siglip2-base-patch16-224-feet-multiscale-v7-clean-20260730/**
 
+# Refreshed current-best candidate snapshot (2026-08-29).
+!data/indexes/facebook-dinov2-base-slot-aligned-v3-body-multiscale-20260829-024239/
+!data/indexes/facebook-dinov2-base-slot-aligned-v3-body-multiscale-20260829-024239/**
+!data/indexes/facebook-dinov3-vitb16-body-multiscale-v3-20260829-024239/
+!data/indexes/facebook-dinov3-vitb16-body-multiscale-v3-20260829-024239/**
+!data/indexes/facebook-dinov2-base-head-multiscale-v4-20260829-024239/
+!data/indexes/facebook-dinov2-base-head-multiscale-v4-20260829-024239/**
+!data/indexes/google-siglip2-base-patch16-224-head-multiscale-v4-20260829-024239/
+!data/indexes/google-siglip2-base-patch16-224-head-multiscale-v4-20260829-024239/**
+!data/indexes/facebook-dinov3-vitb16-head-multiscale-v4-20260829-024239/
+!data/indexes/facebook-dinov3-vitb16-head-multiscale-v4-20260829-024239/**
+!data/indexes/facebook-dinov2-base-hands-multiscale-v5-20260829-024239/
+!data/indexes/facebook-dinov2-base-hands-multiscale-v5-20260829-024239/**
+!data/indexes/facebook-dinov2-base-legs-multiscale-v6-20260829-024239/
+!data/indexes/facebook-dinov2-base-legs-multiscale-v6-20260829-024239/**
+!data/indexes/facebook-dinov3-vitb16-legs-multiscale-v6-20260829-024239/
+!data/indexes/facebook-dinov3-vitb16-legs-multiscale-v6-20260829-024239/**
+!data/indexes/facebook-dinov2-base-feet-multiscale-v7-clean-20260829-024239/
+!data/indexes/facebook-dinov2-base-feet-multiscale-v7-clean-20260829-024239/**
+!data/indexes/google-siglip2-base-patch16-224-feet-multiscale-v7-clean-20260829-024239/
+!data/indexes/google-siglip2-base-patch16-224-feet-multiscale-v7-clean-20260829-024239/**
+
 !data/models/current-best/
 !data/models/current-best/**
 
@@ -155,3 +179,6 @@ var/models/dinov3-vitb16-pretrain-lvd1689m/*
 !var/models/dinov3-vitb16-pretrain-lvd1689m/LICENSE.md
 !var/models/dinov3-vitb16-pretrain-lvd1689m/model.safetensors
 !var/models/dinov3-vitb16-pretrain-lvd1689m/preprocessor_config.json
+
+# Generated image eligibility catalogue; rebuilt by the unified update workflow.
+data/processed/equipment_image_samples.jsonl

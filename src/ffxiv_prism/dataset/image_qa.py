@@ -6,7 +6,13 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, BinaryIO
 
-from ffxiv_prism.jsonl import append_jsonl, read_jsonl, write_json
+from PIL import Image
+
+from ffxiv_prism.jsonl import (
+    read_jsonl,
+    write_json_atomic,
+    write_jsonl_atomic,
+)
 from ffxiv_prism.paths import PROCESSED_DIR, ensure_project_dirs, portable_path, resolve_project_path
 
 
@@ -47,8 +53,11 @@ def build_image_qa_index(
         for row in rows
     ]
 
-    write_jsonl(output_path, qa_rows)
-    write_jsonl(missing_manifest_path, [row for row in qa_rows if row["qa_status"] == "missing"])
+    write_jsonl_atomic(output_path, qa_rows)
+    write_jsonl_atomic(
+        missing_manifest_path,
+        [row for row in qa_rows if row["qa_status"] == "missing"],
+    )
 
     summary = summarize_qa_rows(qa_rows)
     summary.update(
@@ -60,7 +69,7 @@ def build_image_qa_index(
             "min_height": min_height,
         }
     )
-    write_json(summary_path, summary)
+    write_json_atomic(summary_path, summary)
     return summary
 
 
@@ -115,7 +124,11 @@ def annotate_image_row(
 
     try:
         width, height, image_format = read_image_dimensions(path)
-    except ImageHeaderError as exc:
+        with Image.open(path) as image:
+            image.verify()
+        with Image.open(path) as image:
+            image.load()
+    except (ImageHeaderError, OSError, ValueError, SyntaxError) as exc:
         flags.append("invalid_image")
         qa["image_format"] = None
         qa["image_error"] = str(exc)
@@ -299,16 +312,9 @@ def example_row(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
-    if path.exists():
-        path.unlink()
-    append_jsonl(path, rows)
-
-
 def summary_to_text(summary: dict[str, Any]) -> str:
     return json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True)
 
 
 class ImageHeaderError(ValueError):
     pass
-

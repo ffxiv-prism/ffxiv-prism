@@ -26,22 +26,16 @@ STAGES: dict[str, list[list[str]]] = {
         ["scripts/enrich_gear_pieces_with_zh_names.py"],
         ["scripts/enrich_gear_pieces_with_lodestone_equip_notes.py"],
     ],
+    "cafemaker-enrich-local": [
+        ["scripts/filter_cafemaker_item_names_for_gear_pieces.py"],
+        ["scripts/enrich_gear_pieces_with_zh_names.py"],
+        ["scripts/enrich_gear_pieces_with_lodestone_equip_notes.py"],
+    ],
     "huiji-missing-zh": [["scripts/search_huiji_item_zh_name.py", "--batch-missing", "--retry-failed"]],
     "build-index": [["scripts/build_eorzea_dataset_index.py"]],
     "validate-images": [["scripts/validate_eorzea_images.py"]],
     "build-sqlite": [["scripts/build_eorzea_sqlite.py"]],
 }
-
-
-DEFAULT_STAGES = [
-    "collect-details",
-    "build-image-manifest",
-    "cafemaker-zh",
-    "huiji-missing-zh",
-    "build-index",
-    "validate-images",
-    "build-sqlite",
-]
 
 
 def main() -> int:
@@ -50,9 +44,9 @@ def main() -> int:
         "--stage",
         action="append",
         choices=sorted(STAGES),
-        help="Stage to run. May be repeated. Defaults to the refresh pipeline.",
+        help="Internal maintenance stage. Without --stage, use the unified image update workflow.",
     )
-    parser.add_argument("--all", action="store_true", help="Run discovery plus the default refresh pipeline.")
+    parser.add_argument("--all", action="store_true", help="Compatibility alias for the unified image update workflow.")
     parser.add_argument("--dry-run", action="store_true", help="Print commands without executing them.")
     parser.add_argument(
         "--refresh-source",
@@ -72,9 +66,47 @@ def main() -> int:
         default=None,
         help="Optional persistent Chrome profile directory for the Huiji Selenium stage.",
     )
+    parser.add_argument(
+        "--browser-verification",
+        action="store_true",
+        help=(
+            "Use a visible persistent Chrome for Eorzea discovery/details and "
+            "wait for manual Cloudflare verification."
+        ),
+    )
+    parser.add_argument(
+        "--browser-profile-dir",
+        default=None,
+        help="Persistent Chrome profile for Eorzea browser verification.",
+    )
+    parser.add_argument(
+        "--browser-wait-seconds",
+        type=float,
+        default=300.0,
+        help="Maximum manual-verification wait per Eorzea page.",
+    )
+    parser.add_argument("--discovery-mode", choices=("auto", "incremental", "full"), default="auto")
+    parser.add_argument("--discovery-head-pages", type=int, default=3)
+    parser.add_argument("--discovery-max-head-pages", type=int, default=8)
+    parser.add_argument("--discovery-history-pages", type=int, default=3)
     args = parser.parse_args()
 
-    stage_names = ["discover", *DEFAULT_STAGES] if args.all else (args.stage or DEFAULT_STAGES)
+    if args.all or not args.stage:
+        command = [PYTHON, "scripts/run_lifecycle_pipeline.py", "--workflow", "sample-library",
+                   "--source-mode", "refresh", "--candidate-mode", "extend"]
+        command.extend(discovery_arguments(args))
+        if args.dry_run:
+            command.append("--dry-run")
+        if args.browser_verification:
+            command.extend(["--browser-verification", "--browser-wait-seconds", str(args.browser_wait_seconds)])
+            if args.browser_profile_dir:
+                command.extend(["--browser-profile-dir", args.browser_profile_dir])
+        for flag, value in (("--huiji-proxy", args.huiji_proxy), ("--huiji-user-data-dir", args.huiji_user_data_dir)):
+            if value:
+                command.extend([flag, value])
+        print("Using the unified image-library update workflow.", flush=True)
+        return subprocess.run(command, cwd=PROJECT_ROOT).returncode
+    stage_names = args.stage
     for stage_name in stage_names:
         for command in commands_for_stage(stage_name, args):
             print(format_command(command), flush=True)
@@ -85,9 +117,26 @@ def main() -> int:
 
 def commands_for_stage(stage_name: str, args: argparse.Namespace) -> list[list[str]]:
     commands = [[PYTHON, *command] for command in STAGES[stage_name]]
+    if stage_name == "build-image-manifest" and args.refresh_source:
+        for command in commands:
+            command.append("--retry-unavailable")
+    if stage_name == "discover":
+        for command in commands:
+            command.extend(discovery_arguments(args, collector=True))
     if stage_name == "discover" and args.refresh_source:
         for command in commands:
             command.append("--refresh")
+    if stage_name in {"discover", "collect-details", "build-image-manifest"} and args.browser_verification:
+        for command in commands:
+            command.extend(
+                [
+                    "--browser-verification",
+                    "--browser-wait-seconds",
+                    str(args.browser_wait_seconds),
+                ]
+            )
+            if args.browser_profile_dir:
+                command.extend(["--browser-profile-dir", args.browser_profile_dir])
     if stage_name == "huiji-missing-zh":
         for command in commands:
             if args.huiji_proxy:
@@ -95,6 +144,14 @@ def commands_for_stage(stage_name: str, args: argparse.Namespace) -> list[list[s
             if args.huiji_user_data_dir:
                 command.extend(["--user-data-dir", args.huiji_user_data_dir])
     return commands
+
+
+def discovery_arguments(args: argparse.Namespace, *, collector: bool = False) -> list[str]:
+    result = ["--discovery-mode", getattr(args, "discovery_mode", "auto")]
+    for name, default in (("head-pages", 3), ("max-head-pages", 8), ("history-pages", 3)):
+        flag = "--" + ("" if collector else "discovery-") + name
+        result.extend([flag, str(getattr(args, "discovery_" + name.replace("-", "_"), default))])
+    return result
 
 
 def format_command(command: list[str]) -> str:
@@ -109,7 +166,4 @@ def quote_arg(value: str) -> str:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-
-
 

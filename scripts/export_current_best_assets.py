@@ -14,21 +14,15 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from ffxiv_prism.matching.inference import current_best_configs  # noqa: E402
-from ffxiv_prism.paths import portable_path  # noqa: E402
+from ffxiv_prism.paths import (  # noqa: E402
+    APPEARANCE_EQUIVALENCE_PATH,
+    portable_path,
+)
 
 
 SOURCE_MODEL_DIR = PROJECT_ROOT / "data" / "models"
 RUNTIME_MODEL_DIR = SOURCE_MODEL_DIR / "current-best"
 ASSET_MANIFEST = PROJECT_ROOT / "data" / "current_best_assets.json"
-CHECKPOINT_NAMES = (
-    "appearance_disjoint_cv_v52_fold01_qv64_closed_e10.pt",
-    "appearance_disjoint_cv_v97_body_fold01_dinov3_e10.pt",
-    "appearance_disjoint_cv_v54_head_fold01_qv65_e10.pt",
-    "appearance_disjoint_cv_v71_head_fold01_dinov3_e3.pt",
-    "appearance_disjoint_cv_v59_hands_fold01_qv71_v5_e10.pt",
-    "appearance_disjoint_cv_v60_legs_fold01_qv72_e10.pt",
-    "appearance_disjoint_cv_v61_feet_fold01_qv73_e10.pt",
-)
 MORPHOLOGY_NAMES = (
     "head_morphology_v73_fold01_qv65_upper_binary_ridge.npz",
 )
@@ -68,11 +62,20 @@ def main() -> int:
         action="store_true",
         help="Validate exported assets without rewriting them.",
     )
+    parser.add_argument(
+        "--manifest-only",
+        action="store_true",
+        help=(
+            "Rewrite hashes for the existing runtime assets without "
+            "re-exporting current-best checkpoints."
+        ),
+    )
     args = parser.parse_args()
 
     if not args.check:
-        export_inference_checkpoints()
-        copy_small_model_assets()
+        if not args.manifest_only:
+            export_inference_checkpoints()
+            copy_small_model_assets()
         write_asset_manifest()
 
     problems = validate_exported_assets()
@@ -103,7 +106,7 @@ def export_inference_checkpoints() -> None:
     import torch
 
     RUNTIME_MODEL_DIR.mkdir(parents=True, exist_ok=True)
-    for name in CHECKPOINT_NAMES:
+    for name in current_checkpoint_names():
         source = SOURCE_MODEL_DIR / name
         destination = RUNTIME_MODEL_DIR / name
         if not source.is_file():
@@ -141,8 +144,9 @@ def runtime_asset_paths() -> list[Path]:
         for path in sorted(directory.iterdir(), key=lambda item: item.name)
         if path.is_file()
     ]
-    paths.extend(RUNTIME_MODEL_DIR / name for name in CHECKPOINT_NAMES)
+    paths.extend(RUNTIME_MODEL_DIR / name for name in current_checkpoint_names())
     paths.extend(RUNTIME_MODEL_DIR / name for name in MORPHOLOGY_NAMES)
+    paths.append(APPEARANCE_EQUIVALENCE_PATH)
     dinov3 = PROJECT_ROOT / "var" / "models" / "dinov3-vitb16-pretrain-lvd1689m"
     paths.extend(dinov3 / name for name in LOCAL_DINOV3_FILES)
     return paths
@@ -195,7 +199,7 @@ def validate_exported_assets() -> list[str]:
     import torch
 
     allowed = set(INFERENCE_CHECKPOINT_KEYS)
-    for name in CHECKPOINT_NAMES:
+    for name in current_checkpoint_names():
         path = RUNTIME_MODEL_DIR / name
         if not path.is_file():
             continue
@@ -206,6 +210,30 @@ def validate_exported_assets() -> list[str]:
         if "optimizer_state_dict" in payload or "history" in payload:
             problems.append(f"checkpoint was not slimmed: {name}")
     return problems
+
+
+def current_checkpoint_names() -> tuple[str, ...]:
+    configs = current_best_configs()
+    paths = {
+        path
+        for config in configs.values()
+        for path in (
+            config.query_checkpoint,
+            *config.ensemble_query_checkpoints,
+        )
+        if path is not None
+    }
+    outside_runtime = sorted(
+        str(path)
+        for path in paths
+        if path.parent.resolve() != RUNTIME_MODEL_DIR.resolve()
+    )
+    if outside_runtime:
+        raise ValueError(
+            "Current-best checkpoints must live in the runtime model directory: "
+            + ", ".join(outside_runtime)
+        )
+    return tuple(sorted(path.name for path in paths))
 
 
 def sha256_file(path: Path) -> str:
