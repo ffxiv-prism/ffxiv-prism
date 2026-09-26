@@ -182,3 +182,25 @@ var/models/dinov3-vitb16-pretrain-lvd1689m/*
 
 # Generated image eligibility catalogue; rebuilt by the unified update workflow.
 data/processed/equipment_image_samples.jsonl
+
+# Refreshed current-best candidate snapshot (2026-09-26).
+!data/indexes/facebook-dinov2-base-feet-multiscale-v7-clean-20260926-134639/
+!data/indexes/facebook-dinov2-base-feet-multiscale-v7-clean-20260926-134639/**
+!data/indexes/facebook-dinov2-base-hands-multiscale-v5-20260926-134639/
+!data/indexes/facebook-dinov2-base-hands-multiscale-v5-20260926-134639/**
+!data/indexes/facebook-dinov2-base-head-multiscale-v4-20260926-134639/
+!data/indexes/facebook-dinov2-base-head-multiscale-v4-20260926-134639/**
+!data/indexes/facebook-dinov2-base-legs-multiscale-v6-20260926-134639/
+!data/indexes/facebook-dinov2-base-legs-multiscale-v6-20260926-134639/**
+!data/indexes/facebook-dinov2-base-slot-aligned-v3-body-multiscale-20260926-134639/
+!data/indexes/facebook-dinov2-base-slot-aligned-v3-body-multiscale-20260926-134639/**
+!data/indexes/facebook-dinov3-vitb16-body-multiscale-v3-20260926-134639/
+!data/indexes/facebook-dinov3-vitb16-body-multiscale-v3-20260926-134639/**
+!data/indexes/facebook-dinov3-vitb16-head-multiscale-v4-20260926-134639/
+!data/indexes/facebook-dinov3-vitb16-head-multiscale-v4-20260926-134639/**
+!data/indexes/facebook-dinov3-vitb16-legs-multiscale-v6-20260926-134639/
+!data/indexes/facebook-dinov3-vitb16-legs-multiscale-v6-20260926-134639/**
+!data/indexes/google-siglip2-base-patch16-224-feet-multiscale-v7-clean-20260926-134639/
+!data/indexes/google-siglip2-base-patch16-224-feet-multiscale-v7-clean-20260926-134639/**
+!data/indexes/google-siglip2-base-patch16-224-head-multiscale-v4-20260926-134639/
+!data/indexes/google-siglip2-base-patch16-224-head-multiscale-v4-20260926-134639/**

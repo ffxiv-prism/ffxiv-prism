@@ -154,6 +154,9 @@ def current_best_configs() -> dict[str, SlotInferenceConfig]:
     def benchmark(slot: str, metric: str) -> float:
         return float(benchmarks[slot][metric])
 
+    def scope(fallback: str) -> str:
+        return str(selection.get("benchmark_scope") or fallback)
+
     def eligible(slot: str) -> int:
         return int(benchmarks[slot]["eligible"])
 
@@ -208,7 +211,7 @@ def current_best_configs() -> dict[str, SlotInferenceConfig]:
             style_min_confidence=0.75,
             benchmark_top1=benchmark("BODY", "top1"),
             benchmark_top10=benchmark("BODY", "top10"),
-            benchmark_scope=(
+            benchmark_scope=scope(
                 "strict item-disjoint three-fold pooled BODY v110 baseline "
                 f"({eligible('BODY')} images): refreshed DINOv2 plus zero-shot DINOv3 with "
                 "the final DINOv2 Top-1000 pool frozen. The adapted DINOv3 "
@@ -249,7 +252,7 @@ def current_best_configs() -> dict[str, SlotInferenceConfig]:
             ensemble_pool_rrf_k=1,
             benchmark_top1=benchmark("HEAD", "top1"),
             benchmark_top10=benchmark("HEAD", "top10"),
-            benchmark_scope=(
+            benchmark_scope=scope(
                 "strict three-fold pooled DINOv2+SigLIP2+DINOv3-query-adapted gated rank "
                 "ensemble with upper-query to face-candidate routing "
                 f"({eligible('HEAD')} images; DINOv2+SigLIP2 Top-1000 baseline pool). "
@@ -273,7 +276,7 @@ def current_best_configs() -> dict[str, SlotInferenceConfig]:
             no_equipment_min_probability=0.80,
             benchmark_top1=benchmark("HANDS", "top1"),
             benchmark_top10=benchmark("HANDS", "top10"),
-            benchmark_scope=(
+            benchmark_scope=scope(
                 f"strict item-disjoint three-fold pooled benchmark ({eligible('HANDS')} images); frozen "
                 "occupied-slot Top-1 gate demotes multi-slot outfit pieces only "
                 "when an exact HANDS piece is already in the base Top-3. "
@@ -305,7 +308,7 @@ def current_best_configs() -> dict[str, SlotInferenceConfig]:
             style_min_confidence=0.50,
             benchmark_top1=benchmark("LEGS", "top1"),
             benchmark_top10=benchmark("LEGS", "top10"),
-            benchmark_scope=(
+            benchmark_scope=scope(
                 "strict three-fold pooled DINOv2+DINOv3 branch RRF(k=1), "
                 "query-crop RRF(k=1), with the final DINOv2 Top-1000 "
                 f"piece pool frozen ({eligible('LEGS')} images). The confidence-gated "
@@ -333,7 +336,7 @@ def current_best_configs() -> dict[str, SlotInferenceConfig]:
             style_min_confidence=0.70,
             benchmark_top1=benchmark("FEET", "top1"),
             benchmark_top10=benchmark("FEET", "top10"),
-            benchmark_scope=(
+            benchmark_scope=scope(
                 "strict three-fold pooled DINOv2+SigLIP2 rank ensemble "
                 "with query-crop RRF(k=1), after primary visual-piece "
                 f"metadata cleanup ({eligible('FEET')} images); the confidence-gated "

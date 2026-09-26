@@ -2,7 +2,7 @@
 
 FFXIV Prism 是一个本地优先的《最终幻想 XIV》装备外观候选检索工具。输入一张单人角色截图，系统按 `HEAD`、`BODY`、`HANDS`、`LEGS`、`FEET` 五个部位裁剪并返回装备候选。
 
-当前版本适合作为“Top-10 候选 + 人工确认”的本地 Demo，不应描述为自动装备鉴定器。最近一次已注册的严格物品不相交三折评估中，只有 BODY 达到 Top-10 80%；其余部位仍有明显差距，HANDS 是首要瓶颈。2026-07-30 修复候选覆盖后评估分母已变化，下表只作为历史基准，必须重跑后才能登记为当前成绩。完整现状、训练准入审计和根因证据见 [当前状态](docs/current_status_2026-07-30_zh.md)。
+当前版本适合作为“Top-10 候选 + 人工确认”的本地 Demo，不应描述为自动装备鉴定器。2026-09-26 数据更新后已完成 18 个分折续训任务和新旧权重对比，但新权重均未通过分组不退步门槛，现有最佳权重保持不变。只有 BODY 达到 Top-10 80%；HANDS 仍是首要瓶颈。详见[本轮训练与评测结论](docs/weight_refresh_2026-09-26_zh.md)。
 
 ## 快速开始
 
@@ -82,18 +82,20 @@ WebUI 会检测启动它的 Python/PyTorch 环境：GPU 环境可在每次任务
 
 ## 最近一次注册严格指标
 
-口径为玩家搭配图上的严格物品不相交三折 pooled Appearance Recall：
+口径为玩家搭配图上的严格外观不相交三折 pooled Appearance Recall，候选按官方同外观组去重。
+本次在相同更新后候选库上对比新旧权重，使用既有验证集选择模型，不是独立盲测；
+不含风格重排、无装备判断和 HEAD 局部召回。与旧版未去重的注册值不可直接比较。
 
 | 部位 | 样本数 | Top-1 | Top-10 | 状态 |
 | --- | ---: | ---: | ---: | --- |
-| BODY | 1,013 | 59.72% | 82.03% | Top-10 达标；适配 DINOv3 因折内域回退未发布 |
-| HEAD | 927 | 28.69% | 49.41% | 未达标 |
-| HANDS | 959 | 3.02% | 8.97% | 最差、优先处理 |
-| LEGS | 970 | 12.89% | 31.34% | 未达标 |
-| FEET | 930 | 20.00% | 42.58% | 未达标 |
+| BODY | 1,013 | 59.72% | 85.00% | Top-10 达标；保留原权重 |
+| HEAD | 927 | 28.69% | 52.64% | 未达标；保留原权重 |
+| HANDS | 959 | 3.02% | 10.01% | 最差、优先处理；保留原权重 |
+| LEGS | 970 | 12.89% | 33.51% | 未达标；保留原权重 |
+| FEET | 930 | 20.32% | 45.48% | 未达标；保留原权重 |
 
 机器可读快照位于 `data/processed/current_recognition_metrics.json`，已登记为
-`release_ready`，对应候选快照 `20260829-024239`。目标仍是所有部位 Top-10 ≥ 80%；
+`release_ready`，对应候选快照 `20260926-134639`。目标仍是所有部位 Top-10 ≥ 80%；
 本次经明确的 `--allow-below-target` 发布现有最佳模型，不用 Top-1000 候选覆盖代替
 Top-10 成绩。
 
@@ -131,9 +133,9 @@ python scripts\audit_slot_quality_folds.py
 
 ## 数据库与候选索引
 
-规范装备库为 `data/processed/eorzea.sqlite`。2026-08-29 生命周期快照包含
-2,456 个套装、11,796 个装备部件和 40,048 张图片，其中 39,947 张通过 QA；
-发布预览所需的 19,807 张图片全部可用。玩家逐槽准入集的五部位标签均已达到
+规范装备库为 `data/processed/eorzea.sqlite`。2026-09-26 生命周期快照包含
+2,460 个套装、11,815 个装备部件和 40,076 张图片，其中 40,074 张通过 QA；
+发布预览所需的 19,826 张图片全部可用。玩家逐槽准入集的五部位标签均已达到
 100% 活动候选覆盖。
 
 ## 更新装备图片库
@@ -207,7 +209,26 @@ python scripts/filter_cafemaker_item_names_for_gear_pieces.py
 
 ### 模型训练与发布
 
-训练与数据更新独立。重新评估并登记有效指标后，才可执行模型发布门禁：
+训练与数据更新独立：更新候选图片和索引不会自动更新查询模型权重。
+本地保存了上一轮各分折完整训练检查点、玩家标签、可见性审核和裁剪时，可执行续训：
+
+```powershell
+python scripts/audit_slot_quality_folds.py --output data/outputs/model-refresh-20260926/fold-audit.json
+python scripts/run_weight_refresh_training.py --output-dir data/outputs/model-refresh-20260926 --fold-audit data/outputs/model-refresh-20260926/fold-audit.json --prefix refresh_20260926 --execute
+python scripts/evaluate_weight_refresh.py --run-dir data/outputs/model-refresh-20260926
+python scripts/register_weight_refresh.py --run-dir data/outputs/model-refresh-20260926 --release-id 20260926-weight-refresh --candidate-suffix 20260926-134639 --evidence-output data/processed/weight_refresh_20260926.json
+```
+
+每次新实验使用新的输出目录和检查点前缀；登记时的候选后缀必须对应实际激活的索引。
+训练固定为各分折 DINOv2 续训 3 轮、HEAD DINOv3 续训 1 轮，沿用该分折优化器；
+不跨折复用权重，不根据验证结果搜索训练轮数。输入哈希或已完成检查点变化时停止恢复。
+新旧权重在同一候选快照上重新评测，按官方同外观组去重后计算身份召回。
+只有 pooled Top-1 或 Top-10 提升，且每个分折、种族、性别分组的 Top-1/Top-10
+均不下降，才替换相应分支；其余分支保留原权重。这里使用既有验证集选择模型，
+不是独立盲测，也不包含风格重排、无装备判断和 HEAD 局部召回等额外策略。
+评测明细和训练产物留在本地，仓库仅保存汇总证据与选中的推理资产。
+
+重新评估并登记有效指标后，才可执行模型发布门禁：
 
 ```powershell
 python scripts/run_lifecycle_pipeline.py --workflow model-release --release-mode check
