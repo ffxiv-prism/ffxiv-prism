@@ -24,10 +24,8 @@ const elements = {
   jobLog: $("#job-log"),
   progressBar: $("#progress-bar"),
   results: $("#results-section"),
-  visualGrid: $("#visual-grid"),
-  notice: $("#result-notice"),
-  slotTabs: $("#slot-tabs"),
-  slotResults: $("#slot-results"),
+  reportFrame: $("#report-frame"),
+  reportStatus: $("#report-status"),
   resultSummary: $("#result-summary"),
   rawReport: $("#raw-report-link"),
   updateDialog: $("#update-dialog"),
@@ -38,14 +36,6 @@ const elements = {
   toast: $("#toast"),
 };
 
-const slotLabels = {
-  HEAD: "头部",
-  BODY: "身体",
-  HANDS: "手部",
-  LEGS: "腿部",
-  FEET: "脚部",
-};
-
 const updateNotes = {
   standard: "发现新增装备图片 → 下载与质量校验 → 关联装备标签 → 更新检索索引；随后补充中文名和染色信息。首次补齐图片与索引可能耗时较长。",
   "local-index": "不采集远程图片或资料，使用已有图片重新校验、关联标签，并补齐本地检索索引。训练需要另行审核与执行。",
@@ -54,8 +44,7 @@ const updateNotes = {
 let selectedImage = null;
 let previewUrl = null;
 let pollTimer = null;
-let activeResult = null;
-let activeSlot = null;
+let reportResizeObserver = null;
 let runtimeLoaded = false;
 let taskBusy = false;
 
@@ -67,10 +56,6 @@ function formatNumber(value) {
 function formatBytes(bytes) {
   if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function fileUrl(path) {
-  return `/api/file?path=${encodeURIComponent(path)}`;
 }
 
 function selectedDevice() {
@@ -339,117 +324,41 @@ function startPolling(jobId) {
   poll();
 }
 
+// Display the generated report itself so styles, content, and interactions stay in sync.
+elements.reportFrame.addEventListener("load", () => {
+  if (!elements.reportFrame.hasAttribute("src")) return;
+  reportResizeObserver?.disconnect();
+  const reportDocument = elements.reportFrame.contentDocument;
+  const reportContent = reportDocument?.querySelector("main");
+  elements.reportFrame.setAttribute("aria-busy", "false");
+  if (!reportContent) {
+    elements.reportStatus.textContent = "报告加载失败，请点击“打开原始报告”重试。";
+    elements.reportStatus.hidden = false;
+    return;
+  }
+  const resizeReport = () => {
+    // Measure content rather than the viewport, allowing the frame to shrink on collapse.
+    const height = Math.ceil(reportContent.getBoundingClientRect().height);
+    if (height > 0) elements.reportFrame.style.height = `${height}px`;
+  };
+  // Defer viewport changes so the report's responsive layout can settle first.
+  reportResizeObserver = new ResizeObserver(() => window.requestAnimationFrame(resizeReport));
+  reportResizeObserver.observe(reportContent);
+  resizeReport();
+  elements.reportStatus.hidden = true;
+});
+
 function renderResults(result, reportUrl) {
-  activeResult = result;
-  activeSlot = result.slots?.[0]?.slot || null;
+  reportResizeObserver?.disconnect();
   elements.results.hidden = false;
   elements.rawReport.href = reportUrl;
   elements.resultSummary.textContent = `${deviceLabel(result.device)} 推断 · ${result.slots.length} 个部位 · 每个部位最多 ${result.top_k} 件候选 · 姿态质量 ${Math.round(result.pose_quality * 100)}%`;
-  elements.visualGrid.innerHTML = "";
-
-  const visuals = [
-    ["输入截图", result.input.path],
-    ["人物与区域质检", result.artifacts.overlay],
-    ["装备部位裁剪", result.artifacts.contact_sheet],
-  ];
-  for (const [label, path] of visuals) {
-    const figure = document.createElement("figure");
-    figure.className = "visual-card";
-    figure.innerHTML = `<div><img loading="lazy" alt="${escapeHtml(label)}"></div><figcaption>${escapeHtml(label)}</figcaption>`;
-    $("img", figure).src = fileUrl(path);
-    elements.visualGrid.append(figure);
-  }
-
-  const warnings = result.warnings || [];
-  elements.notice.innerHTML = warnings.length
-    ? `<ul>${warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join("")}</ul>`
-    : "候选分数是相对排序信号，并非准确率或概率。";
-
-  elements.slotTabs.innerHTML = "";
-  for (const slot of result.slots) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.role = "tab";
-    button.textContent = `${slotLabels[slot.slot] || slot.slot} · ${slot.candidates?.length || 0}`;
-    button.setAttribute("aria-selected", String(slot.slot === activeSlot));
-    button.addEventListener("click", () => {
-      activeSlot = slot.slot;
-      $$("button", elements.slotTabs).forEach((tab, index) => {
-        tab.setAttribute("aria-selected", String(result.slots[index].slot === activeSlot));
-      });
-      renderSlot(slot);
-    });
-    elements.slotTabs.append(button);
-  }
-  if (result.slots[0]) renderSlot(result.slots[0]);
+  elements.reportStatus.textContent = "正在加载报告…";
+  elements.reportStatus.hidden = false;
+  elements.reportFrame.style.height = "600px";
+  elements.reportFrame.setAttribute("aria-busy", "true");
+  elements.reportFrame.src = reportUrl;
   elements.results.scrollIntoView({ behavior: "smooth", block: "start" });
-}
-
-function renderSlot(slot) {
-  const benchmark = slot.benchmark;
-  const benchmarkText = benchmark
-    ? `参考基准：Top-1 ${formatPercent(benchmark.top1)} / Top-10 ${formatPercent(benchmark.top10)}；${benchmark.scope}。该指标不是本图置信度。`
-    : "当前部位没有可用的参考基准。";
-  const quality = slot.ranking_quality?.level || "normal";
-  const qualityText = quality === "low" ? "建议人工复核" : "排序正常";
-  const candidates = slot.candidates || [];
-
-  elements.slotResults.innerHTML = `
-    <div class="slot-report-header">
-      <div>
-        <h3>${escapeHtml(slotLabels[slot.slot] || slot.slot)}</h3>
-        <p>${escapeHtml(benchmarkText)}</p>
-      </div>
-      <span class="quality-badge ${escapeHtml(quality)}">${escapeHtml(qualityText)}</span>
-    </div>
-    <div class="candidate-grid"></div>
-  `;
-  const grid = $(".candidate-grid", elements.slotResults);
-  if (!candidates.length) {
-    grid.className = "empty-state";
-    grid.textContent = "这个部位没有返回候选。";
-    return;
-  }
-  for (const candidate of candidates) {
-    const article = document.createElement("article");
-    const isNoEquipment = Boolean(candidate.is_no_equipment);
-    article.className = `candidate${isNoEquipment ? " no-equipment" : ""}`;
-    const displayName = candidate.name_zh || candidate.name_en || "未知装备";
-    const englishName = candidate.name_zh ? candidate.name_en : "";
-    const sourceUrl = candidate.source_image_url || candidate.source_item_url || "";
-    const alternatives = (candidate.appearance_alternatives || [])
-      .map((item) => item.name_zh || item.name_en)
-      .filter(Boolean)
-      .join("、");
-    article.innerHTML = `
-      <span class="candidate-rank">#${escapeHtml(candidate.rank)}</span>
-      ${isNoEquipment
-        ? '<div class="candidate-image invisible-appearance"><strong>∅</strong><span>不显示外观</span></div>'
-        : `<div class="candidate-image"><img loading="lazy" alt="${escapeHtml(displayName)}"></div>`}
-      <div class="candidate-copy">
-        <h4>${escapeHtml(displayName)}${englishName ? `<span>${escapeHtml(englishName)}</span>` : ""}</h4>
-        ${isNoEquipment ? '<div class="no-equipment-note">未检测到可见装备</div>' : ""}
-        ${alternatives ? `<div class="candidate-alternatives">同模型可选：${escapeHtml(alternatives)}</div>` : ""}
-        <div class="candidate-meta">
-          <span>${isNoEquipment ? "无装备信号" : "分数"} ${Number(candidate.score).toFixed(4)}</span>
-          ${sourceUrl ? `<a href="${escapeHtml(sourceUrl)}" target="_blank" rel="noopener">来源 ↗</a>` : ""}
-        </div>
-      </div>
-    `;
-    if (!isNoEquipment) {
-      const image = $("img", article);
-      image.src = fileUrl(candidate.local_preview);
-      image.addEventListener("error", () => {
-        image.alt = `${displayName}（本地预览缺失）`;
-        image.closest(".candidate-image").classList.add("missing");
-      });
-    }
-    grid.append(article);
-  }
-}
-
-function formatPercent(value) {
-  return Number.isFinite(Number(value)) ? `${(Number(value) * 100).toFixed(1)}%` : "—";
 }
 
 function escapeHtml(value) {
