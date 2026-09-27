@@ -574,27 +574,6 @@ def title_from_text(value: str | None, suffix: str) -> str | None:
     return clean_text(title) or None
 
 
-def infer_gender(text: str | None) -> str | None:
-    if not text:
-        return None
-    lowered = text.lower()
-    if "female" in lowered:
-        return "Female"
-    if "male" in lowered:
-        return "Male"
-    return None
-
-
-def infer_race(text: str | None) -> str | None:
-    if not text:
-        return None
-    lowered = text.lower()
-    for race in RACES:
-        if race.lower() in lowered:
-            return race
-    return None
-
-
 def infer_profile(text: str) -> dict[str, list[str]]:
     return {
         "genders": unique([gender for gender in GENDERS if re.search(rf"\b{re.escape(gender)}\b", text, re.I)]),

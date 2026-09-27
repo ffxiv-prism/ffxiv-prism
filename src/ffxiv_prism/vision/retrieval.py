@@ -122,11 +122,6 @@ class ClipImageEncoder:
             image.close()
 
 
-def choose_device(torch: Any, requested: str) -> str:
-    """Backward-compatible wrapper around the shared device resolver."""
-    return str(resolve_torch_device(requested, torch_module=torch))
-
-
 def open_rgb(path: Path) -> Image.Image:
     with Image.open(path) as image:
         return image.convert("RGB")

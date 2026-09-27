@@ -440,7 +440,6 @@ def _repair_mask_gaps_and_holes(mask: Image.Image) -> tuple[Image.Image, float]:
     padded.paste(binary, (1, 1))
     ImageDraw.floodfill(padded, (0, 0), 128)
     flooded = np.asarray(padded, dtype=np.uint8)[1:-1, 1:-1]
-    holes = flooded == 0
     outside = flooded == 128
     filled = np.where(outside, 0, 255).astype(np.uint8)
     repaired_fraction = float(((filled >= 128) & ~original).mean())

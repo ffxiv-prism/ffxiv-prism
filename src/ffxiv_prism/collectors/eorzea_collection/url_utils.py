@@ -15,17 +15,6 @@ def absolute_url(url: str, base_url: str = BASE_URL) -> str:
     return urljoin(base_url, url)
 
 
-def is_eorzea_url(url: str) -> bool:
-    parsed = urlparse(url)
-    return parsed.netloc.endswith("eorzeacollection.com")
-
-
-def is_probable_image_url(url: str) -> bool:
-    parsed = urlparse(url)
-    path = parsed.path.lower()
-    return any(path.endswith(ext) for ext in (".jpg", ".jpeg", ".png", ".webp", ".gif"))
-
-
 def extract_slug(url: str, prefix: str) -> str:
     parsed = urlparse(url)
     pattern = rf"/{re.escape(prefix)}/([^/?#]+)"

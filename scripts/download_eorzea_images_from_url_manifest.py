@@ -29,6 +29,7 @@ from ffxiv_prism.collectors.eorzea_collection.visible_browser import (  # noqa: 
     create_visible_driver,
     fetch_verified_html,
 )
+from ffxiv_prism.progress import format_duration  # noqa: E402
 from ffxiv_prism.jsonl import append_jsonl, read_jsonl, write_json  # noqa: E402
 from ffxiv_prism.paths import (  # noqa: E402
     EORZEA_METADATA_DIR,
@@ -453,17 +454,6 @@ class ImageDownloadProgress:
             self.final_printed = True
         else:
             print(f"\r{line}", end="", file=sys.stderr, flush=True)
-
-
-def format_duration(seconds: float) -> str:
-    seconds = max(int(seconds), 0)
-    hours, remainder = divmod(seconds, 3600)
-    minutes, seconds = divmod(remainder, 60)
-    if hours:
-        return f"{hours}h{minutes:02d}m"
-    if minutes:
-        return f"{minutes}m{seconds:02d}s"
-    return f"{seconds}s"
 
 
 if __name__ == "__main__":

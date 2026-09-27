@@ -262,13 +262,15 @@ tests/                  标准库 unittest 测试
 web/                    无构建步骤的本地网页
 docs/                   当前合并状态文档
 data/processed/         规范小型清单与装备库快照
-data/interim/           仅保留登记的严格三折清单
-data/indexes/           current-best 索引随 Git LFS 发布；其他索引忽略
-data/models/            current-best 推理检查点随 Git LFS 发布；训练检查点忽略
-data/debug/             可删除调试输出（忽略）
-data/outputs/           可删除运行输出（忽略）
+data/interim/           本地采集队列、严格三折清单和历史划分（忽略）
+data/indexes/           当前及保留的历史发布索引随 Git LFS 管理；其他索引忽略
+data/models/            current-best 当前及历史推理检查点随 Git LFS 管理；训练检查点忽略
+data/debug/             训练裁剪、人工审核和调试输出（忽略；清理前核对依赖）
+data/outputs/           运行报告、训练计划及评估证据（忽略；清理前核对依赖）
 var/                    模型运行时与缓存（忽略）
 ```
+
+已删除的旧代码与保留资产清单见[仓库清理审计](docs/repository_cleanup_2026-09-28_zh.md)。
 
 ## 验证
 
@@ -284,7 +286,7 @@ python scripts\recognize_glamour.py --check
 - 项目只处理单主角、清晰度足够的 FFXIV 风格图片；
 - 染色、遮挡、动作、宽檐头饰、小型饰品和多槽占用会显著影响排序；
 - 排名分数是相对检索信号，不是校准概率；
-- 装备图片、训练数据、训练检查点、调试输出和公共模型缓存不进入 Git；仅发布清单中登记的 `current-best` 推理资产通过 Git LFS 提供。
+- 装备图片、训练数据、训练检查点、调试输出和公共模型缓存不进入 Git；`current-best` 推理资产通过 Git LFS 提供。仓库还保留历史发布资产，当前实际使用范围以 `data/current_best_assets.json` 为准。
 当 Eorzea Collection 出现 Cloudflare 验证时，可启用可见浏览器。流程会先用
 普通 Chrome 打开验证页；手工验证成功后回到命令行按 Enter，程序才会接管同一
 会话。后续的页面缓存、图片下载、QA、SQLite、候选索引和发布门禁会自动继续：

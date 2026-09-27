@@ -8,7 +8,6 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Sequence
 
-import numpy as np
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]

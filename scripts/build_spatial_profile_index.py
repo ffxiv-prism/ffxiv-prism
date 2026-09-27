@@ -9,7 +9,6 @@ import numpy as np
 
 np.linalg.inv(np.eye(2, dtype=np.float32))
 
-import torch
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:

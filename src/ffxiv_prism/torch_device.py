@@ -41,11 +41,3 @@ def resolve_torch_device(
             "Use --device auto or --device cpu."
         )
     return device
-
-
-def device_summary(device: torch.device) -> str:
-    """Return a short, user-facing description of the selected device."""
-    if device.type == "cuda":
-        index = device.index if device.index is not None else torch.cuda.current_device()
-        return f"cuda:{index} ({torch.cuda.get_device_name(index)})"
-    return str(device)

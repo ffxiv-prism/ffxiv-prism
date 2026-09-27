@@ -22,6 +22,7 @@ from ffxiv_prism.collectors.eorzea_collection.visible_browser import (  # noqa: 
     create_visible_driver,
     fetch_verified_html,
 )
+from ffxiv_prism.progress import format_duration  # noqa: E402
 from ffxiv_prism.jsonl import append_jsonl, read_jsonl  # noqa: E402
 from ffxiv_prism.paths import EORZEA_HTML_DIR, EORZEA_METADATA_DIR, INTERIM_DIR  # noqa: E402
 
@@ -299,17 +300,6 @@ def print_progress(current: int, total: int, newly_collected: int, errors: int, 
         print(f"\r{line}", file=sys.stderr, flush=True)
     else:
         print(f"\r{line}", end="", file=sys.stderr, flush=True)
-
-
-def format_duration(seconds: float) -> str:
-    seconds = max(int(seconds), 0)
-    hours, remainder = divmod(seconds, 3600)
-    minutes, seconds = divmod(remainder, 60)
-    if hours:
-        return f"{hours}h{minutes:02d}m"
-    if minutes:
-        return f"{minutes}m{seconds:02d}s"
-    return f"{seconds}s"
 
 
 def unique(values: list[str]) -> list[str]:

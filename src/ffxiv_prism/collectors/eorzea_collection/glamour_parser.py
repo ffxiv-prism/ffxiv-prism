@@ -9,7 +9,6 @@ from urllib.parse import urljoin, urlparse
 
 from bs4 import BeautifulSoup, Tag
 
-from ffxiv_prism.paths import portable_path
 
 GLAMOUR_BASE_URL = "https://ffxiv.eorzeacollection.com"
 CORE_SLOTS = ("HEAD", "BODY", "HANDS", "LEGS", "FEET")

@@ -152,25 +152,6 @@ def load_spatial_profile_index(path: Path) -> SpatialProfileIndex:
         )
 
 
-def best_spatial_score_by_piece(
-    index: SpatialProfileIndex,
-    query_profile: np.ndarray,
-    *,
-    allowed_profile_indices: Sequence[int] | None = None,
-) -> dict[int, float]:
-    selected = (
-        np.arange(len(index.profiles), dtype=np.int64)
-        if allowed_profile_indices is None
-        else np.asarray(allowed_profile_indices, dtype=np.int64)
-    )
-    scores = spatial_profile_scores(query_profile, index.profiles[selected])
-    output: dict[int, float] = {}
-    for profile_index, score in zip(selected, scores, strict=True):
-        for piece_id in index.piece_ids_by_profile[int(profile_index)]:
-            output[piece_id] = max(output.get(piece_id, -float("inf")), float(score))
-    return output
-
-
 def rerank_candidates_with_spatial_profile(
     candidates: Sequence[Mapping[str, Any]],
     index: SpatialProfileIndex,
