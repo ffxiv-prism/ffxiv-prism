@@ -11,7 +11,7 @@ DINOv3 权重。首次 clone 前需安装 Git LFS；若已经 clone，再执行 
 
 ```powershell
 git lfs install
-git clone https://github.com/cool2341999/ffxiv-prism.git
+git clone https://github.com/ffxiv-prism/ffxiv-prism.git
 cd ffxiv-prism
 git lfs pull
 ```
