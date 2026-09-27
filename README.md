@@ -60,9 +60,22 @@ python scripts\recognize_glamour.py reference.png `
 输出目录包含：
 
 - `report.html`：带候选预览图的结果页；
+- `report.png`：自动将原始 HTML 报告以 1280 像素桌面宽度导出为完整长图，保留相同样式；
 - `results.json`：完整结构化结果；
 - `overlay.jpg`：姿态点与部位包络；
 - `crops.jpg` 和 `crops/`：实际查询裁剪。
+
+PNG 和 HTML 默认保存在同一输出目录。导出使用本机 Chrome、Edge 或 Chromium 的
+无界面浏览器，等待字体和图片加载后截图，不需要另外安装浏览器驱动。
+浏览器不可用或导出失败时仍保留 HTML/JSON，工作台和日志会显示失败原因。
+已有报告也可单独补导出，无需重新推断：
+
+```powershell
+python scripts/export_report_png.py data/outputs/glamour-match/reference/report.html
+```
+
+工作台识别完成后，“打开原始报告”旁的“打开本地目录”会打开该报告所在文件夹，
+可直接找到 HTML、PNG 和 JSON。该按钮需在运行工作台的本机浏览器中使用。
 
 候选装备存在同模装备时，HTML 和 JSON 报告会列出其名称。同模关系快照位于
 `data/processed/piece_appearance_equivalence_huiji_exact_models.json`，属于随仓库

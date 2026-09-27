@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 import mimetypes
 import os
@@ -69,6 +70,7 @@ class Job:
         if self.kind == "recognition" and self.status == "succeeded":
             payload["result_url"] = f"/api/jobs/{self.id}/result"
             payload["report_url"] = f"/api/jobs/{self.id}/report"
+            payload["open_directory_url"] = f"/api/jobs/{self.id}/open-directory"
         return payload
 
 
@@ -252,6 +254,7 @@ def _stage_from_log(line: str, kind: str) -> str:
             labels = {
                 "pose": "定位人物与装备区域",
                 "retrieve": f"检索 {slot or ''} 候选".strip(),
+                "report-png": "生成报告 PNG 图片",
             }
             return labels.get(stage, stage)
     normalized = line.replace("\\", "/")
@@ -516,6 +519,22 @@ def dataset_status() -> dict[str, Any]:
     }
 
 
+def open_report_directory(job: Job) -> Path:
+    if job.kind != "recognition" or job.status != "succeeded" or not job.output_dir:
+        raise RuntimeError("识别报告尚未就绪。")
+    directory = (PROJECT_ROOT / job.output_dir).resolve()
+    if directory == OUTPUT_ROOT.resolve() or not directory.is_relative_to(OUTPUT_ROOT.resolve()):
+        raise PermissionError("只能打开当前识别任务的报告目录。")
+    report = directory / "report.html"
+    if not report.is_file() or not report.resolve().is_relative_to(directory):
+        raise FileNotFoundError("报告文件不存在或已移出任务目录。")
+    if sys.platform == "win32":
+        os.startfile(str(directory))
+    else:
+        subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", str(directory)])
+    return directory
+
+
 class PrismRequestHandler(BaseHTTPRequestHandler):
     server_version = "FFXIVPrism/1.0"
 
@@ -586,7 +605,15 @@ class PrismRequestHandler(BaseHTTPRequestHandler):
             elif parsed.path == "/api/dataset/update":
                 self._start_dataset_update()
             else:
-                self._send_error(HTTPStatus.NOT_FOUND, "接口不存在。")
+                route = _parse_job_route(parsed.path)
+                if route and route[1] == "open-directory":
+                    self._open_job_directory(route[0])
+                else:
+                    self._send_error(HTTPStatus.NOT_FOUND, "接口不存在。")
+        except PermissionError as exc:
+            self._send_error(HTTPStatus.FORBIDDEN, str(exc))
+        except FileNotFoundError as exc:
+            self._send_error(HTTPStatus.NOT_FOUND, str(exc))
         except RuntimeError as exc:
             self._send_error(HTTPStatus.CONFLICT, str(exc))
         except ValueError as exc:
@@ -599,6 +626,25 @@ class PrismRequestHandler(BaseHTTPRequestHandler):
             f"{self.address_string()} - [{self.log_date_time_string()}] {format % args}",
             flush=True,
         )
+
+    def _open_job_directory(self, job_id: str) -> None:
+        # Opening a host application is a local, same-origin POST action. The
+        # custom header also prevents cross-site form submissions/preflight bypass.
+        host = self.headers.get("Host", "")
+        origin = self.headers.get("Origin")
+        if (
+            not ipaddress.ip_address(self.client_address[0]).is_loopback
+            or urlparse(f"http://{host}").hostname not in {"localhost", "127.0.0.1", "::1"}
+            or (origin is not None and origin != f"http://{host}")
+            or self.headers.get("X-Prism-Local-Action") != "open-directory"
+        ):
+            raise PermissionError("请在运行工作台的本机页面打开报告目录。")
+        self._read_request_json()
+        job = self.registry.get(job_id)
+        if job is None:
+            raise FileNotFoundError("任务不存在。")
+        directory = open_report_directory(job)
+        self._send_json({"ok": True, "directory": str(directory)})
 
     def _start_recognition(self) -> None:
         content_length = self._content_length(MAX_UPLOAD_BYTES + MAX_JSON_BYTES)
@@ -783,7 +829,7 @@ class PrismServer(ThreadingHTTPServer):
 
 
 def _parse_job_route(path: str) -> tuple[str, str | None] | None:
-    match = re.fullmatch(r"/api/jobs/([a-f0-9]{12})(?:/(result|report))?", path)
+    match = re.fullmatch(r"/api/jobs/([a-f0-9]{12})(?:/(result|report|open-directory))?", path)
     if not match:
         return None
     return match.group(1), match.group(2)

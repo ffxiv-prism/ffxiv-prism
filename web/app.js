@@ -28,6 +28,7 @@ const elements = {
   reportStatus: $("#report-status"),
   resultSummary: $("#result-summary"),
   rawReport: $("#raw-report-link"),
+  openDirectory: $("#open-report-directory"),
   updateDialog: $("#update-dialog"),
   updateForm: $("#update-form"),
   updateMode: $("#update-mode"),
@@ -45,6 +46,7 @@ let selectedImage = null;
 let previewUrl = null;
 let pollTimer = null;
 let reportResizeObserver = null;
+let openDirectoryUrl = null;
 let runtimeLoaded = false;
 let taskBusy = false;
 
@@ -309,7 +311,7 @@ function startPolling(jobId) {
       await loadStatus();
       if (job.status === "succeeded" && job.kind === "recognition") {
         const result = await api(job.result_url);
-        renderResults(result, job.report_url);
+        renderResults(result, job.report_url, job.open_directory_url);
       } else if (job.status === "succeeded" && job.kind === "dataset") {
         showToast(job.dataset_result?.message || "任务结束，请查看图片更新结果。");
       } else if (job.status === "failed") {
@@ -348,10 +350,12 @@ elements.reportFrame.addEventListener("load", () => {
   elements.reportStatus.hidden = true;
 });
 
-function renderResults(result, reportUrl) {
+function renderResults(result, reportUrl, directoryUrl) {
   reportResizeObserver?.disconnect();
   elements.results.hidden = false;
   elements.rawReport.href = reportUrl;
+  openDirectoryUrl = directoryUrl || null;
+  elements.openDirectory.disabled = !openDirectoryUrl;
   elements.resultSummary.textContent = `${deviceLabel(result.device)} 推断 · ${result.slots.length} 个部位 · 每个部位最多 ${result.top_k} 件候选 · 姿态质量 ${Math.round(result.pose_quality * 100)}%`;
   elements.reportStatus.textContent = "正在加载报告…";
   elements.reportStatus.hidden = false;
@@ -369,6 +373,23 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
 }
+
+elements.openDirectory.addEventListener("click", async () => {
+  if (!openDirectoryUrl) return;
+  elements.openDirectory.disabled = true;
+  try {
+    await api(openDirectoryUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Prism-Local-Action": "open-directory" },
+      body: JSON.stringify({}),
+    });
+    showToast("已打开报告所在的本地目录。");
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    elements.openDirectory.disabled = !openDirectoryUrl;
+  }
+});
 
 for (const button of $$("[data-open-update]")) {
   button.addEventListener("click", () => elements.updateDialog.showModal());

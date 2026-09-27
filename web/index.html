@@ -6,8 +6,8 @@
   <meta name="color-scheme" content="dark">
   <meta name="description" content="FFXIV Prism 本地装备外观识别工作台">
   <title>FFXIV Prism · 本地识别工作台</title>
-  <link rel="stylesheet" href="/static/styles.css?v=5">
-  <script src="/static/app.js?v=6" defer></script>
+  <link rel="stylesheet" href="/static/styles.css?v=6">
+  <script src="/static/app.js?v=7" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -176,7 +176,10 @@
           <h2 id="results-title">识别结果</h2>
           <p id="result-summary"></p>
         </div>
-        <a class="button button-quiet" id="raw-report-link" href="#" target="_blank" rel="noopener">打开原始报告</a>
+        <div class="report-actions">
+          <a class="button button-quiet" id="raw-report-link" href="#" target="_blank" rel="noopener">打开原始报告</a>
+          <button class="button button-quiet" id="open-report-directory" type="button" disabled>打开本地目录</button>
+        </div>
       </div>
 
       <p class="report-status" id="report-status" role="status" hidden></p>

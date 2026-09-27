@@ -38,7 +38,6 @@ from ffxiv_prism.matching.inference import (
     slot_region_presence_decision,
     slot_result,
     validate_input_image,
-    write_html_report,
     write_json_report,
 )
 from ffxiv_prism.matching.head_morphology import (
@@ -316,14 +315,16 @@ def main(argv: list[str] | None = None) -> int:
     json_path = output_dir / "results.json"
     html_path = output_dir / "report.html"
     payload = enrich_report_item_names(payload)
-    write_json_report(json_path, payload)
-    write_html_report(html_path, payload)
+    from ffxiv_prism.matching.report_export import write_report_bundle
+
+    png_path = write_report_bundle(output_dir, payload)
     print(
         json.dumps(
             {
                 "status": "ok",
                 "json": str(json_path.resolve()),
                 "html": str(html_path.resolve()),
+                "png": str(png_path.resolve()) if png_path else None,
                 "overlay": str(overlay_path.resolve()),
             },
             ensure_ascii=False,

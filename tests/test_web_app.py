@@ -147,9 +147,11 @@ class WebAppTests(unittest.TestCase):
 
         self.assertIn('<option value="20">20 件</option>', html)
         self.assertIn("[elements.dropZone, elements.selectedFile]", javascript)
-        self.assertIn("candidate.is_no_equipment", javascript)
-        self.assertIn("不显示外观", javascript)
-        self.assertIn(".candidate.no-equipment", stylesheet)
+        # Candidate presentation is supplied by the original report, whose
+        # no-equipment rendering is covered in test_glamour_inference.
+        self.assertIn('<iframe class="report-frame" id="report-frame"', html)
+        self.assertIn("elements.reportFrame.src = reportUrl", javascript)
+        self.assertIn(".report-frame", stylesheet)
         self.assertIn('name="device" value="cuda"', html)
         self.assertIn('name="device" value="cpu"', html)
         self.assertIn('form.append("device", selectedDevice())', javascript)
