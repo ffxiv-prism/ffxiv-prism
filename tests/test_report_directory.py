@@ -20,9 +20,16 @@ class ReportDirectoryTests(unittest.TestCase):
             directory.mkdir(parents=True)
             (directory / "report.html").write_text("report", encoding="utf-8")
             job = web_app.Job(id="aaaaaaaaaaaa", kind="recognition", title="报告", status="succeeded", output_dir=str(directory))
-            with patch.object(web_app, "OUTPUT_ROOT", output), patch.object(web_app.sys, "platform", "win32"), patch.object(web_app.os, "startfile", create=True) as opener:
+            with patch.object(web_app, "OUTPUT_ROOT", output), patch.object(web_app.sys, "platform", "win32"), patch.object(web_app.subprocess, "CREATE_NO_WINDOW", 0x08000000, create=True), patch.object(web_app.subprocess, "run") as opener:
                 self.assertEqual(web_app.open_report_directory(job), directory.resolve())
-                opener.assert_called_once_with(str(directory.resolve()))
+                opener.assert_called_once()
+                command = opener.call_args.args[0]
+                self.assertEqual(command[-2:], ["-Directory", str(directory.resolve())])
+                self.assertIn(str(web_app.PROJECT_ROOT / "scripts/open_report_directory.ps1"), command)
+                self.assertIn("Hidden", command)
+                self.assertEqual(opener.call_args.kwargs["creationflags"], 0x08000000)
+                self.assertTrue(opener.call_args.kwargs["check"])
+                self.assertEqual(opener.call_args.kwargs["timeout"], 20)
                 opener.reset_mock()
                 job.status = "running"
                 with self.assertRaises(RuntimeError):
@@ -36,6 +43,22 @@ class ReportDirectoryTests(unittest.TestCase):
                 with self.assertRaises(FileNotFoundError):
                     web_app.open_report_directory(job)
                 opener.assert_not_called()
+
+    def test_windows_helper_failure_is_reported(self):
+        with TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            directory = output / "aaaaaaaaaaaa"
+            directory.mkdir()
+            (directory / "report.html").write_text("report", encoding="utf-8")
+            job = web_app.Job(id="aaaaaaaaaaaa", kind="recognition", title="报告", status="succeeded", output_dir=str(directory))
+            failures = (
+                web_app.subprocess.CalledProcessError(1, ["powershell.exe"]),
+                web_app.subprocess.TimeoutExpired(["powershell.exe"], 20),
+            )
+            for failure in failures:
+                with self.subTest(failure=type(failure).__name__), patch.object(web_app, "OUTPUT_ROOT", output), patch.object(web_app.sys, "platform", "win32"), patch.object(web_app.subprocess, "CREATE_NO_WINDOW", 0x08000000, create=True), patch.object(web_app.subprocess, "run", side_effect=failure):
+                    with self.assertRaisesRegex(RuntimeError, "无法将报告目录显示到前台"):
+                        web_app.open_report_directory(job)
 
     def test_http_action_requires_local_same_origin_post_and_server_job_id(self):
         registry = web_app.JobRegistry()

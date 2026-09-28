@@ -94,6 +94,13 @@ def parse_gearsets_image_url(url: str) -> GearsetImageMeta | None:
     )
 
 
+def is_full_preview_image(source_image_url: str, image_part: str | None = None) -> bool:
+    """Classify full-set previews before download, even for old sparse manifests."""
+    meta = parse_gearsets_image_url(source_image_url)
+    part = meta.image_part if meta is not None else str(image_part or "").lower()
+    return part in {"front", "back"}
+
+
 def generate_static_image_urls(
     seed_urls: list[str],
     races: tuple[str, ...] | list[str] | None = None,

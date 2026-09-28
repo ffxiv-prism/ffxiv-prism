@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from ffxiv_prism.jsonl import read_jsonl, write_jsonl_atomic
+from ffxiv_prism.collectors.eorzea_collection.image_url import is_full_preview_image
 from ffxiv_prism.paths import resolve_project_path
 
 SLOTS = {"HEAD", "BODY", "HANDS", "LEGS", "FEET"}
@@ -64,10 +65,14 @@ def build_sample_manifest(root: Path) -> dict[str, Any]:
             "training_admitted_images": None, "training_status": "not_evaluated"}
 
 
-def image_snapshot(root: Path) -> dict[str, list[str]]:
-    discovered = {row["source_image_url"] for row in read_jsonl(root / META_PATH / "image_url_manifest_raw.jsonl")
-                  if row.get("source_image_url") and row.get("accessible", True)
-                  and (row.get("image_variant") or row.get("dye_state") or "normal") == "normal"}
+def image_snapshot(root: Path, *, include_full_previews: bool = False) -> dict[str, list[str]]:
+    discovered_rows = [row for row in read_jsonl(root / META_PATH / "image_url_manifest_raw.jsonl")
+                       if row.get("source_image_url") and row.get("accessible", True)
+                       and (row.get("image_variant") or row.get("dye_state") or "normal") == "normal"]
+    discovered = {row["source_image_url"] for row in discovered_rows}
+    download_required = {row["source_image_url"] for row in discovered_rows
+                         if include_full_previews or not is_full_preview_image(
+                             row["source_image_url"], row.get("image_part"))}
     downloaded = set()
     for row in read_jsonl(root / META_PATH / "image_manifest_raw.jsonl"):
         path = resolve_project_path(row.get("local_path"))
@@ -84,7 +89,7 @@ def image_snapshot(root: Path) -> dict[str, list[str]]:
                 resolved = resolve_project_path(path)
                 if resolved and resolved.is_file():
                     qa_ready.add(url)
-    return {key: sorted(value) for key, value in {"discovered": discovered, "downloaded": downloaded,
+    return {key: sorted(value) for key, value in {"discovered": discovered, "download_required": download_required, "downloaded": downloaded,
             "qa_ready": qa_ready, **states}.items()}
 
 
@@ -92,7 +97,8 @@ def update_result(before: dict, after: dict, *, candidate: dict, download: dict,
                   warnings: int, failed: bool, planned: bool) -> dict[str, Any]:
     new = lambda key: len(set(after.get(key, [])) - set(before.get(key, [])))
     indexed = int(candidate.get("new_indexed_images") or 0) if candidate.get("activated") else 0
-    missing = len(set(after.get("discovered", [])) - set(after.get("downloaded", [])))
+    required = after.get("download_required", after.get("discovered", []))
+    missing = len(set(required) - set(after.get("downloaded", [])))
     if planned:
         outcome, label = "planned", "更新计划（未执行）"
     elif failed:

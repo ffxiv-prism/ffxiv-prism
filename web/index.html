@@ -6,7 +6,7 @@
   <meta name="color-scheme" content="dark">
   <meta name="description" content="FFXIV Prism 本地装备外观识别工作台">
   <title>FFXIV Prism · 本地识别工作台</title>
-  <link rel="stylesheet" href="/static/styles.css?v=6">
+  <link rel="stylesheet" href="/static/styles.css?v=10">
   <script src="/static/app.js?v=7" defer></script>
 </head>
 <body>
@@ -15,17 +15,15 @@
       <span class="brand-mark" aria-hidden="true">✦</span>
       <span class="brand-name">FFXIV <b>PRISM</b></span>
     </a>
-    <div class="topbar-actions">
-      <span class="local-status"><i aria-hidden="true"></i>仅在本机运行</span>
-      <button class="button button-quiet" type="button" data-open-update>更新数据集</button>
-    </div>
   </header>
 
   <main>
     <section class="hero" aria-labelledby="hero-title">
-      <div class="eyebrow">GLAMOUR RECOGNITION</div>
-      <h1 id="hero-title">从一张截图，<br>找到相似装备。</h1>
-      <p>上传清晰的单人全身截图，Prism 会在本地拆分五个装备部位，并从你的本地资料库中返回候选。</p>
+      <span class="eyebrow">GLAMOUR RECOGNITION WORKSPACE</span>
+      <div class="hero-title-line">
+        <h1 id="hero-title">FF14 幻化识别工作台</h1>
+      </div>
+      <p>上传任意包含人物形象的图片，Prism 会在本地拆分五个装备部位，并从你的本地资料库中返回候选装备图片。</p>
     </section>
 
     <section class="workspace-grid">
@@ -34,8 +32,8 @@
           <label class="drop-zone" id="drop-zone" for="image-input" tabindex="0">
             <input id="image-input" name="image" type="file" accept="image/png,image/jpeg,image/webp" hidden>
             <span class="upload-glyph" aria-hidden="true">⌁</span>
-            <span class="drop-title">拖拽或粘贴角色截图到这里</span>
-            <span class="drop-subtitle">点击选择，或按 Ctrl+V 粘贴 · PNG、JPG、WebP · 最大 25 MB</span>
+            <span class="drop-title">上传或粘贴角色图片到这里</span>
+            <span class="drop-subtitle">点击上传，或按 Ctrl+V 粘贴 · PNG、JPG、WebP · 最大 25 MB</span>
           </label>
 
           <div class="selected-file" id="selected-file" aria-label="已选择图片，可拖入或粘贴新图片替换" hidden>
@@ -54,7 +52,7 @@
             <label class="field">
               <span>角色性别</span>
               <select id="gender" name="gender">
-                <option value="">自动 / 不限制</option>
+                <option value="">不限制</option>
                 <option value="female">女性模型</option>
                 <option value="male">男性模型</option>
               </select>
@@ -64,7 +62,6 @@
               <select id="top-k" name="top_k">
                 <option value="5">5 件</option>
                 <option value="10" selected>10 件</option>
-                <option value="15">15 件</option>
                 <option value="20">20 件</option>
               </select>
             </label>
@@ -73,7 +70,6 @@
           <fieldset class="device-fieldset">
             <legend>
               <span>运行环境</span>
-              <small>每次任务固定，不会自动切换</small>
             </legend>
             <div class="device-options">
               <label class="device-option" data-device-option="cuda">
@@ -112,7 +108,6 @@
           </fieldset>
 
           <div class="form-footer">
-            <p><span aria-hidden="true">◇</span> 图片与结果不会离开本机</p>
             <button class="button button-primary" id="recognize-button" type="submit" disabled>
               开始识别 <span aria-hidden="true">→</span>
             </button>

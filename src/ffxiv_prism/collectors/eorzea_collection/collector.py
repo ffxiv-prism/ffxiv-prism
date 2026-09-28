@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from ffxiv_prism.collectors.eorzea_collection.http_client import PoliteHttpClient
+from ffxiv_prism.collectors.eorzea_collection.image_url import is_full_preview_image
 from ffxiv_prism.collectors.eorzea_collection.models import (
     DownloadedImageRecord,
     GearsetRecord,
@@ -70,6 +71,7 @@ class EorzeaCollectionCollector:
         image_workers: int = 1,
         respect_robots: bool = True,
         require_robots: bool = False,
+        include_full_previews: bool = False,
     ) -> None:
         ensure_project_dirs()
         self.http = PoliteHttpClient(
@@ -83,6 +85,7 @@ class EorzeaCollectionCollector:
         self.image_dir = EORZEA_IMAGE_DIR
         self.metadata_dir = EORZEA_METADATA_DIR
         self.image_workers = max(1, image_workers)
+        self.include_full_previews = include_full_previews
 
     def discover_gearsets(
         self,
@@ -220,11 +223,17 @@ class EorzeaCollectionCollector:
         )
         return gearset, manifest_records, summary
 
+    def select_download_candidates(self, candidates: list[ImageCandidate]) -> list[ImageCandidate]:
+        return [candidate for candidate in candidates
+                if self.include_full_previews or not is_full_preview_image(
+                    candidate.source_image_url, candidate.image_part)]
+
     def download_images(
         self,
         image_candidates: list[ImageCandidate],
         progress: Callable[[int, int, DownloadedImageRecord | None], None] | None = None,
     ) -> list[DownloadedImageRecord]:
+        image_candidates = self.select_download_candidates(image_candidates)
         if self.image_workers > 1:
             return self._download_images_parallel(image_candidates, progress=progress)
 

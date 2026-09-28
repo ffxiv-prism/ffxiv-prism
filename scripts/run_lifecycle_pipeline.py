@@ -90,6 +90,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--huiji-proxy", default=None)
     parser.add_argument("--huiji-user-data-dir", default=None)
     parser.add_argument("--batch-size", type=int, default=64)
+    parser.add_argument(
+        "--include-full-previews", action="store_true",
+        help="Opt in to downloading full-set front/back previews for experiments.",
+    )
     parser.add_argument("--image-workers", type=int, default=8)
     parser.add_argument("--download-delay", type=float, default=0.2)
     parser.add_argument(
@@ -183,7 +187,8 @@ def sample_stages(args: argparse.Namespace, run_id: str) -> list[Stage]:
         data("build-image-manifest", "发现并验证新增图片 URL", *refresh, *browser)
         add("download-images", "下载新增与缺失装备图片", "scripts/download_eorzea_images_from_url_manifest.py",
             "--image-workers", str(args.image_workers), "--delay", str(args.download_delay),
-            "--summary", str(run_artifact(args, run_id, "downloads")), *browser)
+            "--summary", str(run_artifact(args, run_id, "downloads")),
+            *(["--include-full-previews"] if args.include_full_previews else []), *browser)
         data("collect-details", "关联图片的装备与部位标签", *browser, advisory=True)
     data("build-index", "整理图片清单并去除重复来源")
     data("validate-images", "完整解码与图片质量检查")
@@ -540,7 +545,7 @@ def write_report(
             path = run_artifact(args, run_id, kind)
             return json.loads(path.read_text(encoding="utf-8")) if path.is_file() and not args.dry_run else {}
         before = getattr(args, "image_baseline", {})
-        after = image_snapshot(PROJECT_ROOT) if not args.dry_run else {}
+        after = image_snapshot(PROJECT_ROOT, include_full_previews=args.include_full_previews) if not args.dry_run else {}
         payload["image_update"] = update_result(before, after, candidate=evidence("candidates"),
             download=evidence("downloads"), warnings=sum(r.status == "warning" for r in results),
             failed=bool(failures), planned=args.dry_run)
@@ -660,7 +665,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             if args.baseline_path.is_file():
                 args.image_baseline = json.loads(args.baseline_path.read_text(encoding="utf-8"))
             else:
-                args.image_baseline = image_snapshot(PROJECT_ROOT)
+                args.image_baseline = image_snapshot(PROJECT_ROOT, include_full_previews=args.include_full_previews)
                 write_json_atomic(args.baseline_path, args.image_baseline)
         reuse_invalidated = bool(previous_report and previous_report.get("version", 0) < 3)
         for stage in sample_stages(args, run_id):

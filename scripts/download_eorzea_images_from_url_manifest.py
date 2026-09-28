@@ -29,6 +29,7 @@ from ffxiv_prism.collectors.eorzea_collection.visible_browser import (  # noqa: 
     create_visible_driver,
     fetch_verified_html,
 )
+from ffxiv_prism.collectors.eorzea_collection.image_url import is_full_preview_image
 from ffxiv_prism.progress import format_duration  # noqa: E402
 from ffxiv_prism.jsonl import append_jsonl, read_jsonl, write_json  # noqa: E402
 from ffxiv_prism.paths import (  # noqa: E402
@@ -55,6 +56,10 @@ def main() -> int:
         choices=("normal", "dyed"),
         default=("normal",),
         help="Image variants to download. Defaults to normal only.",
+    )
+    parser.add_argument(
+        "--include-full-previews", action="store_true",
+        help="Also download full-set front/back previews (excluded by default).",
     )
     parser.add_argument("--image-workers", type=int, default=1, help="Parallel image download workers.")
     parser.add_argument("--delay", type=float, default=2.0, help="Delay between network requests in seconds.")
@@ -134,6 +139,16 @@ def main() -> int:
         print(json.dumps(report, ensure_ascii=False, indent=2))
         return 0 if report["ok"] else 2
 
+    # Explicit active-index restoration must keep every referenced asset,
+    # including any future full-preview experiment promoted to current-best.
+    include_full_previews = args.include_full_previews or args.current_best_only
+    skipped_full_previews = 0
+    if not include_full_previews:
+        selected_rows = [row for row in rows if not is_full_preview_image(
+            str(row.get("source_image_url") or ""), row.get("image_part"))]
+        skipped_full_previews = len(rows) - len(selected_rows)
+        rows = selected_rows
+
     if args.limit is not None:
         rows = rows[: args.limit]
 
@@ -153,6 +168,7 @@ def main() -> int:
         timeout_seconds=args.timeout,
         image_workers=args.image_workers,
         respect_robots=args.respect_robots,
+        include_full_previews=include_full_previews,
     )
     progress = ImageDownloadProgress(total=len(candidates))
     progress.print(final=not candidates)
@@ -184,6 +200,7 @@ def main() -> int:
         summary,
         {
             "candidate_count": len(candidates),
+            "skipped_full_preview_rows": skipped_full_previews,
             "image_record_count": len(downloaded_images),
             "manifest_rows_appended": len(appended_rows),
             "manifest_path": str(args.manifest),
@@ -194,6 +211,7 @@ def main() -> int:
             "images_downloaded": summary.images_downloaded,
             "images_from_cache": summary.images_from_cache,
             "download_failures": progress.failed,
+            "skipped_full_preview_rows": skipped_full_previews,
             "candidate_images": len({row.source_image_url for row in candidates}),
         })
     if required_images and args.limit is None:
@@ -213,7 +231,7 @@ def download_images_browser(
 ) -> list[DownloadedImageRecord]:
     unique_candidates = []
     seen = set()
-    for candidate in candidates:
+    for candidate in collector.select_download_candidates(candidates):
         if candidate.source_image_url in seen:
             continue
         seen.add(candidate.source_image_url)

@@ -529,7 +529,22 @@ def open_report_directory(job: Job) -> Path:
     if not report.is_file() or not report.resolve().is_relative_to(directory):
         raise FileNotFoundError("报告文件不存在或已移出任务目录。")
     if sys.platform == "win32":
-        os.startfile(str(directory))
+        # ShellExecute alone may reuse an Explorer window behind the browser.
+        try:
+            subprocess.run(
+                [
+                    str(Path(os.environ.get("SystemRoot", r"C:\Windows"))
+                        / "System32/WindowsPowerShell/v1.0/powershell.exe"),
+                    "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden",
+                    "-ExecutionPolicy", "Bypass", "-File",
+                    str(PROJECT_ROOT / "scripts/open_report_directory.ps1"),
+                    "-Directory", str(directory),
+                ],
+                check=True, capture_output=True, timeout=20,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+            raise RuntimeError("无法将报告目录显示到前台，请重试。") from exc
     else:
         subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", str(directory)])
     return directory

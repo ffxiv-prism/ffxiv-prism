@@ -37,6 +37,11 @@ python scripts\download_eorzea_images_from_url_manifest.py `
 python scripts\download_eorzea_images_from_url_manifest.py --check
 ```
 
+常规数据更新默认跳过套装正面／背面预览图（URL 中的 `front` / `back`），
+保留 URL 发现记录及已下载文件。需要全身预览的实验可在下载脚本或
+`run_lifecycle_pipeline.py` 上显式添加 `--include-full-previews`。
+`--current-best-only` 始终按活动索引恢复所有引用图片，不受默认预览过滤影响。
+
 CPU-only 环境可使用 `environment-cpu.yml` 创建；完整五部位 CPU 推理会明显更慢。
 
 识别一张图片：
@@ -75,7 +80,8 @@ python scripts/export_report_png.py data/outputs/glamour-match/reference/report.
 ```
 
 工作台识别完成后，“打开原始报告”旁的“打开本地目录”会打开该报告所在文件夹，
-可直接找到 HTML、PNG 和 JSON。该按钮需在运行工作台的本机浏览器中使用。
+可直接找到 HTML、PNG 和 JSON。Windows 下会将该目录的资源管理器窗口显示到前台，
+并恢复已最小化的窗口；重复点击会复用已打开的目录窗口。该按钮需在运行工作台的本机浏览器中使用。
 
 候选装备存在同模装备时，HTML 和 JSON 报告会列出其名称。同模关系快照位于
 `data/processed/piece_appearance_equivalence_huiji_exact_models.json`，属于随仓库
