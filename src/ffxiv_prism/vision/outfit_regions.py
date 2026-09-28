@@ -387,6 +387,23 @@ def build_lower_face_regions(
     ]
 
 
+def build_eye_regions(keypoints: list[Keypoint], image_size: tuple[int, int], threshold: float = .35) -> list[CropRegion]:
+    """Separate eye/cheek envelopes; inherit the face geometry quality gates."""
+    parent = build_lower_face_regions(keypoints, image_size, threshold)[0]
+    span = max(1.0, abs(keypoints[1].x - keypoints[2].x))
+    result = []
+    for name, point in zip(("head_eye_left", "head_eye_right"), keypoints[1:3], strict=True):
+        raw = (point.x - .65 * span, point.y - .5 * span,
+               point.x + .65 * span, point.y + 1.4 * span)
+        visibility, tags = parent.visibility, parent.tags + ("eye_local_recall",)
+        if box_exceeds_source(raw, image_size):
+            visibility = downgrade_visibility(visibility, "partially_visible")
+            tags += ("source_edge_truncation_risk",)
+        result.append(CropRegion("HEAD", name, clamp_box(raw, image_size),
+                                 parent.confidence, visibility, "diagnostic", tags))
+    return result
+
+
 def build_head_detail_regions(regions: list[CropRegion]) -> list[CropRegion]:
     """Lower 60% of each local face/ear box, excluding dominant eye/hair context.
 
@@ -535,6 +552,7 @@ def build_outfit_regions(
     local_head = build_lower_face_regions(keypoints, image_size, threshold)
     regions.extend(local_head)
     regions.extend(build_head_detail_regions(local_head))
+    regions.extend(build_eye_regions(keypoints, image_size, threshold))
 
     add("BODY", "body_torso", (5, 6, 11, 12), shoulder_width * 0.28, torso_length * 0.16)
     upper_core_points = [keypoints[index] for index in (5, 6, 11, 12)]

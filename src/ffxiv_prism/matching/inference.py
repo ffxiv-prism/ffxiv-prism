@@ -71,6 +71,7 @@ class SlotInferenceConfig:
     ensemble_query_checkpoints: tuple[Path | None, ...] = ()
     morphology_checkpoint: Path | None = None
     head_detail_recall: bool = False
+    local_visual_fusion: bool = False
     ensemble_rrf_k: int = 1
     ensemble_pool_branches: int | None = None
     ensemble_pool_rrf_k: int = 1
@@ -222,6 +223,7 @@ def current_best_configs() -> dict[str, SlotInferenceConfig]:
         "HEAD": SlotInferenceConfig(
             slot="HEAD",
             head_detail_recall=True,
+            local_visual_fusion=True,
             index_dir=index("facebook-dinov2-base-head-multiscale-v4"),
             query_checkpoint=checkpoint("head_dinov2"),
             candidate_crop_routes=HEAD_PROMOTED_CANDIDATE_CROP_ROUTES,
@@ -256,8 +258,8 @@ def current_best_configs() -> dict[str, SlotInferenceConfig]:
                 "strict three-fold pooled DINOv2+SigLIP2+DINOv3-query-adapted gated rank "
                 "ensemble with upper-query to face-candidate routing "
                 f"({eligible('HEAD')} images; DINOv2+SigLIP2 Top-1000 baseline pool). "
-                "Local-detail consensus recall is evaluated separately and is "
-                "not included in these registered benchmark values"
+                "Local-detail consensus recall and continuous local visual fusion "
+                "are evaluated separately and excluded from these registered values"
             ),
         ),
         "HANDS": SlotInferenceConfig(
@@ -286,6 +288,7 @@ def current_best_configs() -> dict[str, SlotInferenceConfig]:
         ),
         "LEGS": SlotInferenceConfig(
             slot="LEGS",
+            local_visual_fusion=True,
             index_dir=index("facebook-dinov2-base-legs-multiscale-v6"),
             query_checkpoint=checkpoint("legs_dinov2"),
             fusion="rrf",
@@ -312,7 +315,8 @@ def current_best_configs() -> dict[str, SlotInferenceConfig]:
                 "strict three-fold pooled DINOv2+DINOv3 branch RRF(k=1), "
                 "query-crop RRF(k=1), with the final DINOv2 Top-1000 "
                 f"piece pool frozen ({eligible('LEGS')} images). The confidence-gated "
-                "coverage-style reranker is not included in this identity benchmark"
+                "coverage-style reranker and continuous local visual fusion "
+                "are excluded from this registered identity benchmark"
             ),
         ),
         "FEET": SlotInferenceConfig(
@@ -585,6 +589,7 @@ def inspect_assets(
             "style_query_crop_name": config.style_query_crop_name,
             "style_corroboration_crop_name": config.style_corroboration_crop_name,
             "head_detail_recall": config.head_detail_recall,
+            "local_visual_fusion": config.local_visual_fusion,
             "style_rerank_k": (
                 config.style_rerank_k
                 if config.style_model_id is not None
@@ -1733,6 +1738,7 @@ def slot_result(
             "style_query_crop_name": config.style_query_crop_name,
             "style_corroboration_crop_name": config.style_corroboration_crop_name,
             "head_detail_recall": config.head_detail_recall,
+            "local_visual_fusion": config.local_visual_fusion,
             "style_rerank_k": (
                 config.style_rerank_k
                 if config.style_model_id is not None
@@ -2072,11 +2078,17 @@ def _candidate_html(candidate: Mapping[str, Any]) -> str:
         if no_equipment
         else f"score={float(candidate.get('score', 0.0)):.5f}"
     )
+    local_recall_note = (
+        '<p class="detail-note">全局与局部外观融合</p>'
+        if candidate.get("local_fusion") else ""
+    )
+
     return f"""<article class="card{reference_class}">
   {f'<img src="{html.escape(preview, quote=True)}" alt="{name_en}">' if preview else ''}
   <h3><span class="rank">#{int(candidate.get('rank', 0))}</span> {name}{reference_badge}</h3>
   {alternatives_note}
   {no_equipment_badge}
+  {local_recall_note}
   <p>{identifier} · {score_label}</p>
   <p>{details_link}</p>
 </article>"""

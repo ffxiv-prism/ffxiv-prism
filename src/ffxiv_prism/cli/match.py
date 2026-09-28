@@ -1353,6 +1353,12 @@ def _run_slot(
             candidates, records["query"], config,
             device=device, batch_size=batch_size,
         )
+    local_fusion_diagnostic = None
+    if config.local_visual_fusion:
+        candidates, local_fusion_diagnostic = _fuse_local_evidence(
+            candidates, records["query"], config, model, query_head,
+            device=device, batch_size=batch_size,
+        )
     hand_shape_diagnostic = None
     if config.slot == "HANDS" and config.no_equipment_model_id is not None:
         candidates, hand_shape_diagnostic = _rerank_hands_shape(
@@ -1451,6 +1457,8 @@ def _run_slot(
     result["slot_presence_diagnostic"] = slot_presence_diagnostic
     if head_detail_diagnostic is not None:
         result["head_detail_diagnostic"] = head_detail_diagnostic
+    if local_fusion_diagnostic is not None:
+        result["local_fusion_diagnostic"] = local_fusion_diagnostic
     if hand_shape_diagnostic is not None:
         result["hand_shape_diagnostic"] = hand_shape_diagnostic
     if no_equipment_diagnostic is not None:
@@ -1586,6 +1594,86 @@ def _rerank_hands_shape(
          for row, path in zip(candidates, candidate_paths, strict=True)},
     )
     diagnostic.update(decision)
+    return output, diagnostic
+
+
+def _fuse_local_evidence(candidates, records, config, model, query_head, *, device, batch_size):
+    from scripts.evaluate_glamour_embedding_model import build_encoder, search_crops
+    from scripts.train_glamour_query_encoder import encode_records
+    from ffxiv_prism.matching.eye_accessory import MODEL_IDS, encode_candidate_eyes
+    from ffxiv_prism.matching.local_retrieval import (
+        LOCAL_POLICIES, catalogue, local_records, visual_gates,
+        grouped_eye_ranks, search_ranks, rerank_candidates,
+    )
+
+    policy = LOCAL_POLICIES[config.slot]
+    diagnostic = dict(active=False, ranking_changed=False, policy=policy,
+                      reason="local_views_unavailable")
+    views = local_records(records, config.slot)
+    if not views or not candidates:
+        return list(candidates), diagnostic
+    paths = [resolve_project_path(r["path"]) for r in views]
+    if any(p is None or not p.is_file() for p in paths):
+        diagnostic["reason"] = "local_images_unavailable"
+        return list(candidates), diagnostic
+    metadata = read_jsonl(config.index_dir / "metadata.jsonl")
+    equivalence = _load_appearance_equivalence()
+    full, ids, keys = catalogue(metadata, config.slot, load_official_slots(), equivalence)
+    prompts = HEAD_TYPE_PROMPTS if config.slot == "HEAD" else STYLE_PROMPTS_BY_SLOT["LEGS"]
+    probabilities = _classify_style_paths(
+        MODEL_IDS[1], prompts, paths[2:] if config.slot == "HEAD" else paths,
+        device=device, batch_size=batch_size,
+    )
+    gate_names = ("eye_mean", "eye_min", "all") if config.slot == "HEAD" else ("shorts", "exposed", "all")
+    gate = float(visual_gates(config.slot, probabilities)[gate_names.index(policy["gate_name"])])
+    if config.slot == "HEAD":
+        available = [r for r in full if resolve_project_path(r["local_path"]).is_file()]
+        candidate_paths = [resolve_project_path(r["local_path"]) for r in available]
+        if not candidate_paths:
+            diagnostic["reason"] = "local_candidate_images_unavailable"
+            return list(candidates), diagnostic
+        columns = {pid: i for i, pid in enumerate(ids)}
+        groups = [[] for _ in ids]
+        for i, row in enumerate(available):
+            for piece in row["pieces"]:
+                pid = int(piece["piece_id"])
+                groups[columns[keys.get(pid, pid)]].append(i)
+        ranks = []
+        for model_id in MODEL_IDS:
+            encoder = build_encoder(model_id, "auto", str(device), "color")
+            queries = encoder.encode_paths(paths[:2], batch_size)
+            vectors = encode_candidate_eyes(encoder, candidate_paths, batch_size=batch_size)
+            raw = (queries @ vectors.reshape(-1, vectors.shape[-1]).T).reshape(2, len(candidate_paths), 2)
+            ranks.append(grouped_eye_ranks(raw, groups))
+            del encoder, vectors
+            _release_memory()
+        local = np.asarray(ranks)
+    else:
+        selected = {"query": views}
+        with torch.inference_mode():
+            embeddings = encode_records(model, query_head, selected, batch_size, device)
+        metadata, vectors = select_slot_candidate_index_rows(
+            metadata, np.load(config.index_dir / "embeddings.npy", mmap_mode="r"), config.slot,
+        )
+        searches = search_crops(
+            metadata, vectors, selected, embeddings, 1000, device=str(device),
+            candidate_crop_routes={r["name"]: ("legs_thighs",) for r in views},
+        )
+        local = np.asarray([[search_ranks(searches[str(Path(r["path"]))], ids, keys) for r in views]])
+    output = rerank_candidates(candidates, full, ids, keys, local, gate, policy)
+    # Newly recalled appearances receive the same official alternatives as the global pool.
+    output = attach_appearance_equivalent_candidates(
+        output, equivalence, piece_catalog=_load_appearance_equivalence_catalog(),
+        max_equivalents_per_anchor=None,
+    )
+    output = filter_candidates_for_slot(output, config.slot, load_official_slots())
+    output = collapse_appearance_equivalent_candidates(output, equivalence)
+    diagnostic.update(
+        active=True, reason="continuous_global_local_fusion", gate=gate,
+        query_probabilities=probabilities.tolist(), catalogue_size=len(ids),
+        ranking_changed=[r["piece_id"] for r in output] != [r["piece_id"] for r in candidates],
+    )
+    _release_memory()
     return output, diagnostic
 
 
