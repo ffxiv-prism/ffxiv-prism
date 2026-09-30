@@ -80,7 +80,8 @@ def eye_expert_scores(local_ranks, query_profiles, candidate_profiles, gate, *,
 def classify_eye_coverage(paths, *, classifier, device, batch_size, cache_dir=None):
     """Cache visual profiles by source content, model assets and prompt contract."""
     model_id = "google/siglip2-base-patch16-224"
-    cache_dir = cache_dir or PROJECT_ROOT / "var/cache/eye-coverage-v1"
+    from ffxiv_prism.matching.asset_identity import candidate_cache, require_candidate_cache
+    cache_dir = cache_dir or candidate_cache("eye-coverage-v2")
     cache_dir.mkdir(parents=True, exist_ok=True)
     contract = json.dumps((1, model_id, EYE_COVERAGE_PROMPTS, "full-rgb",
                            asset_signature(model_id))).encode()
@@ -99,6 +100,13 @@ def classify_eye_coverage(paths, *, classifier, device, batch_size, cache_dir=No
                 pass
         missing[key] = path
     if missing:
+        require_candidate_cache(missing.values())
+        # Uploaded queries are mutable work data, never part of the published catalogue.
+        import os
+        if os.environ.get("PRISM_PORTABLE"):
+            from ffxiv_prism.paths import CACHE_DIR
+            cache_dir = CACHE_DIR / "eye-coverage-v2"
+            cache_dir.mkdir(parents=True, exist_ok=True)
         profiles = classifier(model_id, EYE_COVERAGE_PROMPTS, list(missing.values()),
                               device=device, batch_size=batch_size)
         for key, value in zip(missing, profiles, strict=True):

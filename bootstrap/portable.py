@@ -1,0 +1,253 @@
+"""Portable package operations. Standard library only; no update discovery."""
+from __future__ import annotations
+import base64
+import hashlib
+import json
+import os
+from pathlib import Path, PurePosixPath
+import re
+import shutil
+import time
+import urllib.error
+import urllib.request
+import zipfile
+
+SCHEMA = 1
+
+def read_json(path):
+    return json.loads(Path(path).read_text("utf-8"))
+
+def atomic_json(path, value):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_suffix(".tmp")
+    temp.write_text(json.dumps(value, ensure_ascii=False, indent=2), "utf-8")
+    temp.replace(path)
+
+def digest(path):
+    with Path(path).open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()
+
+def safe_path(root, name):
+    # Reject Windows ADS, drive names, traversal, duplicate separator aliases and links.
+    if not isinstance(name, str) or "\\" in name or ":" in name:
+        raise ValueError(f"Invalid package path: {name}")
+    parts = name.split("/")
+    if not parts or any(p in {"", ".", ".."} or p.endswith((" ", ".")) or re.match(r"(?i)^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)", p) for p in parts):
+        raise ValueError(f"Invalid package path: {name}")
+    target = Path(root).joinpath(*parts).resolve()
+    if not target.is_relative_to(Path(root).resolve()):
+        raise ValueError("Package path escapes destination")
+    return target
+
+def verify_signature(raw, signature, key):
+    """Strict RSASSA-PKCS1-v1_5/SHA-256 verification of signed manifest bytes."""
+    n, e = int(key["n"], 16), int(key["e"], 16)
+    size = (n.bit_length() + 7) // 8
+    sig = base64.b64decode(signature, validate=True)
+    if size < 256 or len(sig) != size or int.from_bytes(sig, "big") >= n:
+        raise ValueError("Invalid release signature")
+    value = pow(int.from_bytes(sig, "big"), e, n).to_bytes(size, "big")
+    payload = bytes.fromhex("3031300d060960864801650304020105000420") + hashlib.sha256(raw).digest()
+    expected = b"\x00\x01" + b"\xff" * (size - len(payload) - 3) + b"\x00" + payload
+    if value != expected:
+        raise ValueError("更新包签名无效，请重新下载维护者提供的原始包。")
+
+def package_manifest(archive, home):
+    names = archive.namelist()
+    if len({n.casefold() for n in names}) != len(names):
+        raise ValueError("Duplicate archive paths")
+    raw = archive.read("package.json")
+    verify_signature(raw, archive.read("package.sig"), read_json(Path(home) / "bootstrap/public-key.json"))
+    manifest = json.loads(raw)
+    if manifest.get("schema") != SCHEMA or manifest.get("kind") not in {"app", "resources"}:
+        raise ValueError("Unsupported package format")
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}", manifest.get("id", "")):
+        raise ValueError("Invalid package id")
+    expected = {"package.json", "package.sig"}
+    for row in manifest["files"]:
+        safe_path(home, row["path"])
+        expected.add("payload/" + row["path"])
+    if set(names) != expected or len(expected) != len(manifest["files"]) + 2:
+        raise ValueError("Package contains missing, duplicate or unlisted files")
+    for item in archive.infolist():
+        if (item.external_attr >> 16) & 0o170000 == 0o120000:
+            raise ValueError("Archive links are not allowed")
+    return manifest
+
+def verify_files(root, manifest, full=True):
+    for row in manifest["files"]:
+        path = safe_path(root, row["path"])
+        if not path.is_file() or path.stat().st_size != row["size"]:
+            raise ValueError(f"文件缺失或大小不符：{row['path']}")
+        if full and digest(path) != row["sha256"]:
+            raise ValueError(f"文件校验失败：{row['path']}")
+
+def install_package(home, filename):
+    home = Path(home)
+    with zipfile.ZipFile(filename) as archive:
+        manifest = package_manifest(archive, home)
+        category = "app" if manifest["kind"] == "app" else "resources"
+        destination = home / category / manifest["id"]
+        damaged = False
+        if destination.exists():
+            existing = destination / "package.json"
+            if existing.is_file() and existing.read_bytes() != archive.read("package.json"):
+                raise ValueError("同一版本编号对应不同内容；请使用新的发布编号。")
+            try:
+                verify_files(destination, manifest)
+                return manifest
+            except ValueError:
+                damaged = True
+        required = sum(row["size"] for row in manifest["files"])
+        if shutil.disk_usage(home).free < required + 256 * 1024**2:
+            raise ValueError("磁盘空间不足，无法暂存并保留上一版本。")
+        staging = home / "work/staging" / ("a" if category == "app" else "r")
+        longest = max(len(str(destination / row["path"])) for row in manifest["files"])
+        if os.name == "nt" and longest >= 250:
+            raise ValueError("安装目录过深，装备图片文件名可能超过 Windows 限制。请将整个项目移到短英文路径，例如 D:\\FFXIV-Prism。")
+        staging.mkdir(parents=True, exist_ok=True)
+        for number, row in enumerate(manifest["files"], 1):
+            info = archive.getinfo("payload/" + row["path"])
+            if info.file_size != row["size"]:
+                raise ValueError("Archive size differs from signed manifest")
+            path = safe_path(staging, row["path"])
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with archive.open(info) as source, path.open("wb") as target:
+                shutil.copyfileobj(source, target, 1024 * 1024)
+            if digest(path) != row["sha256"]:
+                raise ValueError(f"解压校验失败：{row['path']}")
+            if number % 5000 == 0:
+                print(f"安装 {manifest['id']}：{number}/{len(manifest['files'])}", flush=True)
+        (staging / "package.json").write_bytes(archive.read("package.json"))
+        (staging / "package.sig").write_bytes(archive.read("package.sig"))
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if damaged:
+            backup = home / "work/rollback" / (category + "-" + manifest["id"] + "-" + str(time.time_ns()))
+            backup.parent.mkdir(parents=True, exist_ok=True)
+            destination.rename(backup)
+        staging.rename(destination)
+        return manifest
+
+def installed_manifest(home, kind, identifier):
+    root = Path(home) / kind / identifier
+    raw = (root / "package.json").read_bytes()
+    verify_signature(raw, (root / "package.sig").read_bytes(), read_json(Path(home) / "bootstrap/public-key.json"))
+    return json.loads(raw)
+
+def validate_combination(home, active, full=False):
+    app = installed_manifest(home, "app", active["app"])
+    verify_files(Path(home) / "app" / active["app"], app, full)
+    resource_id = active.get("resources")
+    if not resource_id:
+        raise ValueError("尚未导入图库资源包。请从维护者的网盘下载 ZIP，放入 imports，双击“导入更新.bat”。")
+    resources = installed_manifest(home, "resources", resource_id)
+    if resources["compatibility"] not in app["resource_compatibility"]:
+        raise ValueError("程序与图库不兼容，请导入配套程序包和图库包。")
+    verify_files(Path(home) / "resources" / resource_id, resources, full)
+    return app, resources
+
+def download(row, destination, timeout=20):
+    """Download only an explicitly pinned component; resume and validate before install."""
+    destination = Path(destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.is_file() and destination.stat().st_size == row["size"] and digest(destination) == row["sha256"]:
+        return
+    temporary = destination.with_suffix(destination.suffix + ".part")
+    errors = []
+    for url in row.get("urls", []):
+        if not url.startswith("https://"):
+            raise ValueError("Download sources must use HTTPS")
+        for attempt in range(2):
+            try:
+                offset = temporary.stat().st_size if temporary.exists() else 0
+                if offset >= row["size"]:
+                    temporary.unlink()
+                    offset = 0
+                request = urllib.request.Request(url, headers={"User-Agent": "FFXIVPrism/portable", **({"Range": f"bytes={offset}-"} if offset else {})})
+                with urllib.request.urlopen(request, timeout=timeout) as response:
+                    resumed = offset and response.status == 206
+                    if resumed and not response.headers.get("Content-Range", "").startswith(f"bytes {offset}-"):
+                        raise ValueError("Invalid resume response")
+                    with temporary.open("ab" if resumed else "wb") as stream:
+                        while chunk := response.read(1024 * 1024):
+                            stream.write(chunk)
+                            if stream.tell() > row["size"]:
+                                raise ValueError("Download exceeds expected size")
+                if temporary.stat().st_size != row["size"] or digest(temporary) != row["sha256"]:
+                    temporary.unlink(missing_ok=True)
+                    raise ValueError("下载校验失败")
+                temporary.replace(destination)
+                return
+            except (OSError, ValueError, urllib.error.URLError) as exc:
+                errors.append(f"{url}: {exc}")
+                if isinstance(exc, urllib.error.HTTPError) and exc.code in (401, 403, 404):
+                    break
+                time.sleep(.2)
+    raise RuntimeError(f"无法准备 {destination}；可手动下载到此路径。\n" + "\n".join(errors))
+
+def prepare_runtime(home, app):
+    home, app = Path(home), Path(app)
+    lock = read_json(app / "manifests/runtime.json")
+    target = home / "runtime/envs" / lock["id"] / "site-packages"
+    marker = target.parent / "ready.json"
+    if marker.is_file() and read_json(marker).get("lock_sha256") == digest(app / "manifests/runtime.json"):
+        return target
+    target.mkdir(parents=True, exist_ok=True)
+    if shutil.disk_usage(home).free < sum(row["size"] for row in lock["wheels"]) * 4 + 256 * 1024**2:
+        raise ValueError("磁盘空间不足以准备运行环境。")
+    for row in lock["wheels"]:
+        path = home / "work/downloads" / row["filename"]
+        print(f"准备依赖：{row['filename']}", flush=True)
+        download(row, path)
+        with zipfile.ZipFile(path) as archive:
+            for info in archive.infolist():
+                if info.is_dir():
+                    continue
+                name = info.filename
+                parts = name.split("/")
+                if len(parts) > 2 and parts[0].endswith(".data"):
+                    if parts[1] not in {"purelib", "platlib"}:
+                        continue
+                    name = "/".join(parts[2:])
+                output = safe_path(target, name)
+                output.parent.mkdir(parents=True, exist_ok=True)
+                with archive.open(info) as source, output.open("wb") as stream:
+                    shutil.copyfileobj(source, stream)
+    atomic_json(marker, {"lock_sha256": digest(app / "manifests/runtime.json")})
+    return target
+
+def prepare_models(home, app, full=False):
+    for model in read_json(Path(app) / "manifests/models.json")["models"]:
+        directory = safe_path(home, model["directory"])
+        for row in model["files"]:
+            path = safe_path(directory, row["path"])
+            receipt = path.with_suffix(path.suffix + ".verified.json")
+            verified = receipt.is_file() and read_json(receipt).get("sha256") == row["sha256"]
+            if path.is_file() and path.stat().st_size == row["size"] and (not full and verified or digest(path) == row["sha256"]):
+                atomic_json(receipt, {"sha256": row["sha256"]})
+                continue
+            print(f"准备模型：{model['id']} / {row['path']}", flush=True)
+            download(row, path)
+            atomic_json(receipt, {"sha256": row["sha256"]})
+
+def configure_environment(home, resource_root=None):
+    home = Path(home).resolve()
+    for name in ("work/temp", "work/cache", "work/logs", "imports", "user/reports"):
+        (home / name).mkdir(parents=True, exist_ok=True)
+    os.environ.update({
+        "PRISM_HOME": str(home), "PRISM_PORTABLE": "1", "PYTHONUTF8": "1",
+        "PYTHONIOENCODING": "utf-8", "PYTHONNOUSERSITE": "1", "PYTHONDONTWRITEBYTECODE": "1",
+        "TEMP": str(home / "work/temp"), "TMP": str(home / "work/temp"),
+        "HF_HOME": str(home / "work/cache/huggingface"),
+        "HF_HUB_CACHE": str(home / "work/cache/huggingface/hub"),
+        "MODELSCOPE_CACHE": str(home / "work/cache/modelscope"),
+        "TORCH_HOME": str(home / "work/cache/torch"),
+        "XDG_CACHE_HOME": str(home / "work/cache"),
+        "CUDA_CACHE_PATH": str(home / "work/cache/cuda"),
+        "MPLCONFIGDIR": str(home / "work/cache/matplotlib"),
+        "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
+        "HF_HUB_DISABLE_TELEMETRY": "1", "DO_NOT_TRACK": "1",
+    })
+    if resource_root:
+        os.environ["PRISM_RESOURCE_ROOT"] = str(Path(resource_root).resolve())

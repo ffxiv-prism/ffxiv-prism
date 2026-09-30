@@ -39,8 +39,8 @@ class ReportExportTests(unittest.TestCase):
             self.assertFalse((output / "report.png").exists())
             result = json.loads((output / "results.json").read_text(encoding="utf-8"))
             self.assertNotIn("report_png", result["artifacts"])
-            self.assertIn("browser unavailable", result["warnings"][0])
-            self.assertIn("browser unavailable", (output / "report.html").read_text(encoding="utf-8"))
+            self.assertEqual(result["warnings"], [])
+            self.assertNotIn("browser unavailable", (output / "report.html").read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

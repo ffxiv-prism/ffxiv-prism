@@ -7,7 +7,7 @@
   <meta name="description" content="FFXIV Prism 本地装备外观识别工作台">
   <title>FFXIV Prism · 本地识别工作台</title>
   <link rel="stylesheet" href="/static/styles.css?v=10">
-  <script src="/static/app.js?v=7" defer></script>
+  <script src="/static/app.js?v=8" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -24,6 +24,7 @@
         <h1 id="hero-title">FF14 幻化识别工作台</h1>
       </div>
       <p>上传任意包含人物形象的图片，Prism 会在本地拆分五个装备部位，并从你的本地资料库中返回候选装备图片。</p>
+      <p id="release-info" class="updated-time">正在读取本地版本…</p>
     </section>
 
     <section class="workspace-grid">
@@ -131,7 +132,7 @@
           </div>
           <p class="updated-time" id="dataset-updated">正在读取本地摘要…</p>
           <button class="button button-secondary button-block" type="button" data-open-update>
-            启动数据集更新
+            导入更新包
           </button>
         </section>
 
@@ -191,25 +192,22 @@
     <form method="dialog" class="dialog-shell" id="update-form">
       <div class="dialog-header">
         <div>
-          <span class="eyebrow">DATASET UPDATE</span>
-          <h2>更新本地数据集</h2>
+          <span class="eyebrow">LOCAL PACKAGE</span>
+          <h2>导入离线更新包</h2>
         </div>
         <button class="icon-button" value="cancel" aria-label="关闭">×</button>
       </div>
-      <p>更新会使用当前 Python 环境运行项目已有的数据流水线。任务期间请保持此窗口与终端开启。</p>
+      <p>选择维护者提供的程序包或图库资源 ZIP。校验后确认安装，服务将停止并重新启动。不会联网检查新版本。</p>
       <label class="field">
-        <span>更新范围</span>
-        <select id="update-mode">
-          <option value="standard">更新装备图片库（推荐）</option>
-          <option value="local-index">修复本地图片库与索引</option>
-        </select>
+        <span>本地 ZIP 文件</span>
+        <input id="update-package" type="file" accept=".zip">
       </label>
       <div class="mode-note" id="mode-note">
-        读取已有发现列表，更新详情、中文名称、图片索引与 SQLite 数据库。
+        大文件也可放入 imports 文件夹，关闭服务后双击“导入更新.bat”。程序与图库同时升级时，请使用此方式一次导入两个包。
       </div>
       <div class="dialog-actions">
         <button class="button button-quiet" value="cancel">取消</button>
-        <button class="button button-primary" id="start-update" value="default">开始更新</button>
+        <button class="button button-primary" id="start-update" value="default">校验更新包</button>
       </div>
     </form>
   </dialog>

@@ -11,9 +11,10 @@ from PIL import Image
 from ffxiv_prism.matching.eye_accessory import CANDIDATE_BOXES
 from ffxiv_prism.model_assets import model_weight_files
 from ffxiv_prism.paths import PROJECT_ROOT
+from ffxiv_prism.matching.asset_identity import asset_signature, candidate_cache, require_candidate_cache
 
 
-def asset_signature(model_id):
+def legacy_asset_signature(model_id):
     assets = []
     for weight in sorted(model_weight_files(model_id)):
         for path in [weight, *sorted(weight.parent.glob("*.json"))]:
@@ -53,7 +54,7 @@ def candidate_eye_boxes(paths, *, device, batch_size=32, cache_dir=None):
     )
     import torch
 
-    cache_dir = cache_dir or PROJECT_ROOT / "var/cache/aligned-eye-geometry-v1"
+    cache_dir = cache_dir or candidate_cache("aligned-eye-geometry-v2")
     cache_dir.mkdir(parents=True, exist_ok=True)
     contract = json.dumps((1, DEFAULT_POSE_MODEL, asset_signature(DEFAULT_POSE_MODEL),
                            "full-image-box", "build_eye_regions-v1", .55,
@@ -73,6 +74,7 @@ def candidate_eye_boxes(paths, *, device, batch_size=32, cache_dir=None):
             pass
         missing[key] = path
     if missing:
+        require_candidate_cache(missing.values())
         estimator = SinglePersonPoseEstimator(model_id=DEFAULT_POSE_MODEL, device=str(device))
         items = list(missing.items())
         for start in range(0, len(items), batch_size):

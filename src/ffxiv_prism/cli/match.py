@@ -12,6 +12,7 @@ import torch
 from PIL import Image
 
 from ffxiv_prism.jsonl import read_jsonl
+from ffxiv_prism.version_info import version_info
 from ffxiv_prism.matching.item_names import enrich_report_item_names
 from ffxiv_prism.matching.equipment_slots import filter_candidates_for_slot, load_official_slots
 from ffxiv_prism.matching.inference import (
@@ -296,6 +297,7 @@ def main(argv: list[str] | None = None) -> int:
 
     payload: dict[str, Any] = {
         "version": 1,
+        "release_info": version_info(),
         "input": image_info,
         "profile": args.profile,
         "device": str(device),
@@ -477,9 +479,9 @@ def _run_slot(
         load_spatial_profile_index,
         rerank_candidates_with_spatial_profile,
     )
-    from scripts.evaluate_glamour_embedding_model import build_encoder, search_crops
-    from scripts.train_glamour_pair_reranker import PairReranker, rerank_crops
-    from scripts.train_glamour_query_encoder import (
+    from ffxiv_prism.matching.runtime.encoders import build_encoder, search_crops
+    from ffxiv_prism.matching.runtime.reranker import PairReranker, rerank_crops
+    from ffxiv_prism.matching.runtime.query import (
         encode_records,
         load_query_head_from_checkpoint,
     )
@@ -1598,8 +1600,8 @@ def _rerank_hands_shape(
 
 
 def _fuse_local_evidence(candidates, records, config, model, query_head, *, device, batch_size):
-    from scripts.evaluate_glamour_embedding_model import build_encoder, search_crops
-    from scripts.train_glamour_query_encoder import encode_records
+    from ffxiv_prism.matching.runtime.encoders import build_encoder, search_crops
+    from ffxiv_prism.matching.runtime.query import encode_records
     from ffxiv_prism.matching.eye_accessory import MODEL_IDS, encode_candidate_eyes
     from ffxiv_prism.matching.local_retrieval import (
         LOCAL_POLICIES, catalogue, local_records, visual_gates,
@@ -1716,7 +1718,7 @@ def _fuse_local_evidence(candidates, records, config, model, query_head, *, devi
 
 
 def _recall_head_details(candidates, records, config, *, device, batch_size):
-    from scripts.evaluate_glamour_embedding_model import build_encoder, search_crops
+    from ffxiv_prism.matching.runtime.encoders import build_encoder, search_crops
 
     rows = detail_records(records)
     eq = _load_appearance_equivalence()

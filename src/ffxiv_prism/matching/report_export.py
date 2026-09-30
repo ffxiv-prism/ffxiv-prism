@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 import math
+import logging
 import os
 import shutil
 import subprocess
@@ -17,7 +18,7 @@ from ffxiv_prism.collectors.eorzea_collection.visible_browser import (
     reserve_local_port,
     wait_for_debug_endpoint,
 )
-from ffxiv_prism.paths import portable_path
+from ffxiv_prism.paths import portable_path, HOME_ROOT
 
 
 def find_report_browser() -> Path:
@@ -42,7 +43,9 @@ def render_report_png(html_path: Path, *, width: int = 1280) -> Path:
         raise ValueError("Report viewport must be at least 320 pixels wide")
     destination = html_path.with_suffix(".png")
     browser = find_report_browser()
-    with TemporaryDirectory(prefix="prism-report-", ignore_cleanup_errors=True) as profile:
+    temporary_root = HOME_ROOT / "work/temp"
+    temporary_root.mkdir(parents=True, exist_ok=True)
+    with TemporaryDirectory(dir=temporary_root, prefix="prism-report-", ignore_cleanup_errors=True) as profile:
         port = reserve_local_port()
         command = [str(browser), "--headless=new", "--hide-scrollbars", "--no-first-run",
                    "--no-default-browser-check", "--disable-background-networking", "--disable-extensions",
@@ -117,9 +120,7 @@ def write_report_bundle(output_dir: Path, payload: dict[str, Any]) -> Path | Non
         render_report_png(html_path)
     except Exception as exc:
         warning = f"报告 PNG 导出失败，HTML/JSON 已保留：{exc}"
-        payload.setdefault("warnings", []).append(warning)
-        print(warning, flush=True)
-        write_html_report(html_path, payload)
+        logging.getLogger(__name__).warning("%s（%s）", warning, output_dir)
         png_path = None
     else:
         artifacts["report_png"] = portable_path(png_path)

@@ -19,4 +19,6 @@ from ffxiv_prism.cli.match import main
 
 
 if __name__ == "__main__":
+    import logging
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     raise SystemExit(main())

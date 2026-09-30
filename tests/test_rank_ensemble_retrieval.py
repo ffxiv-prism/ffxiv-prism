@@ -112,7 +112,7 @@ class RankEnsembleRetrievalTests(unittest.TestCase):
         self.assertAlmostEqual(loaded["crop.png"][0]["score"], 0.8, places=6)
 
     def test_auto_routes_local_dinov3_to_dino_encoder(self) -> None:
-        with patch.object(embedding_model, "DinoV2Encoder") as encoder:
+        with patch("ffxiv_prism.matching.runtime.encoders.DinoV2Encoder") as encoder:
             embedding_model.build_encoder(
                 "var/models/dinov3-vitb16-pretrain-lvd1689m",
                 "auto",

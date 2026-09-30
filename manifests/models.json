@@ -1,0 +1,179 @@
+{
+  "schema": 1,
+  "models": [
+    {
+      "id": "facebook/dinov2-base",
+      "directory": "models/facebook--dinov2-base",
+      "source_page": "https://huggingface.co/facebook/dinov2-base",
+      "files": [
+        {
+          "path": "config.json",
+          "size": 548,
+          "sha256": "f7ff4cfa73d2f70647dbf6950541ad25d73082d54c2e7e9bded160c7656b2a70",
+          "urls": [
+            "https://huggingface.co/facebook/dinov2-base/resolve/f9e44c814b77203eaa57a6bdbbd535f21ede1415/config.json",
+            "https://modelscope.cn/models/facebook/dinov2-base/resolve/6e6944a85ecb91c5d790297190bd9984f51fe366/config.json"
+          ]
+        },
+        {
+          "path": "model.safetensors",
+          "size": 346345912,
+          "sha256": "d73036b56966966d07975d696bde331762f37297e2f095de8cea0040c3aa0841",
+          "urls": [
+            "https://huggingface.co/facebook/dinov2-base/resolve/f9e44c814b77203eaa57a6bdbbd535f21ede1415/model.safetensors",
+            "https://modelscope.cn/models/facebook/dinov2-base/resolve/f1df7050191d50505100e3f845b5014e64dda0b3/model.safetensors"
+          ]
+        },
+        {
+          "path": "preprocessor_config.json",
+          "size": 436,
+          "sha256": "14e780d86fa1861f8751f868d7f45425b5feb55c38ca26f152ca5097ab30f828",
+          "urls": [
+            "https://huggingface.co/facebook/dinov2-base/resolve/f9e44c814b77203eaa57a6bdbbd535f21ede1415/preprocessor_config.json",
+            "https://modelscope.cn/models/facebook/dinov2-base/resolve/6e6944a85ecb91c5d790297190bd9984f51fe366/preprocessor_config.json"
+          ]
+        },
+        {
+          "path": "pytorch_model.bin",
+          "size": 346392713,
+          "sha256": "014965d9e330e7f4bff8ddcbee9df5e4f2ca032b2f5180942a6edb454783e75d",
+          "urls": [
+            "https://huggingface.co/facebook/dinov2-base/resolve/f9e44c814b77203eaa57a6bdbbd535f21ede1415/pytorch_model.bin",
+            "https://modelscope.cn/models/facebook/dinov2-base/resolve/f1df7050191d50505100e3f845b5014e64dda0b3/pytorch_model.bin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "google/siglip2-base-patch16-224",
+      "directory": "models/google--siglip2-base-patch16-224",
+      "source_page": "https://huggingface.co/google/siglip2-base-patch16-224",
+      "files": [
+        {
+          "path": "config.json",
+          "size": 253,
+          "sha256": "fe8b5fe6d5734360678fd71c11c21e1ea3364bd8598d34295d9206335973ffd7",
+          "urls": [
+            "https://huggingface.co/google/siglip2-base-patch16-224/resolve/75de2d55ec2d0b4efc50b3e9ad70dba96a7b2fa2/config.json",
+            "https://modelscope.cn/models/google/siglip2-base-patch16-224/resolve/e8632ce825c01c31e138f83852c01b643941c2fe/config.json"
+          ]
+        },
+        {
+          "path": "model.safetensors",
+          "size": 1500800904,
+          "sha256": "612923381c76ec5a9bed335d1c48827e3f2e506ac31b044b63b2031fadee6a0b",
+          "urls": [
+            "https://huggingface.co/google/siglip2-base-patch16-224/resolve/75de2d55ec2d0b4efc50b3e9ad70dba96a7b2fa2/model.safetensors",
+            "https://modelscope.cn/models/google/siglip2-base-patch16-224/resolve/153facb840ceec16916cc7ec0e3bf8757d95f7e3/model.safetensors"
+          ]
+        },
+        {
+          "path": "preprocessor_config.json",
+          "size": 394,
+          "sha256": "9b36b57ebaf20f09bf4c22100ccc21877ea6bfe5aead0c00c59f8af8ccefacfc",
+          "urls": [
+            "https://huggingface.co/google/siglip2-base-patch16-224/resolve/75de2d55ec2d0b4efc50b3e9ad70dba96a7b2fa2/preprocessor_config.json",
+            "https://modelscope.cn/models/google/siglip2-base-patch16-224/resolve/e8632ce825c01c31e138f83852c01b643941c2fe/preprocessor_config.json"
+          ]
+        },
+        {
+          "path": "special_tokens_map.json",
+          "size": 636,
+          "sha256": "baec30ea10906f16adb8c18af7a34023002c1746542612b8b41c9f09e1351351",
+          "urls": [
+            "https://huggingface.co/google/siglip2-base-patch16-224/resolve/75de2d55ec2d0b4efc50b3e9ad70dba96a7b2fa2/special_tokens_map.json",
+            "https://modelscope.cn/models/google/siglip2-base-patch16-224/resolve/e8632ce825c01c31e138f83852c01b643941c2fe/special_tokens_map.json"
+          ]
+        },
+        {
+          "path": "tokenizer.json",
+          "size": 34363039,
+          "sha256": "cb9140fae3ac5122c972d37adf83e1248471a38147ad76f8215c8872c6fd8322",
+          "urls": [
+            "https://huggingface.co/google/siglip2-base-patch16-224/resolve/75de2d55ec2d0b4efc50b3e9ad70dba96a7b2fa2/tokenizer.json",
+            "https://modelscope.cn/models/google/siglip2-base-patch16-224/resolve/e8632ce825c01c31e138f83852c01b643941c2fe/tokenizer.json"
+          ]
+        },
+        {
+          "path": "tokenizer_config.json",
+          "size": 47164,
+          "sha256": "14afe629fe4959b9e0d51e1852b8d9f7ad074f90a1a7125a4fcdd17f06e78fc8",
+          "urls": [
+            "https://huggingface.co/google/siglip2-base-patch16-224/resolve/75de2d55ec2d0b4efc50b3e9ad70dba96a7b2fa2/tokenizer_config.json",
+            "https://modelscope.cn/models/google/siglip2-base-patch16-224/resolve/e8632ce825c01c31e138f83852c01b643941c2fe/tokenizer_config.json"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "usyd-community/vitpose-base-simple",
+      "directory": "models/usyd-community--vitpose-base-simple",
+      "source_page": "https://huggingface.co/usyd-community/vitpose-base-simple",
+      "files": [
+        {
+          "path": "config.json",
+          "size": 1798,
+          "sha256": "72fc2f0fc29eef43e87aa0ddd4c1269c5226ae157a99d0057019dd40129fed7c",
+          "urls": [
+            "https://huggingface.co/usyd-community/vitpose-base-simple/resolve/a93ac0c67e0b7e2c55287d21d4c460c8f3c54d45/config.json"
+          ]
+        },
+        {
+          "path": "model.safetensors",
+          "size": 343673076,
+          "sha256": "85375373893ddd3641f3912821073e53f5435f9e966e1dca59d004454bfe4fdf",
+          "urls": [
+            "https://huggingface.co/usyd-community/vitpose-base-simple/resolve/a93ac0c67e0b7e2c55287d21d4c460c8f3c54d45/model.safetensors"
+          ]
+        },
+        {
+          "path": "preprocessor_config.json",
+          "size": 363,
+          "sha256": "9b11cadc98c30b968a70cc1658ce1fbd74b721b0f21402a2ff8bc1dc9d1474a0",
+          "urls": [
+            "https://huggingface.co/usyd-community/vitpose-base-simple/resolve/a93ac0c67e0b7e2c55287d21d4c460c8f3c54d45/preprocessor_config.json"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "var/models/dinov3-vitb16-pretrain-lvd1689m",
+      "directory": "models/facebook--dinov3-vitb16-pretrain-lvd1689m",
+      "source_page": "https://huggingface.co/facebook/dinov3-vitb16-pretrain-lvd1689m",
+      "files": [
+        {
+          "path": "config.json",
+          "size": 744,
+          "sha256": "3c9cc418f4622fd6d5587fd142b6f3cba0ba6a69f67ced907d8b7f26118451ec",
+          "urls": [
+            "https://modelscope.cn/models/facebook/dinov3-vitb16-pretrain-lvd1689m/resolve/378471320f1278c1b54ae82aadb6c5e634a994b7/config.json"
+          ]
+        },
+        {
+          "path": "LICENSE.md",
+          "size": 7503,
+          "sha256": "25d122eb8f5b880fd23c736fb6ea8018ee45c12237e00b8a86d14c653904999e",
+          "urls": [
+            "https://modelscope.cn/models/facebook/dinov3-vitb16-pretrain-lvd1689m/resolve/23d0280ae6ee4ced592a3459674ad027d3c18906/LICENSE.md"
+          ]
+        },
+        {
+          "path": "model.safetensors",
+          "size": 342662192,
+          "sha256": "9a21ac3df0c63839d62612dda6f454d816c25611cc7a52966ed5a5a94921dc8b",
+          "urls": [
+            "https://modelscope.cn/models/facebook/dinov3-vitb16-pretrain-lvd1689m/resolve/b0f424483d8c8d309ff2dcbb1f2c3970d6fb816d/model.safetensors"
+          ]
+        },
+        {
+          "path": "preprocessor_config.json",
+          "size": 585,
+          "sha256": "960c41d1f3a7778b936365769a2d90550b318a6c0a53a0296957adacfe5e0dd7",
+          "urls": [
+            "https://modelscope.cn/models/facebook/dinov3-vitb16-pretrain-lvd1689m/resolve/378471320f1278c1b54ae82aadb6c5e634a994b7/preprocessor_config.json"
+          ]
+        }
+      ]
+    }
+  ]
+}

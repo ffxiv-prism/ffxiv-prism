@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+import os
 from typing import Any
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+APP_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = Path(os.environ.get("PRISM_RESOURCE_ROOT", APP_ROOT)).resolve()
+HOME_ROOT = Path(os.environ.get("PRISM_HOME", PROJECT_ROOT)).resolve()
 PROJECT_DIR_NAME = PROJECT_ROOT.name
 DATA_DIR = PROJECT_ROOT / "data"
 RAW_DIR = DATA_DIR / "raw"
@@ -17,7 +20,7 @@ APPEARANCE_EQUIVALENCE_PATH = (
 INDEXES_DIR = DATA_DIR / "indexes"
 SAMPLES_DIR = DATA_DIR / "samples"
 VAR_DIR = PROJECT_ROOT / "var"
-CACHE_DIR = VAR_DIR / "cache"
+CACHE_DIR = HOME_ROOT / "work/cache" if os.environ.get("PRISM_HOME") else VAR_DIR / "cache"
 LOGS_DIR = VAR_DIR / "logs"
 
 EORZEA_RAW_DIR = RAW_DIR / "eorzea_collection"

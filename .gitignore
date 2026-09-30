@@ -121,6 +121,17 @@ data/outputs/**
 var/models/**
 var/tmp/**
 work/
+data/local_features/
+/FFXIV-Prism-*.zip
+/FFXIV-Prism-*.zip.sha256
+/FFXIV-Prism-*.partial
+manifests/release.json
+/runtime/
+/models/
+/resources/
+/app/
+/imports/
+/user/
 *.orig
 *.rej
 

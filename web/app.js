@@ -31,16 +31,13 @@ const elements = {
   openDirectory: $("#open-report-directory"),
   updateDialog: $("#update-dialog"),
   updateForm: $("#update-form"),
-  updateMode: $("#update-mode"),
+  updatePackage: $("#update-package"),
   modeNote: $("#mode-note"),
   startUpdate: $("#start-update"),
   toast: $("#toast"),
 };
 
-const updateNotes = {
-  standard: "发现新增装备图片 → 下载与质量校验 → 关联装备标签 → 更新检索索引；随后补充中文名和染色信息。首次补齐图片与索引可能耗时较长。",
-  "local-index": "不采集远程图片或资料，使用已有图片重新校验、关联标签，并补齐本地检索索引。训练需要另行审核与执行。",
-};
+let importedPackage = null;
 
 let selectedImage = null;
 let previewUrl = null;
@@ -131,6 +128,12 @@ function showToast(message) {
 async function loadStatus() {
   try {
     const payload = await api("/api/status");
+    const version = payload.version_info || {};
+    const code = version.release || `开发版 · ${version.code_commit || "未记录"}`;
+    const date = version.gallery_updated_at ? new Date(version.gallery_updated_at).toLocaleDateString("zh-CN") : "未记录";
+    $("#release-info").textContent = `版本：${code}　|　样本图库更新于：${date}`;
+    $("#release-info").title = `代码：${version.code_commit || "未记录"}；图库：${version.gallery_version || "未记录"}`;
+    for (const button of $$("[data-open-update]")) button.disabled = !payload.portable;
     renderDatasetStatus(payload.dataset);
     renderExecutionRuntime(payload.execution);
     const active = payload.jobs.find((job) => ["queued", "running"].includes(job.status));
@@ -161,7 +164,7 @@ function renderDatasetStatus(dataset) {
   $("#metric-missing").textContent = formatNumber(dataset.missing_images);
   if (dataset.last_updated) {
     const date = new Date(dataset.last_updated);
-    $("#dataset-updated").textContent = `摘要更新于 ${date.toLocaleString("zh-CN", { hour12: false })}`;
+    $("#dataset-updated").textContent = `本地资源记录时间：${date.toLocaleString("zh-CN", { hour12: false })}`;
   } else {
     $("#dataset-updated").textContent = "尚未生成数据集摘要";
   }
@@ -395,8 +398,9 @@ for (const button of $$("[data-open-update]")) {
   button.addEventListener("click", () => elements.updateDialog.showModal());
 }
 
-elements.updateMode.addEventListener("change", () => {
-  elements.modeNote.textContent = updateNotes[elements.updateMode.value];
+elements.updatePackage.addEventListener("change", () => {
+  importedPackage = null;
+  elements.startUpdate.textContent = "校验更新包";
 });
 
 elements.updateForm.addEventListener("submit", async (event) => {
@@ -404,15 +408,25 @@ elements.updateForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   elements.startUpdate.disabled = true;
   try {
-    const payload = await api("/api/dataset/update", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mode: elements.updateMode.value }),
-    });
-    elements.updateDialog.close();
-    renderJob(payload.job);
-    startPolling(payload.job.id);
-    elements.jobPanel.scrollIntoView({ behavior: "smooth", block: "center" });
+    if (!importedPackage) {
+      const file = elements.updatePackage.files[0];
+      if (!file) throw new Error("请先选择 ZIP 文件。");
+      elements.modeNote.textContent = "正在传输并验证更新包，请稍候…";
+      importedPackage = await api("/api/packages/import", {
+        method: "POST", headers: { "Content-Type": "application/zip", "X-Prism-Local-Action": "import-package" }, body: file,
+      });
+      elements.modeNote.textContent = `${importedPackage.kind === "app" ? "程序" : "图库"}：${importedPackage.version}；解压约 ${formatBytes(importedPackage.size)}。确认后停止服务并安装，失败保留原版本。`;
+      elements.startUpdate.textContent = "确认安装并重启";
+    } else {
+      await api("/api/packages/install", { method: "POST",
+        headers: { "Content-Type": "application/json", "X-Prism-Local-Action": "import-package" },
+        body: JSON.stringify({ token: importedPackage.token }),
+      });
+      elements.updateDialog.close();
+      showToast("正在安装，请查看命令行。服务重新启动后刷新页面。");
+      importedPackage = null;
+      elements.startUpdate.textContent = "校验更新包";
+    }
   } catch (error) {
     showToast(error.message);
   } finally {

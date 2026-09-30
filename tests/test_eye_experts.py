@@ -108,7 +108,7 @@ class EyeExpertTests(unittest.TestCase):
                 return np.asarray(result)
 
         with tempfile.TemporaryDirectory() as folder, patch(
-                "ffxiv_prism.matching.eye_accessory.model_weight_files", return_value=[]):
+                "ffxiv_prism.matching.eye_accessory.asset_signature", return_value=[]):
             root = Path(folder)
             path = root / "image.png"
             im = Image.new("RGB", (20, 20), "red")

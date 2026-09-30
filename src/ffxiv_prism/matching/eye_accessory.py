@@ -11,6 +11,7 @@ import numpy as np
 
 from ffxiv_prism.model_assets import model_weight_files
 from ffxiv_prism.paths import PROJECT_ROOT
+from ffxiv_prism.matching.asset_identity import asset_signature, candidate_cache, require_candidate_cache
 
 EYE_NAMES = ("head_eye_left", "head_eye_right")
 PRESENCE_NAMES = ("head_tight", "head_face_accessory")
@@ -20,13 +21,9 @@ MODEL_IDS = ("facebook/dinov2-base", "google/siglip2-base-patch16-224")
 
 def encode_candidate_eyes(encoder, paths, *, batch_size, cache_dir=None, boxes_by_path=None):
     """Cache image-content/weights/preprocessing-bound vectors, never ranks."""
-    cache_dir = cache_dir or PROJECT_ROOT / "var/cache/eye-accessory-v1"
+    cache_dir = cache_dir or candidate_cache("eye-accessory-v2")
     cache_dir.mkdir(parents=True, exist_ok=True)
-    assets = []
-    for weight in sorted(model_weight_files(encoder.model_id)):
-        for path in [weight, *sorted(weight.parent.glob("*.json"))]:
-            stat = path.stat()
-            assets.append((str(path.resolve()), stat.st_size, stat.st_mtime_ns))
+    assets = asset_signature(encoder.model_id)
     contract = json.dumps(
         (1, encoder.model_id, getattr(encoder, "preprocess", "color"), CANDIDATE_BOXES, assets)
     ).encode()
@@ -47,6 +44,7 @@ def encode_candidate_eyes(encoder, paths, *, batch_size, cache_dir=None, boxes_b
                 pass
         missing[key] = path
     if missing:
+        require_candidate_cache(missing.values())
         prepare = encoder.prepare_image
         matrices = []
         try:

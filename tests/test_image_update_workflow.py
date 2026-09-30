@@ -123,7 +123,7 @@ class ImageUpdateWorkflowTests(unittest.TestCase):
             updated = json.loads(selection_path.read_text())
             self.assertEqual(updated["checkpoints"], baseline["checkpoints"])
             next_plan = indexes.active_target_plan(updated, "20260924")
-            self.assertEqual(next_plan[0].source, targets[0].output)
+            self.assertEqual(next_plan[0].source.resolve(), targets[0].output.resolve())
             self.assertTrue(indexes.activate_targets(targets, results, baseline, selection_path))
             current = inference.load_current_best_selection()
             current["candidate_indexes"] = updated["candidate_indexes"]

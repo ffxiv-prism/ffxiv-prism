@@ -6,7 +6,21 @@ FFXIV Prism 是一个本地优先的《最终幻想 XIV》装备外观候选检�
 
 2026-09-30 新增通用眼部关键点对齐与图像类别内局部检索：此前漏出 Top20 的眼罩案例已排到第 14，既有 HEAD 留出集 Top20 命中从 75/107 提升到 77/107。部分验证子集仍有回退，方法、边界与复现步骤见[眼部检索验证记录](docs/head_eye_experts_2026-09-30_zh.md)。
 
-## 快速开始
+## 便携测试版：下载后如何使用
+
+无需安装 Python、Conda 或 Git。当前测试版保持 **Draft + Pre-release，尚未公开**。
+
+1. 下载维护者提供的 `FFXIV-Prism-v0.2.0-beta.1-windows.zip`，解压到较短的英文目录，例如 `D:\FFXIV-Prism`，整个路径不要包含中文。
+2. 从维护者网盘下载 `FFXIV-Prism-gallery-20260926-head-v2.zip`，放入 `imports`，双击 `导入更新.bat`。网盘链接待维护者上传后补充。
+3. 等待环境和模型准备完成，双击 `启动.bat`，把命令行显示的地址复制到浏览器。
+4. 上传截图开始识别。结果在 `user/reports`；按 `Ctrl+C` 停止服务。
+
+Release 附件不含大型依赖、模型本体和图库。首次准备会下载固定的运行依赖和模型；网络不通时可手动下载至提示目录。准备完成后可离线使用。
+后续更新只需自行下载更新包，通过页面或 `导入更新.bat` 导入；**没有联网检查更新**。页面展示本地版本和可检索图库日期。
+
+详细步骤、模型放置目录、修复和回退说明见[便携版使用说明](docs/portable_release_zh.md)。
+
+## 开发者从源码运行
 
 仓库通过 Git LFS 提供 `current-best` 的候选向量索引、推理检查点和本地
 DINOv3 权重。首次 clone 前需安装 Git LFS；若已经 clone，再执行 `git lfs pull`：
@@ -74,7 +88,7 @@ python scripts\recognize_glamour.py reference.png `
 
 PNG 和 HTML 默认保存在同一输出目录。导出使用本机 Chrome、Edge 或 Chromium 的
 无界面浏览器，等待字体和图片加载后截图，不需要另外安装浏览器驱动。
-浏览器不可用或导出失败时仍保留 HTML/JSON，工作台和日志会显示失败原因。
+浏览器不可用或导出失败时仍保留 HTML/JSON，仅在日志记录 warning，不影响识别任务成功。
 已有报告也可单独补导出，无需重新推断：
 
 ```powershell
@@ -97,7 +111,7 @@ python scripts/export_report_png.py data/outputs/glamour-match/reference/report.
 python scripts\web_app.py
 ```
 
-默认地址为 `http://127.0.0.1:8765`。网页支持点击选择、拖拽或按 `Ctrl+V` 从剪贴板粘贴图片，并提供五部位选择、Top-k 设置、CPU/GPU 运行环境选择、结果查看和本地数据更新。服务只监听回环地址；如不希望自动打开浏览器，添加 `--no-open`。
+默认地址为 `http://127.0.0.1:8765`。网页支持点击选择、拖拽或按 `Ctrl+V` 从剪贴板粘贴图片，并提供五部位选择、Top-k 设置、CPU/GPU 运行环境选择和结果查看。便携版另外提供签名离线包导入，用户页面不运行采集或索引构建。服务只监听回环地址；源码启动可添加 `--no-open`，便携版始终不自动打开浏览器。
 
 WebUI 会检测启动它的 Python/PyTorch 环境：GPU 环境可在每次任务前手动选择 GPU 或 CPU；CPU-only 环境会禁用 GPU 选项并显示原因。选择 CPU 时，推断子进程会显式使用 `--device cpu` 并隐藏 CUDA；选择 GPU 时，后端会先确认 CUDA 可用，再使用 `--device cuda`，不会静默回退到 CPU。
 

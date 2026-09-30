@@ -23,9 +23,12 @@ from typing import Any
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-WEB_ROOT = PROJECT_ROOT / "web"
-OUTPUT_ROOT = PROJECT_ROOT / "data" / "outputs" / "web"
+APP_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(APP_ROOT / "src"))
+from ffxiv_prism.paths import PROJECT_ROOT, HOME_ROOT
+from ffxiv_prism.version_info import version_info
+WEB_ROOT = APP_ROOT / "web"
+OUTPUT_ROOT = HOME_ROOT / "user/reports" if os.environ.get("PRISM_HOME") else PROJECT_ROOT / "data/outputs/web"
 DATA_IMAGE_ROOT = PROJECT_ROOT / "data" / "raw" / "eorzea_collection" / "images"
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 MAX_JSON_BYTES = 1024 * 1024
@@ -80,6 +83,7 @@ class JobRegistry:
         self._jobs: dict[str, Job] = {}
         self._processes: dict[str, subprocess.Popen[str]] = {}
         self._lock = threading.Lock()
+        self.quiescing = False
 
     def reserve(
         self,
@@ -91,6 +95,8 @@ class JobRegistry:
         device: str | None = None,
     ) -> Job:
         with self._lock:
+            if self.quiescing:
+                raise RuntimeError("服务正在准备更新，请稍候。")
             active = next(
                 (job for job in self._jobs.values() if job.status in RUNNING_STATES),
                 None,
@@ -102,7 +108,7 @@ class JobRegistry:
                 kind=kind,
                 title=title,
                 output_dir=(
-                    str(output_dir.relative_to(PROJECT_ROOT)).replace("\\", "/")
+                    str(output_dir.relative_to(PROJECT_ROOT) if output_dir.is_relative_to(PROJECT_ROOT) else output_dir).replace("\\", "/")
                     if output_dir is not None
                     else None
                 ),
@@ -179,14 +185,19 @@ class JobRegistry:
                 self._processes[job_id] = process
 
             assert process.stdout is not None
-            for raw_line in process.stdout:
-                line = raw_line.rstrip()
-                if not line:
-                    continue
-                with self._lock:
-                    job = self._jobs[job_id]
-                    _append_job_log(job, line)
-                    job.stage = _stage_from_log(line, job.kind)
+            log_dir = HOME_ROOT / "work/logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            with (log_dir / f"job-{job_id}.log").open("a", encoding="utf-8") as log:
+                for raw_line in process.stdout:
+                    line = raw_line.rstrip()
+                    if not line:
+                        continue
+                    log.write(line + "\n")
+                    log.flush()
+                    with self._lock:
+                        job = self._jobs[job_id]
+                        _append_job_log(job, line)
+                        job.stage = _stage_from_log(line, job.kind)
 
             return_code = process.wait()
             with self._lock:
@@ -308,7 +319,7 @@ def build_recognition_command(
 
     command = [
         python_executable,
-        str(PROJECT_ROOT / "scripts" / "recognize_glamour.py"),
+        str(APP_ROOT / "scripts" / "recognize_glamour.py"),
         str(image_path),
         "--slots",
         *slots,
@@ -484,6 +495,12 @@ def _read_json(path: Path) -> dict[str, Any]:
 
 
 def dataset_status() -> dict[str, Any]:
+    gallery_path = PROJECT_ROOT / "gallery.json"
+    if gallery_path.is_file():
+        gallery = _read_json(gallery_path)
+        return {"ready": True, "gear_pieces": gallery.get("piece_count"),
+                "ready_images": gallery.get("image_count"), "missing_images": 0,
+                "last_updated": gallery.get("updated_at")}
     summary_paths = {
         "dataset": PROJECT_ROOT / "data" / "processed" / "eorzea_dataset_summary.json",
         "images": PROJECT_ROOT / "data" / "processed" / "eorzea_image_qa_summary.json",
@@ -537,7 +554,7 @@ def open_report_directory(job: Job) -> Path:
                         / "System32/WindowsPowerShell/v1.0/powershell.exe"),
                     "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden",
                     "-ExecutionPolicy", "Bypass", "-File",
-                    str(PROJECT_ROOT / "scripts/open_report_directory.ps1"),
+                    str(APP_ROOT / "scripts/open_report_directory.ps1"),
                     "-Directory", str(directory),
                 ],
                 check=True, capture_output=True, timeout=20,
@@ -572,6 +589,8 @@ class PrismRequestHandler(BaseHTTPRequestHandler):
                 self._send_json(
                     {
                         "app": "FFXIV Prism",
+                        "version_info": version_info(),
+                        "portable": bool(os.environ.get("PRISM_HOME")),
                         "local": True,
                         "dataset": dataset_status(),
                         "execution": execution_runtime_status(
@@ -618,7 +637,11 @@ class PrismRequestHandler(BaseHTTPRequestHandler):
             if parsed.path == "/api/recognize":
                 self._start_recognition()
             elif parsed.path == "/api/dataset/update":
-                self._start_dataset_update()
+                raise PermissionError("用户工作台不运行采集或索引构建，请导入维护者提供的资源包。")
+            elif parsed.path == "/api/packages/import":
+                self._import_package()
+            elif parsed.path == "/api/packages/install":
+                self._install_imported_package()
             else:
                 route = _parse_job_route(parsed.path)
                 if route and route[1] == "open-directory":
@@ -641,6 +664,66 @@ class PrismRequestHandler(BaseHTTPRequestHandler):
             f"{self.address_string()} - [{self.log_date_time_string()}] {format % args}",
             flush=True,
         )
+
+    def _require_local_update(self):
+        origin = self.headers.get("Origin")
+        host = self.headers.get("Host", "")
+        if (not os.environ.get("PRISM_HOME") or not ipaddress.ip_address(self.client_address[0]).is_loopback
+                or urlparse(f"http://{host}").hostname not in {"localhost", "127.0.0.1", "::1"}
+                or (origin is not None and origin != f"http://{host}")
+                or self.headers.get("X-Prism-Local-Action") != "import-package"):
+            raise PermissionError("请使用便携版的本机页面导入更新。")
+        if any(j["status"] in RUNNING_STATES for j in self.registry.list()):
+            raise RuntimeError("请等待当前推理任务完成后再导入更新。")
+
+    def _import_package(self):
+        self._require_local_update()
+        import zipfile
+        sys.path.insert(0, str(HOME_ROOT / "bootstrap"))
+        from portable import package_manifest
+        length = int(self.headers.get("Content-Length", "0"))
+        if length <= 0 or length > 30 * 1024**3:
+            raise ValueError("更新包大小无效。")
+        import shutil
+        if shutil.disk_usage(HOME_ROOT).free < length + 256 * 1024**2:
+            raise ValueError("磁盘空间不足。")
+        path = HOME_ROOT / "imports" / ("web-" + uuid.uuid4().hex + ".zip")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            self.connection.settimeout(120)
+            with path.open("wb") as stream:
+                while length:
+                    chunk = self.rfile.read(min(length, 1024 * 1024))
+                    if not chunk:
+                        raise ValueError("更新包传输中断。")
+                    stream.write(chunk)
+                    length -= len(chunk)
+            with zipfile.ZipFile(path) as archive:
+                manifest = package_manifest(archive, HOME_ROOT)
+            self._send_json({"token": path.name, "kind": manifest["kind"], "version": manifest["id"],
+                             "size": sum(r["size"] for r in manifest["files"])})
+        except Exception:
+            path.unlink(missing_ok=True)
+            raise
+
+    def _install_imported_package(self):
+        self._require_local_update()
+        payload = self._read_request_json()
+        token = str(payload.get("token", ""))
+        if not re.fullmatch(r"web-[a-f0-9]{32}\.zip", token):
+            raise ValueError("无效导入包。")
+        path = HOME_ROOT / "imports" / token
+        if not path.is_file():
+            raise FileNotFoundError("导入包不存在。")
+        from portable import atomic_json
+        with self.registry._lock:
+            if any(j.status in RUNNING_STATES for j in self.registry._jobs.values()):
+                raise RuntimeError("请等待当前推理任务完成后安装。")
+            self.registry.quiescing = True
+        atomic_json(HOME_ROOT / "work/pending-update.json", {"packages": [str(path)]})
+        self.server.update_requested = True
+        self._send_json({"ok": True})
+        threading.Thread(target=self.server.shutdown, daemon=True).start()
 
     def _open_job_directory(self, job_id: str) -> None:
         # Opening a host application is a local, same-origin POST action. The
@@ -881,8 +964,10 @@ def main(argv: list[str] | None = None) -> int:
         print("\n正在停止本地网页……", flush=True)
     finally:
         server.server_close()
-    return 0
+    return 75 if getattr(server, "update_requested", False) else 0
 
 
 if __name__ == "__main__":
+    import logging
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     raise SystemExit(main())
