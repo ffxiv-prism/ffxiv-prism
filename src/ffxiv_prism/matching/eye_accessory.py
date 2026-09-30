@@ -18,7 +18,7 @@ CANDIDATE_BOXES = ((0.28, 0.36, 0.53, 0.72), (0.47, 0.36, 0.72, 0.72))
 MODEL_IDS = ("facebook/dinov2-base", "google/siglip2-base-patch16-224")
 
 
-def encode_candidate_eyes(encoder, paths, *, batch_size, cache_dir=None):
+def encode_candidate_eyes(encoder, paths, *, batch_size, cache_dir=None, boxes_by_path=None):
     """Cache image-content/weights/preprocessing-bound vectors, never ranks."""
     cache_dir = cache_dir or PROJECT_ROOT / "var/cache/eye-accessory-v1"
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -28,9 +28,12 @@ def encode_candidate_eyes(encoder, paths, *, batch_size, cache_dir=None):
             stat = path.stat()
             assets.append((str(path.resolve()), stat.st_size, stat.st_mtime_ns))
     contract = json.dumps(
-        (1, encoder.model_id, "color", CANDIDATE_BOXES, assets)
+        (1, encoder.model_id, getattr(encoder, "preprocess", "color"), CANDIDATE_BOXES, assets)
     ).encode()
-    keys = [hashlib.sha256(contract + Path(p).read_bytes()).hexdigest() for p in paths]
+    keys = [hashlib.sha256(contract + (
+        json.dumps(("pixel-boxes-v1", boxes_by_path[str(p)])).encode()
+        if boxes_by_path is not None else b""
+    ) + Path(p).read_bytes()).hexdigest() for p in paths]
     found, missing = {}, {}
     for key, path in zip(keys, paths, strict=True):
         cache = cache_dir / (key + ".npy")
@@ -47,12 +50,12 @@ def encode_candidate_eyes(encoder, paths, *, batch_size, cache_dir=None):
         prepare = encoder.prepare_image
         matrices = []
         try:
-            for box in CANDIDATE_BOXES:
+            for eye, box in enumerate(CANDIDATE_BOXES):
 
-                def crop(path, box=box):
+                def crop(path, box=box, eye=eye):
                     image = prepare(path)
                     result = image.crop(
-                        tuple(
+                        boxes_by_path[str(path)][eye] if boxes_by_path is not None else tuple(
                             round(v * (image.width if i % 2 == 0 else image.height))
                             for i, v in enumerate(box)
                         )

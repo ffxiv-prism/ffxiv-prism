@@ -1626,6 +1626,7 @@ def _fuse_local_evidence(candidates, records, config, model, query_head, *, devi
     )
     gate_names = ("eye_mean", "eye_min", "all") if config.slot == "HEAD" else ("shorts", "exposed", "all")
     gate = float(visual_gates(config.slot, probabilities)[gate_names.index(policy["gate_name"])])
+    extra_scores = None
     if config.slot == "HEAD":
         available = [r for r in full if resolve_project_path(r["local_path"]).is_file()]
         candidate_paths = [resolve_project_path(r["local_path"]) for r in available]
@@ -1638,6 +1639,23 @@ def _fuse_local_evidence(candidates, records, config, model, query_head, *, devi
             for piece in row["pieces"]:
                 pid = int(piece["piece_id"])
                 groups[columns[keys.get(pid, pid)]].append(i)
+        aligned_ranks = []
+        boxes_by_path = None
+        if config.head_eye_experts:
+            from ffxiv_prism.matching.aligned_eyes import candidate_eye_boxes
+            from ffxiv_prism.matching.eye_experts import (
+                EYE_EXPERT_POLICY, classify_eye_coverage,
+                eye_expert_scores, grouped_coverage_profiles,
+            )
+            geometry = candidate_eye_boxes(candidate_paths, device=device, batch_size=batch_size)
+            boxes_by_path = {str(path): row["boxes"]
+                             for path, row in zip(candidate_paths, geometry, strict=True)}
+            coverage = classify_eye_coverage(
+                paths[2:] + candidate_paths, classifier=_classify_style_paths,
+                device=device, batch_size=batch_size,
+            )
+            candidate_profiles = grouped_coverage_profiles(coverage[2:], groups)
+            _release_memory()
         ranks = []
         for model_id in MODEL_IDS:
             encoder = build_encoder(model_id, "auto", str(device), "color")
@@ -1645,9 +1663,28 @@ def _fuse_local_evidence(candidates, records, config, model, query_head, *, devi
             vectors = encode_candidate_eyes(encoder, candidate_paths, batch_size=batch_size)
             raw = (queries @ vectors.reshape(-1, vectors.shape[-1]).T).reshape(2, len(candidate_paths), 2)
             ranks.append(grouped_eye_ranks(raw, groups))
+            if boxes_by_path is not None:
+                aligned = encode_candidate_eyes(
+                    encoder, candidate_paths, batch_size=batch_size, boxes_by_path=boxes_by_path,
+                )
+                raw = (queries @ aligned.reshape(-1, aligned.shape[-1]).T).reshape(2, len(candidate_paths), 2)
+                aligned_ranks.append(grouped_eye_ranks(raw, groups))
+                del aligned
             del encoder, vectors
             _release_memory()
         local = np.asarray(ranks)
+        if boxes_by_path is not None:
+            extra_scores = eye_expert_scores(
+                np.asarray(aligned_ranks), coverage[:2], candidate_profiles, gate,
+                **EYE_EXPERT_POLICY,
+            )
+            diagnostic["eye_experts"] = dict(
+                policy=EYE_EXPERT_POLICY, active=bool(np.any(extra_scores > 0)),
+                aligned_render_count=sum(r["aligned"] for r in geometry),
+                fallback_render_count=sum(not r["aligned"] for r in geometry),
+                query_coverage_profiles=coverage[:2].tolist(),
+                eligible_appearances_per_class=(candidate_profiles[:, :4] >= EYE_EXPERT_POLICY["candidate_threshold"]).sum(0).tolist(),
+            )
     else:
         selected = {"query": views}
         with torch.inference_mode():
@@ -1660,7 +1697,8 @@ def _fuse_local_evidence(candidates, records, config, model, query_head, *, devi
             candidate_crop_routes={r["name"]: ("legs_thighs",) for r in views},
         )
         local = np.asarray([[search_ranks(searches[str(Path(r["path"]))], ids, keys) for r in views]])
-    output = rerank_candidates(candidates, full, ids, keys, local, gate, policy)
+    output = rerank_candidates(candidates, full, ids, keys, local, gate, policy,
+                               extra_scores=extra_scores)
     # Newly recalled appearances receive the same official alternatives as the global pool.
     output = attach_appearance_equivalent_candidates(
         output, equivalence, piece_catalog=_load_appearance_equivalence_catalog(),

@@ -72,6 +72,7 @@ class SlotInferenceConfig:
     morphology_checkpoint: Path | None = None
     head_detail_recall: bool = False
     local_visual_fusion: bool = False
+    head_eye_experts: bool = False
     ensemble_rrf_k: int = 1
     ensemble_pool_branches: int | None = None
     ensemble_pool_rrf_k: int = 1
@@ -224,6 +225,7 @@ def current_best_configs() -> dict[str, SlotInferenceConfig]:
             slot="HEAD",
             head_detail_recall=True,
             local_visual_fusion=True,
+            head_eye_experts=True,
             index_dir=index("facebook-dinov2-base-head-multiscale-v4"),
             query_checkpoint=checkpoint("head_dinov2"),
             candidate_crop_routes=HEAD_PROMOTED_CANDIDATE_CROP_ROUTES,
@@ -590,6 +592,7 @@ def inspect_assets(
             "style_corroboration_crop_name": config.style_corroboration_crop_name,
             "head_detail_recall": config.head_detail_recall,
             "local_visual_fusion": config.local_visual_fusion,
+            "head_eye_experts": config.head_eye_experts,
             "style_rerank_k": (
                 config.style_rerank_k
                 if config.style_model_id is not None
@@ -1739,6 +1742,7 @@ def slot_result(
             "style_corroboration_crop_name": config.style_corroboration_crop_name,
             "head_detail_recall": config.head_detail_recall,
             "local_visual_fusion": config.local_visual_fusion,
+            "head_eye_experts": config.head_eye_experts,
             "style_rerank_k": (
                 config.style_rerank_k
                 if config.style_model_id is not None

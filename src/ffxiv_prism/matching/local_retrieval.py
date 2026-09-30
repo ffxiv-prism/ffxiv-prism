@@ -100,12 +100,17 @@ def search_ranks(rows, ids, keys):
     return ranks
 
 
-def rerank_candidates(candidates, full, ids, keys, local, gate, policy):
+def rerank_candidates(candidates, full, ids, keys, local, gate, policy, *, extra_scores=None):
     """Score the union of global/local appearances; never pin an output position."""
     base = search_ranks(candidates, ids, keys)
     scores = fused_scores(
         base, local, gate, **{k: policy[k] for k in ("weight", "rrf_k", "view_fusion")}
     )
+    if extra_scores is not None:
+        extra = np.asarray(extra_scores)
+        if extra.shape != scores.shape or not np.isfinite(extra).all() or np.any(extra < 0):
+            raise ValueError("Supplemental evidence must be finite, nonnegative and appearance-aligned")
+        scores = scores + extra
     representatives = {}
     for row in candidates:
         pid = int(row["piece_id"])
@@ -133,5 +138,7 @@ def rerank_candidates(candidates, full, ids, keys, local, gate, policy):
             previous_rank=int(base[i]) if base[i] < 1_000_000 else None,
             local_ranks=local[..., i].astype(int).tolist(),
         )
+        if extra_scores is not None:
+            row["local_fusion"]["eye_expert_score"] = float(extra_scores[i])
         result.append(row)
     return result
