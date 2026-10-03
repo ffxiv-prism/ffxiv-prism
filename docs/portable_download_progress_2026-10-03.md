@@ -23,11 +23,14 @@
 - 同一个固定 wheel 从 PyPI、华为云、清华真实下载，均通过原始 SHA-256 校验。
 - DINOv2 配置文件从 Hugging Face、魔搭真实下载，均通过原始 SHA-256 校验。
 - 模拟验证换源、续传、忽略 Range、短响应、错误 Range、哈希失败和完整本地缓存恢复。
+- 在独立目录中复用旧下载缓存，实际校验并安装全部 40 个 wheel；官方嵌入式
+  CPython 3.12.10 成功加载 NumPy、torch 2.11.0+cpu、transformers 5.12.1，
+  CPU 矩阵运算通过，没有使用 Conda 依赖执行该运行验证。
 
 ## 发布与升级约束
 
 基础权重大文件未从每个来源重新下载，所有来源的文件校验仍强制执行。
-新签名包及包内解释器的安装验收需原 `work/signing/portable-private.xml`。
+新签名包的完整安装验收需原 `work/signing/portable-private.xml`。
 此记录不代表新 release 包已签名或发布。
 
 beta.1 的 app 更新包不覆盖根启动器。升级 beta.2 时需先从完整 windows ZIP 更新
