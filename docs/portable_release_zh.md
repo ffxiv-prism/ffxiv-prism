@@ -4,13 +4,48 @@
 
 ## 第一次使用
 
-1. 下载 `FFXIV-Prism-v0.2.0-beta.1-windows.zip` 并解压到较短、可写的英文目录，例如 `D:\FFXIV-Prism`。整个存放路径不能包含中文，避免过深的目录。不要直接在压缩包里运行，也不要选择 `Source code`。
+1. 下载 `FFXIV-Prism-v0.2.0-beta.2-windows.zip` 并解压到较短、可写的英文目录，例如 `D:\FFXIV-Prism`。整个存放路径不能包含中文，避免过深的目录。不要直接在压缩包里运行，也不要选择 `Source code`。
 2. 从维护者提供的网盘下载 `FFXIV-Prism-gallery-20260926-head-v2.zip`，原样放入解压目录的 `imports` 文件夹。网盘链接由维护者上传后提供；测试草稿暂未填写链接。
 3. 双击 `导入更新.bat`。它会校验并安装图库、下载固定版本的运行依赖和模型。网络中断后可以重新运行；不要删除 `.part` 文件。
 4. 完成后双击 `启动.bat`，复制命令行中的 `http://127.0.0.1:8765` 到浏览器。不会自动打开浏览器。
 5. 上传单人截图，选择部位，点击“开始识别”。页面显示当前版本和可检索图库日期。报告保存在 `user/reports`。
 
 按命令行中的 `Ctrl+C` 停止服务。关闭后可移动整个文件夹；删除整个文件夹即可移除项目管理的文件。
+
+## 准备状态与下载来源
+
+四个 BAT 一打开就会显示操作名称。后续会显示扫描 ZIP、验签、解压、依赖安装、
+模型检查、自检和网页启动等当前阶段。下载显示文件序号、源网站、完整下载地址、
+实际重定向网站、进度条、百分比、已下载/总大小、速度和预计剩余秒数。
+连接等待、重试、换源、断点续传以及 SHA-256 校验也有提示。连接或读取超时为 20 秒。
+文件已缓存且校验通过时显示复用状态；没有网络传输时不会显示虚假的下载进度。
+
+运行依赖来自公开网站，使用固定文件及 SHA-256，不会自动升级版本：
+
+- 普通 Python 包：PyPI 文件站 `files.pythonhosted.org`，失败后依次尝试
+  华为云 `mirrors.huaweicloud.com`、清华 TUNA `mirrors.tuna.tsinghua.edu.cn`。
+- PyTorch CPU 及清单中来自其仓库的包：`download.pytorch.org`；
+  不以普通 PyPI 的不同构建替换 CPU wheel。这些文件暂无已验证的国内备用源。
+- 模型：`huggingface.co`，有已锁定备用文件时尝试 `modelscope.cn`。
+  CDN 重定向后会显示实际下载网站。模型的来源列表见 `manifests/models.json`。
+- Python 解释器已包含在完整 ZIP 内，用户运行 BAT 时无需下载 Python。
+
+镜像可能尚未同步某个固定版本，失败会继续尝试下一个来源；所有来源都失败时，
+窗口保留各来源错误与手动放置路径。镜像与官方源使用相同的文件大小及 SHA-256。
+
+## 从 beta.1 升级到 beta.2
+
+本次修改了根目录 BAT 与 `bootstrap`；**仅导入 app.zip 不会更新这些启动器文件**。
+
+1. 关闭旧版服务，将新版 `windows.zip` 解压到一个临时目录。
+2. 将其中的 `bootstrap` 文件夹、四个 BAT 和 `使用说明.md` 复制覆盖到旧安装根目录。
+   保留旧目录的 `manifests`、`runtime`、`resources`、`models`、`user` 和 `work`，
+   不要用完整 ZIP 直接覆盖旧根目录的 `manifests/active.json`。
+3. 将新版 `FFXIV-Prism-v0.2.0-beta.2-app.zip` 放入旧目录的 `imports`，
+   移走旧的程序更新 ZIP，然后运行新版 `导入更新.bat`。
+4. 完成后运行 `启动.bat`。现有图库、模型、wheel 下载缓存与历史报告可以继续使用。
+
+本版沿用 `gallery-20260926-head-v2` 图库，不需要重新下载图库。
 
 ## 模型下载失败
 
@@ -25,7 +60,7 @@
 | VitPose | `models/usyd-community--vitpose-base-simple/` |
 | DINOv3 | `models/facebook--dinov3-vitb16-pretrain-lvd1689m/` |
 
-准确文件名、下载链接、大小和 SHA-256 见 `app/v0.2.0-beta.1/manifests/models.json`。必须包含该模型列出的权重、配置和处理器/词表文件。不要只放一个权重文件。DINOv3 等第三方模型仍适用各自许可。
+准确文件名、下载链接、大小和 SHA-256 见 `app/v0.2.0-beta.2/manifests/models.json`。必须包含该模型列出的权重、配置和处理器/词表文件。不要只放一个权重文件。DINOv3 等第三方模型仍适用各自许可。
 
 运行依赖下载失败时，将提示的同名 `.whl` 文件放入 `work/downloads` 后重试。准确链接和校验值见同目录的 `manifests/runtime.json`。不需要手动运行 pip。
 

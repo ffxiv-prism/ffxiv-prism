@@ -16,11 +16,13 @@ sys.path[:0] = [str(ROOT / "src"), str(ROOT / "bootstrap")]
 from portable import atomic_json, digest, verify_signature
 from ffxiv_prism.jsonl import read_jsonl
 
-VERSION = "v0.2.0-beta.1"
+VERSION = "v0.2.0-beta.2"
 RESOURCE_ID = "gallery-20260926-head-v2"
 CONTRACT = "prism-current-best-eye-v2"
 
 def sign(path):
+    if not (ROOT / "work/signing/portable-private.xml").is_file():
+        raise FileNotFoundError("Missing original release signing key: work/signing/portable-private.xml")
     subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
                     str(ROOT / "scripts/sign_portable.ps1"), "-Manifest", str(path),
                     "-KeyPath", str(ROOT / "work/signing/portable-private.xml"),
@@ -134,12 +136,23 @@ def app():
                 archive.writestr(prefix + "runtime/python/" + name, python.read(name))
         archive.writestr(prefix + "manifests/active.json", json.dumps({"app": VERSION, "resources": None}))
         for name, action in (("启动", "start"), ("导入更新", "import"), ("检查修复", "repair"), ("回退", "rollback")):
-            bat = '@echo off\r\nsetlocal\r\nchcp 65001 >nul\r\ncd /d "%~dp0"\r\n"%~dp0runtime\\python\\python.exe" -X utf8 "%~dp0bootstrap\\launch.py" ' + action + ' %*\r\nif errorlevel 1 echo 操作未完成，请查看上方提示。\r\npause\r\n'
+            bat = launcher_bat(name, action)
             archive.writestr(prefix + name + ".bat", bat.encode("utf-8"))
         archive.write(ROOT / "docs/portable_release_zh.md", prefix + "使用说明.md")
         archive.writestr(prefix + "imports/放置维护者提供的ZIP.txt", "将图库或程序更新包原样放在此目录，不用自行解压。")
     output.with_suffix(".zip.sha256").write_text(digest(output) + "  " + output.name + "\n", "utf-8")
     print(f"Built lightweight portable ZIP: {output.stat().st_size/1024**2:.1f} MiB", flush=True)
+
+def launcher_bat(name, action):
+    return ('@echo off\r\nsetlocal\r\nchcp 65001 >nul\r\n'
+            f'title FFXIV Prism - {name}\r\necho [FFXIV Prism] {name}：正在初始化，请保留此窗口……\r\n'
+            'cd /d "%~dp0"\r\nset PYTHONUNBUFFERED=1\r\n'
+            'if not exist "%~dp0runtime\\python\\python.exe" (\r\n'
+            'echo 缺少内置 Python。请完整解压 windows.zip 后重试。\r\npause\r\nexit /b 1\r\n)\r\n'
+            '"%~dp0runtime\\python\\python.exe" -u -X utf8 "%~dp0bootstrap\\launch.py" '
+            + action + ' %*\r\nset "PRISM_EXIT=%errorlevel%"\r\n'
+            'if not "%PRISM_EXIT%"=="0" echo 操作未完成，请查看上方提示。\r\n'
+            'pause\r\nexit /b %PRISM_EXIT%\r\n')
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

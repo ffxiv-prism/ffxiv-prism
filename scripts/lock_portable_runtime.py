@@ -8,6 +8,15 @@ import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
 
+def download_urls(url):
+    """Mirror the exact PyPI wheel; CPU torch stays on its official wheel feed."""
+    urls = [url]
+    if url.startswith("https://files.pythonhosted.org/packages/"):
+        suffix = url.removeprefix("https://files.pythonhosted.org/packages/")
+        urls.append("https://mirrors.huaweicloud.com/repository/pypi/packages/" + suffix)
+        urls.append("https://mirrors.tuna.tsinghua.edu.cn/pypi/web/packages/" + suffix)
+    return urls
+
 def fetch(info):
     url = info["download_info"]["url"].replace("https://download-r2.pytorch.org/", "https://download.pytorch.org/")
     filename = urllib.parse.unquote(urllib.parse.urlparse(url).path.rsplit("/", 1)[-1])
@@ -30,7 +39,7 @@ def fetch(info):
         actual = hashlib.file_digest(stream, "sha256").hexdigest()
     if actual != digest:
         raise ValueError(f"Hash mismatch: {filename}")
-    return {"filename": filename, "size": target.stat().st_size, "sha256": digest, "urls": [url]}
+    return {"filename": filename, "size": target.stat().st_size, "sha256": digest, "urls": download_urls(url)}
 
 def main():
     report = json.loads((ROOT / "work/runtime-resolve.json").read_text("utf-8"))

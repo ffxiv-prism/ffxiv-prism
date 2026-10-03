@@ -7,13 +7,14 @@ import sys
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "src"))
+sys.path[:0] = [str(ROOT), str(ROOT / "src")]
 from ffxiv_prism.model_assets import model_weight_files
+from scripts.build_portable_release import VERSION
 
 def main():
     home = ROOT / "work/p"
     home.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(ROOT / "dist/FFXIV-Prism-v0.2.0-beta.1-windows.zip") as archive:
+    with zipfile.ZipFile(ROOT / f"dist/FFXIV-Prism-{VERSION}-windows.zip") as archive:
         for info in archive.infolist():
             name = info.filename.removeprefix("FFXIV-Prism/")
             if name == "manifests/active.json" and (home / name).exists():
