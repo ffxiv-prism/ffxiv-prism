@@ -88,6 +88,16 @@ def safe_path(root, name):
     return target
 
 def verify_signature(raw, signature, key):
+    """Trust only keys bundled in the launcher, including retained release keys."""
+    for trusted in (key, *key.get("previous_keys", [])):
+        try:
+            _verify_signature(raw, signature, trusted)
+            return
+        except ValueError:
+            pass
+    raise ValueError("更新包签名无效，请重新下载维护者提供的原始包。")
+
+def _verify_signature(raw, signature, key):
     """Strict RSASSA-PKCS1-v1_5/SHA-256 verification of signed manifest bytes."""
     n, e = int(key["n"], 16), int(key["e"], 16)
     size = (n.bit_length() + 7) // 8

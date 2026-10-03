@@ -8,7 +8,7 @@ FFXIV Prism 是一个本地优先的《最终幻想 XIV》装备外观候选检�
 
 ## 便携测试版：下载后如何使用
 
-无需安装 Python、Conda 或 Git。当前测试版保持 **Draft + Pre-release，尚未公开**。
+无需安装 Python、Conda 或 Git。当前便携测试版为 **v0.2.0-beta.2 Pre-release**。
 
 1. 下载维护者提供的 `FFXIV-Prism-v0.2.0-beta.2-windows.zip`，解压到较短的英文目录，例如 `D:\FFXIV-Prism`，整个路径不要包含中文。
 2. 从维护者网盘下载 `FFXIV-Prism-gallery-20260926-head-v2.zip`，放入 `imports`，双击 `导入更新.bat`。网盘链接待维护者上传后补充。

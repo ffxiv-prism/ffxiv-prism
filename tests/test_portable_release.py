@@ -115,6 +115,43 @@ class DownloadTests(unittest.TestCase):
                 self.assertIn('download.pytorch.org', row['urls'][0])
 
 class PortableTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == "nt", "Uses Windows signing tool")
+    def test_explicit_rotation_retains_old_signatures_and_rejects_unknown_keys(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = root / 'package.json'
+            manifest.write_bytes(b'{"version":1}')
+            public = root / 'public.json'
+            def sign(key, *flags, trust=public, ok=True):
+                result = subprocess.run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+                                         str(ROOT / 'scripts/sign_portable.ps1'), '-Manifest', str(manifest),
+                                         '-KeyPath', str(root / key), '-PublicPath', str(trust), *flags], capture_output=True)
+                self.assertEqual(result.returncode == 0, ok, result.stderr.decode(errors='replace'))
+                return manifest.with_suffix('.sig').read_bytes() if ok else None
+            old_sig = sign('old.xml', '-InitializeKey')
+            old_public = public.read_bytes()
+            sign('new.xml', ok=False)
+            sign('new.xml', '-InitializeKey', ok=False)
+            self.assertEqual(public.read_bytes(), old_public)
+            self.assertFalse((root / 'new.xml').exists())
+            new_sig = sign('new.xml', '-InitializeKey', '-RotateKey')
+            trusted = portable.read_json(public)
+            self.assertEqual(len(trusted['previous_keys']), 1)
+            portable.verify_signature(manifest.read_bytes(), old_sig, trusted)
+            portable.verify_signature(manifest.read_bytes(), new_sig, trusted)
+            for sig in (old_sig, new_sig):
+                with self.assertRaises(ValueError):
+                    portable.verify_signature(b'tampered', sig, trusted)
+            with self.assertRaises(ValueError):
+                portable.verify_signature(manifest.read_bytes(), new_sig, json.loads(old_public))
+            unknown = sign('unknown.xml', '-InitializeKey', trust=root / 'unknown.json')
+            with self.assertRaises(ValueError):
+                portable.verify_signature(manifest.read_bytes(), unknown, trusted)
+            sign('old.xml', ok=False)
+            sign('new.xml', '-RotateKey', ok=False)
+            sign('new.xml')
+            self.assertEqual(portable.read_json(public), trusted)
+
     def test_paths_reject_traversal_and_windows_aliases(self):
         with tempfile.TemporaryDirectory() as directory:
             for name in ("../escape", "/absolute", "C:/escape", "a\\..\\x", "x:stream", "CON.txt", "a/../b", "a./b", "a//b"):
@@ -155,7 +192,7 @@ class PortableTests(unittest.TestCase):
             source.write_text(json.dumps(manifest), "utf-8")
             subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(ROOT / "scripts/sign_portable.ps1"),
                             "-Manifest", str(source), "-KeyPath", str(home / "private.xml"),
-                            "-PublicPath", str(home / "bootstrap/public-key.json")], check=True, capture_output=True)
+                            "-PublicPath", str(home / "bootstrap/public-key.json"), "-InitializeKey"], check=True, capture_output=True)
             archive = home / "good.zip"
             with zipfile.ZipFile(archive, "w") as output:
                 output.write(source, "package.json")

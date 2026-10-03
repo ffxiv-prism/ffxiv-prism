@@ -22,7 +22,7 @@ CONTRACT = "prism-current-best-eye-v2"
 
 def sign(path):
     if not (ROOT / "work/signing/portable-private.xml").is_file():
-        raise FileNotFoundError("Missing original release signing key: work/signing/portable-private.xml")
+        raise FileNotFoundError("Missing release signing key: work/signing/portable-private.xml; restore it or explicitly rotate keys with sign_portable.ps1")
     subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
                     str(ROOT / "scripts/sign_portable.ps1"), "-Manifest", str(path),
                     "-KeyPath", str(ROOT / "work/signing/portable-private.xml"),

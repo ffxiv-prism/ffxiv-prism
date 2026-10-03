@@ -1,6 +1,6 @@
 # Windows 便携测试版
 
-本版为未公开测试版，适合 Windows x64。无需安装 Python、Conda 或 Git。首次准备需要下载 CPU 运行依赖和基础模型，完成后可以断网使用。CPU 识别耗时较长，请保留命令行窗口。
+本版为预发布测试版，适合 Windows x64。无需安装 Python、Conda 或 Git。首次准备需要下载 CPU 运行依赖和基础模型，完成后可以断网使用。CPU 识别耗时较长，请保留命令行窗口。
 
 ## 第一次使用
 
@@ -46,6 +46,8 @@
 4. 完成后运行 `启动.bat`。现有图库、模型、wheel 下载缓存与历史报告可以继续使用。
 
 本版沿用 `gallery-20260926-head-v2` 图库，不需要重新下载图库。
+由于原构建机私钥不可用，beta.2 使用新发布密钥。新版 `bootstrap/public-key.json`
+同时保留旧公钥以验证旧图库和回退版本；旧版启动器无法验证 beta.2，必须先完成步骤 2。
 
 ## 模型下载失败
 
@@ -86,6 +88,12 @@
 运行 `scripts/prepare_portable_features.py` 准备 HEAD 候选侧资源，然后运行 `scripts/build_portable_release.py`。
 程序 ZIP 位于 `dist`；图库 ZIP 和 SHA-256 位于项目根目录。图库只包含活动候选索引引用的装备图片、索引、自训练权重、装备元数据和候选特征，不包含玩家截图或基础模型。
 
-首次构建产生的私钥在 `work/signing/portable-private.xml`，必须自行安全备份。私钥不能上传仓库、Release 或网盘。后续更新须使用同一私钥签名；公钥随启动器分发。运行依赖清单和模型下载清单修改后应重新验证首次准备及离线推理。
+发布私钥在 `work/signing/portable-private.xml`，必须另行安全备份。私钥不能上传仓库、Release 或公开网盘。后续更新使用该私钥签名；公钥随启动器分发。运行依赖清单和模型下载清单修改后应重新验证首次准备及离线推理。
 
-测试 Release 保持 Draft + Pre-release。上传网盘包、补齐网盘链接并完成验收后，由维护者决定何时公开。
+仅重建程序包并复用旧图库：`python scripts/build_portable_release.py --app-only`。
+私钥缺失时构建器会停止，不会静默换钥。确实丢失私钥且需要重新发布时，可显式运行
+`scripts/sign_portable.ps1` 的 `-InitializeKey -RotateKey`；它会保留旧公钥并生成新私钥。
+此操作需要指定用于初始签名的 `-Manifest`、新私钥 `-KeyPath` 和已有公钥 `-PublicPath`。
+新启动器必须作为完整 windows ZIP 分发，让用户先替换启动器再导入新 app 包。
+
+beta.2 以 Pre-release 发布。图库单独分发，已有 beta.1 图库 ZIP 可直接复用。
