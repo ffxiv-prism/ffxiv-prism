@@ -4,7 +4,7 @@
 
 ## 第一次使用
 
-1. 下载 `FFXIV-Prism-v0.2.0-beta.2-windows.zip` 并解压到较短、可写的英文目录，例如 `D:\FFXIV-Prism`。整个存放路径不能包含中文，避免过深的目录。不要直接在压缩包里运行，也不要选择 `Source code`。
+1. 下载 `FFXIV-Prism-v0.2.0-beta.3-windows.zip` 并解压到较短、可写的英文目录，例如 `D:\FFXIV-Prism`。整个存放路径不能包含中文，避免过深的目录。不要直接在压缩包里运行，也不要选择 `Source code`。
 2. 从维护者提供的网盘下载 `FFXIV-Prism-gallery-20260926-head-v2.zip`，原样放入解压目录的 `imports` 文件夹。网盘链接由维护者上传后提供；测试草稿暂未填写链接。
 3. 双击 `导入更新.bat`。它会校验并安装图库、下载固定版本的运行依赖和模型。网络中断后可以重新运行；不要删除 `.part` 文件。
 4. 完成后双击 `启动.bat`，复制命令行中的 `http://127.0.0.1:8765` 到浏览器。不会自动打开浏览器。
@@ -33,21 +33,18 @@
 镜像可能尚未同步某个固定版本，失败会继续尝试下一个来源；所有来源都失败时，
 窗口保留各来源错误与手动放置路径。镜像与官方源使用相同的文件大小及 SHA-256。
 
-## 从 beta.1 升级到 beta.2
+## 从 beta.1 / beta.2 升级到 beta.3
 
-本次修改了根目录 BAT 与 `bootstrap`；**仅导入 app.zip 不会更新这些启动器文件**。
+1. 关闭旧版服务。下载 `FFXIV-Prism-v0.2.0-beta.3-update.zip`，解压到旧安装目录之外的临时目录。
+2. 双击其中的 `更新到新版.bat`，输入旧版安装根目录（例如 `D:\FFXIV-Prism`，不含引号）。
+3. 脚本验证签名和文件 SHA-256，自动备份并替换 `bootstrap`、四个 BAT 和使用说明，然后安装完整程序包并自检。
+4. 完成后在原安装目录双击 `启动.bat`。无需逐版安装，支持 beta.1 和 beta.2 直接更新，以及 beta.3 重试。
 
-1. 关闭旧版服务，将新版 `windows.zip` 解压到一个临时目录。
-2. 将其中的 `bootstrap` 文件夹、四个 BAT 和 `使用说明.md` 复制覆盖到旧安装根目录。
-   保留旧目录的 `manifests`、`runtime`、`resources`、`models`、`user` 和 `work`，
-   不要用完整 ZIP 直接覆盖旧根目录的 `manifests/active.json`。
-3. 将新版 `FFXIV-Prism-v0.2.0-beta.2-app.zip` 放入旧目录的 `imports`，
-   移走旧的程序更新 ZIP，然后运行新版 `导入更新.bat`。
-4. 完成后运行 `启动.bat`。现有图库、模型、wheel 下载缓存与历史报告可以继续使用。
+脚本自动移走旧启动器（含已废弃文件），删除过期的待更新状态文件，并把 `imports` 中已签名的程序 ZIP 归档到 `work/upgrade-backups`。图库 ZIP 不移动。模型、依赖缓存、图库与用户报告保留；失败恢复原启动器、活动版本和 Python 路径。服务仍在运行时拒绝更新。
 
-本版沿用 `gallery-20260926-head-v2` 图库，不需要重新下载图库。
-由于原构建机私钥不可用，beta.2 使用新发布密钥。新版 `bootstrap/public-key.json`
-同时保留旧公钥以验证旧图库和回退版本；旧版启动器无法验证 beta.2，必须先完成步骤 2。
+`回退.bat` 可恢复升级前程序版本；启动器备份留在 `work/upgrade-backups`。本版沿用 `gallery-20260926-head-v2`，无需重下图库。CPU 运行依赖与识别模型保持原版本。
+
+图库日期固定为 **2026-09-26**，来自发布索引所引用的装备样本采集记录。旧下载清单没有逐图下载时间，因此复用 URL 采集/检查记录的 `checked_at`；不是安装时间或索引构建时间。来源、样本数与索引范围见 `manifests/galleries/gallery-20260926-head-v2.json`。之后新下载的样本会记录 `downloaded_at`。
 
 ## 模型下载失败
 
@@ -62,18 +59,17 @@
 | VitPose | `models/usyd-community--vitpose-base-simple/` |
 | DINOv3 | `models/facebook--dinov3-vitb16-pretrain-lvd1689m/` |
 
-准确文件名、下载链接、大小和 SHA-256 见 `app/v0.2.0-beta.2/manifests/models.json`。必须包含该模型列出的权重、配置和处理器/词表文件。不要只放一个权重文件。DINOv3 等第三方模型仍适用各自许可。
+准确文件名、下载链接、大小和 SHA-256 见 `app/v0.2.0-beta.3/manifests/models.json`。必须包含该模型列出的权重、配置和处理器/词表文件。不要只放一个权重文件。DINOv3 等第三方模型仍适用各自许可。
 
 运行依赖下载失败时，将提示的同名 `.whl` 文件放入 `work/downloads` 后重试。准确链接和校验值见同目录的 `manifests/runtime.json`。不需要手动运行 pip。
 
 ## 以后更新
 
-程序不会检查新版本或连接 GitHub 获取更新。自行获取维护者提供的签名更新包后，可以：
+程序不会检查新版本或连接 GitHub 获取更新。程序更新优先使用对应 Release 的 `update.zip` 与内附脚本；不要把更新脚本包放进 `imports`。
 
-- 在 Web 页面点击“导入更新包”，选择 ZIP，核对版本后确认安装。停止并重新启动后刷新网页。
-- 或关闭服务，把 ZIP 放入 `imports`，双击 `导入更新.bat`。程序与图库都要升级时，将两个配套包一起导入；移走此前的旧更新 ZIP，避免同时选择多个同类包。
+图库更新或仅程序内容更新：关闭服务，把签名的资源 ZIP 或 `app.zip` 放入 `imports`，双击 `导入更新.bat`。程序与图库都要升级时一起导入配套包；移走旧同类 ZIP。Web 页面不再提供导入入口或安装接口。
 
-完整校验通过后才切换版本，失败保留原版本；`回退.bat` 可恢复上一组合。配置、上传图片和历史报告保持在 `user`。旧版本暂不自动清理，升级需要额外磁盘空间。
+完整校验和自检通过后才切换版本；`回退.bat` 可恢复上一组合。配置、上传图片和历史报告保持在 `user`。旧版本保留用于回退，升级需要额外磁盘空间。
 
 ## 修复与报告
 
@@ -94,6 +90,6 @@
 私钥缺失时构建器会停止，不会静默换钥。确实丢失私钥且需要重新发布时，可显式运行
 `scripts/sign_portable.ps1` 的 `-InitializeKey -RotateKey`；它会保留旧公钥并生成新私钥。
 此操作需要指定用于初始签名的 `-Manifest`、新私钥 `-KeyPath` 和已有公钥 `-PublicPath`。
-新启动器必须作为完整 windows ZIP 分发，让用户先替换启动器再导入新 app 包。
+新启动器随 update.zip 和 windows.zip 分发；已有用户使用更新脚本自动替换。
 
-beta.2 以 Pre-release 发布。图库单独分发，已有 beta.1 图库 ZIP 可直接复用。
+beta.3 以 Pre-release 发布。图库单独分发，已有 beta.1 图库 ZIP 可直接复用。

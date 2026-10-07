@@ -16,7 +16,7 @@ sys.path[:0] = [str(ROOT / "src"), str(ROOT / "bootstrap")]
 from portable import atomic_json, digest, verify_signature
 from ffxiv_prism.jsonl import read_jsonl
 
-VERSION = "v0.2.0-beta.2"
+VERSION = "v0.2.0-beta.3"
 RESOURCE_ID = "gallery-20260926-head-v2"
 CONTRACT = "prism-current-best-eye-v2"
 
@@ -99,9 +99,11 @@ def gallery():
             raise ValueError("Player tables must not be included in the equipment package")
         source.backup(target)
     files["data/processed/eorzea.sqlite"] = database
-    info = {"schema": 1, "id": RESOURCE_ID, "updated_at": selection["candidate_indexes_updated_at"],
-            "date_basis": "active searchable candidate snapshot; excludes later unindexed images",
-            "image_count": len(image_names), "piece_count": len(piece_ids), "compatibility": CONTRACT}
+    info = json.loads((ROOT / f"manifests/galleries/{RESOURCE_ID}.json").read_text("utf-8"))
+    if (info["candidate_indexes"] != selection["candidate_indexes"]
+            or info["image_count"] != len(image_names) or info["piece_count"] != len(piece_ids)):
+        raise ValueError("Refresh published gallery metadata from collection records before building")
+    info["samples_updated_at"] = info["updated_at"]
     atomic_json(build / "gallery.json", info)
     files["gallery.json"] = build / "gallery.json"
     missing = [name for name, path in files.items() if not path.is_file()]
@@ -142,6 +144,50 @@ def app():
         archive.writestr(prefix + "imports/放置维护者提供的ZIP.txt", "将图库或程序更新包原样放在此目录，不用自行解压。")
     output.with_suffix(".zip.sha256").write_text(digest(output) + "  " + output.name + "\n", "utf-8")
     print(f"Built lightweight portable ZIP: {output.stat().st_size/1024**2:.1f} MiB", flush=True)
+    update_bundle(source)
+
+
+def update_bundle(app_zip):
+    staging = ROOT / "work/build" / (VERSION + "-update")
+    staging.mkdir(parents=True, exist_ok=True)
+    files = {"update.py": ROOT / "scripts/portable_upgrade.py",
+             "support/portable.py": ROOT / "bootstrap/portable.py",
+             "support/public-key.json": ROOT / "bootstrap/public-key.json",
+             "payload/使用说明.md": ROOT / "docs/portable_release_zh.md",
+             "packages/" + app_zip.name: app_zip}
+    for path in (ROOT / "bootstrap").glob("*"):
+        if path.is_file():
+            files["payload/bootstrap/" + path.name] = path
+    for name, action in (("启动", "start"), ("导入更新", "import"), ("检查修复", "repair"), ("回退", "rollback")):
+        path = staging / (name + ".bat")
+        path.write_bytes(launcher_bat(name, action).encode("utf-8"))
+        files["payload/" + path.name] = path
+    bat = staging / "更新到新版.bat"
+    bat.write_bytes(('@echo off\r\nsetlocal\r\nchcp 65001 >nul\r\n'
+                     'set "PRISM_INSTALL=%~1"\r\n'
+                     'if not defined PRISM_INSTALL set /p "PRISM_INSTALL=请输入旧版安装根目录（不含引号）："\r\n'
+                     'if not exist "%PRISM_INSTALL%\\runtime\\python\\python.exe" (\r\n'
+                     'echo 未找到旧版内置 Python，请检查路径。\r\npause\r\nexit /b 1\r\n)\r\n'
+                     '"%PRISM_INSTALL%\\runtime\\python\\python.exe" -u -X utf8 "%~dp0update.py" --home "%PRISM_INSTALL%"\r\n'
+                     'set "PRISM_EXIT=%errorlevel%"\r\npause\r\nexit /b %PRISM_EXIT%\r\n').encode("utf-8"))
+    files[bat.name] = bat
+    metadata = staging / "update.json"
+    atomic_json(metadata, {"schema": 1, "kind": "portable-upgrade", "version": VERSION,
+                           "supported_from": ["v0.2.0-beta.1", "v0.2.0-beta.2", VERSION],
+                           "app_package": "packages/" + app_zip.name,
+                           "files": [{"path": name, "size": path.stat().st_size, "sha256": digest(path)}
+                                     for name, path in sorted(files.items())]})
+    sign(metadata)
+    verify_signature(metadata.read_bytes(), metadata.with_suffix(".sig").read_bytes(),
+                     json.loads((ROOT / "bootstrap/public-key.json").read_text("utf-8")))
+    output = ROOT / "dist" / f"FFXIV-Prism-{VERSION}-update.zip"
+    with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED, compresslevel=4) as archive:
+        for name, path in sorted(files.items()):
+            archive.write(path, "FFXIV-Prism-Update/" + name)
+        archive.write(metadata, "FFXIV-Prism-Update/update.json")
+        archive.write(metadata.with_suffix(".sig"), "FFXIV-Prism-Update/update.sig")
+    output.with_suffix(".zip.sha256").write_text(digest(output) + "  " + output.name + "\n", "utf-8")
+    print(f"Built automatic upgrade ZIP: {output.stat().st_size/1024**2:.1f} MiB", flush=True)
 
 def launcher_bat(name, action):
     return ('@echo off\r\nsetlocal\r\nchcp 65001 >nul\r\n'

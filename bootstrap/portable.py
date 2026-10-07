@@ -9,6 +9,7 @@ from pathlib import Path, PurePosixPath
 import re
 import shutil
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -165,44 +166,47 @@ def install_package(home, filename):
         required = sum(row["size"] for row in manifest["files"])
         if shutil.disk_usage(home).free < required + 256 * 1024**2:
             raise ValueError("磁盘空间不足，无法暂存并保留上一版本。")
-        staging = home / "work/staging" / ("a" if category == "app" else "r")
+
         longest = max(len(str(destination / row["path"])) for row in manifest["files"])
         if os.name == "nt" and longest >= 250:
             raise ValueError("安装目录过深，装备图片文件名可能超过 Windows 限制。请将整个项目移到短英文路径，例如 D:\\FFXIV-Prism。")
-        staging.mkdir(parents=True, exist_ok=True)
-        status(f"解压安装 {manifest['id']}：共 {len(manifest['files'])} 个文件")
-        last = time.monotonic()
-        for number, row in enumerate(manifest["files"], 1):
-            info = archive.getinfo("payload/" + row["path"])
-            if info.file_size != row["size"]:
-                raise ValueError("Archive size differs from signed manifest")
-            path = safe_path(staging, row["path"])
-            path.parent.mkdir(parents=True, exist_ok=True)
-            with archive.open(info) as source, path.open("wb") as target:
-                shutil.copyfileobj(source, target, 1024 * 1024)
-            if digest(path) != row["sha256"]:
-                raise ValueError(f"解压校验失败：{row['path']}")
-            if time.monotonic() - last >= 2 or number == len(manifest["files"]):
-                status(f"安装 {manifest['id']}：{number}/{len(manifest['files'])}")
-                last = time.monotonic()
-        (staging / "package.json").write_bytes(archive.read("package.json"))
-        (staging / "package.sig").write_bytes(archive.read("package.sig"))
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        if damaged:
-            backup = home / "work/rollback" / (category + "-" + manifest["id"] + "-" + str(time.time_ns()))
-            backup.parent.mkdir(parents=True, exist_ok=True)
-            destination.rename(backup)
-        # Windows antivirus may briefly hold freshly extracted DLLs/files open.
-        for attempt in range(10):
-            try:
-                staging.rename(destination)
-                break
-            except PermissionError:
-                if attempt == 9:
-                    raise
-                status("安装文件暂时被占用，等待后重试……")
-                time.sleep(.2)
-        return manifest
+        staging_root = safe_path(home, "work/staging")
+        staging_root.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="app-" if category == "app" else "res-", dir=staging_root) as directory:
+            staging = Path(directory)
+            status(f"解压安装 {manifest['id']}：共 {len(manifest['files'])} 个文件")
+            last = time.monotonic()
+            for number, row in enumerate(manifest["files"], 1):
+                info = archive.getinfo("payload/" + row["path"])
+                if info.file_size != row["size"]:
+                    raise ValueError("Archive size differs from signed manifest")
+                path = safe_path(staging, row["path"])
+                path.parent.mkdir(parents=True, exist_ok=True)
+                with archive.open(info) as source, path.open("wb") as target:
+                    shutil.copyfileobj(source, target, 1024 * 1024)
+                if digest(path) != row["sha256"]:
+                    raise ValueError(f"解压校验失败：{row['path']}")
+                if time.monotonic() - last >= 2 or number == len(manifest["files"]):
+                    status(f"安装 {manifest['id']}：{number}/{len(manifest['files'])}")
+                    last = time.monotonic()
+            (staging / "package.json").write_bytes(archive.read("package.json"))
+            (staging / "package.sig").write_bytes(archive.read("package.sig"))
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            if damaged:
+                backup = home / "work/rollback" / (category + "-" + manifest["id"] + "-" + str(time.time_ns()))
+                backup.parent.mkdir(parents=True, exist_ok=True)
+                destination.rename(backup)
+            # Windows antivirus may briefly hold freshly extracted DLLs/files open.
+            for attempt in range(10):
+                try:
+                    staging.rename(destination)
+                    break
+                except PermissionError:
+                    if attempt == 9:
+                        raise
+                    status("安装文件暂时被占用，等待后重试……")
+                    time.sleep(.2)
+            return manifest
 
 def installed_manifest(home, kind, identifier):
     root = Path(home) / kind / identifier

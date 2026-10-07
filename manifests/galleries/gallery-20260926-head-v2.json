@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "id": "gallery-20260926-head-v2",
+  "updated_at": "2026-09-26",
+  "date_basis": "Latest source image collection/check date (checked_at) among published candidates; legacy download records have no downloaded_at. Not an installation or index build date.",
+  "source_manifest": "data/raw/eorzea_collection/metadata/image_url_manifest_raw.jsonl",
+  "source_timestamp": "2026-09-26T05:55:43Z",
+  "source_example": "https://gearsets.eorzeacollection.com/mogstation/foreign/yozakura/hyur-female-body.png",
+  "image_count": 19826,
+  "piece_count": 11778,
+  "compatibility": "prism-current-best-eye-v2",
+  "candidate_indexes": {
+    "facebook-dinov2-base-feet-multiscale-v7-clean": "data/indexes/facebook-dinov2-base-feet-multiscale-v7-clean-20260926-134639",
+    "facebook-dinov2-base-hands-multiscale-v5": "data/indexes/facebook-dinov2-base-hands-multiscale-v5-20260926-134639",
+    "facebook-dinov2-base-head-multiscale-v4": "data/indexes/facebook-dinov2-base-head-multiscale-v4-20260926-134639",
+    "facebook-dinov2-base-legs-multiscale-v6": "data/indexes/facebook-dinov2-base-legs-multiscale-v6-20260926-134639",
+    "facebook-dinov2-base-slot-aligned-v3-body-multiscale": "data/indexes/facebook-dinov2-base-slot-aligned-v3-body-multiscale-20260926-134639",
+    "facebook-dinov3-vitb16-body-multiscale-v3": "data/indexes/facebook-dinov3-vitb16-body-multiscale-v3-20260926-134639",
+    "facebook-dinov3-vitb16-head-multiscale-v4": "data/indexes/facebook-dinov3-vitb16-head-multiscale-v4-20260926-134639",
+    "facebook-dinov3-vitb16-legs-multiscale-v6": "data/indexes/facebook-dinov3-vitb16-legs-multiscale-v6-20260926-134639",
+    "google-siglip2-base-patch16-224-feet-multiscale-v7-clean": "data/indexes/google-siglip2-base-patch16-224-feet-multiscale-v7-clean-20260926-134639",
+    "google-siglip2-base-patch16-224-head-multiscale-v4": "data/indexes/google-siglip2-base-patch16-224-head-multiscale-v4-20260926-134639"
+  }
+}

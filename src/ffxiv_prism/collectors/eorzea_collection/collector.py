@@ -410,6 +410,7 @@ class EorzeaCollectionCollector:
             byte_size=local_path.stat().st_size,
             from_cache=from_cache,
             image_kind=candidate.image_kind,
+            downloaded_at=None if from_cache else timestamp(),
             slot=candidate.slot,
             gearset_slug=candidate.gearset_slug,
             model_gender=candidate.model_gender,

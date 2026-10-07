@@ -27,6 +27,7 @@ APP_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_ROOT / "src"))
 from ffxiv_prism.paths import PROJECT_ROOT, HOME_ROOT
 from ffxiv_prism.version_info import version_info
+from ffxiv_prism.gallery_info import gallery_info
 WEB_ROOT = APP_ROOT / "web"
 OUTPUT_ROOT = HOME_ROOT / "user/reports" if os.environ.get("PRISM_HOME") else PROJECT_ROOT / "data/outputs/web"
 DATA_IMAGE_ROOT = PROJECT_ROOT / "data" / "raw" / "eorzea_collection" / "images"
@@ -337,6 +338,27 @@ def build_recognition_command(
     return command
 
 
+@lru_cache(maxsize=1)
+def cpu_model() -> str | None:
+    if os.name == "nt":
+        try:
+            import winreg
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                                r"HARDWARE\DESCRIPTION\System\CentralProcessor\0") as key:
+                return winreg.QueryValueEx(key, "ProcessorNameString")[0].strip()
+        except OSError:
+            pass
+    else:
+        try:
+            for line in Path("/proc/cpuinfo").read_text().splitlines():
+                if line.startswith("model name"):
+                    return line.split(":", 1)[1].strip()
+        except OSError:
+            pass
+    import platform
+    return platform.processor().strip() or None
+
+
 def _probe_execution_runtime(python_executable: str) -> dict[str, Any]:
     try:
         import torch
@@ -351,6 +373,7 @@ def _probe_execution_runtime(python_executable: str) -> dict[str, Any]:
             "cpu": {
                 "available": True,
                 "label": "CPU",
+                "device_name": cpu_model(),
             },
             "gpu": {
                 "available": cuda_available,
@@ -373,6 +396,7 @@ def _probe_execution_runtime(python_executable: str) -> dict[str, Any]:
             "cpu": {
                 "available": True,
                 "label": "CPU",
+                "device_name": cpu_model(),
             },
             "gpu": {
                 "available": False,
@@ -495,9 +519,8 @@ def _read_json(path: Path) -> dict[str, Any]:
 
 
 def dataset_status() -> dict[str, Any]:
-    gallery_path = PROJECT_ROOT / "gallery.json"
-    if gallery_path.is_file():
-        gallery = _read_json(gallery_path)
+    gallery = gallery_info(PROJECT_ROOT)
+    if gallery:
         return {"ready": True, "gear_pieces": gallery.get("piece_count"),
                 "ready_images": gallery.get("image_count"), "missing_images": 0,
                 "last_updated": gallery.get("updated_at")}
@@ -507,21 +530,14 @@ def dataset_status() -> dict[str, Any]:
         "sqlite": PROJECT_ROOT / "data" / "processed" / "eorzea_sqlite_summary.json",
     }
     summaries: dict[str, Any] = {}
-    timestamps: list[float] = []
     for key, path in summary_paths.items():
         if path.is_file():
             try:
                 summaries[key] = _read_json(path)
-                timestamps.append(path.stat().st_mtime)
             except (OSError, json.JSONDecodeError):
                 summaries[key] = {}
         else:
             summaries[key] = {}
-    last_updated = (
-        datetime.fromtimestamp(max(timestamps), UTC).isoformat(timespec="seconds")
-        if timestamps
-        else None
-    )
     dataset = summaries["dataset"]
     images = summaries["images"]
     sqlite = summaries["sqlite"]
@@ -532,7 +548,7 @@ def dataset_status() -> dict[str, Any]:
         "gearsets": sqlite.get("gearsets"),
         "ready_images": images.get("ready_rows", sqlite.get("ready_images")),
         "missing_images": images.get("missing_rows", sqlite.get("missing_or_invalid_images")),
-        "last_updated": last_updated,
+        "last_updated": None,
     }
 
 
@@ -638,10 +654,6 @@ class PrismRequestHandler(BaseHTTPRequestHandler):
                 self._start_recognition()
             elif parsed.path == "/api/dataset/update":
                 raise PermissionError("用户工作台不运行采集或索引构建，请导入维护者提供的资源包。")
-            elif parsed.path == "/api/packages/import":
-                self._import_package()
-            elif parsed.path == "/api/packages/install":
-                self._install_imported_package()
             else:
                 route = _parse_job_route(parsed.path)
                 if route and route[1] == "open-directory":
@@ -664,66 +676,6 @@ class PrismRequestHandler(BaseHTTPRequestHandler):
             f"{self.address_string()} - [{self.log_date_time_string()}] {format % args}",
             flush=True,
         )
-
-    def _require_local_update(self):
-        origin = self.headers.get("Origin")
-        host = self.headers.get("Host", "")
-        if (not os.environ.get("PRISM_HOME") or not ipaddress.ip_address(self.client_address[0]).is_loopback
-                or urlparse(f"http://{host}").hostname not in {"localhost", "127.0.0.1", "::1"}
-                or (origin is not None and origin != f"http://{host}")
-                or self.headers.get("X-Prism-Local-Action") != "import-package"):
-            raise PermissionError("请使用便携版的本机页面导入更新。")
-        if any(j["status"] in RUNNING_STATES for j in self.registry.list()):
-            raise RuntimeError("请等待当前推理任务完成后再导入更新。")
-
-    def _import_package(self):
-        self._require_local_update()
-        import zipfile
-        sys.path.insert(0, str(HOME_ROOT / "bootstrap"))
-        from portable import package_manifest
-        length = int(self.headers.get("Content-Length", "0"))
-        if length <= 0 or length > 30 * 1024**3:
-            raise ValueError("更新包大小无效。")
-        import shutil
-        if shutil.disk_usage(HOME_ROOT).free < length + 256 * 1024**2:
-            raise ValueError("磁盘空间不足。")
-        path = HOME_ROOT / "imports" / ("web-" + uuid.uuid4().hex + ".zip")
-        path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            self.connection.settimeout(120)
-            with path.open("wb") as stream:
-                while length:
-                    chunk = self.rfile.read(min(length, 1024 * 1024))
-                    if not chunk:
-                        raise ValueError("更新包传输中断。")
-                    stream.write(chunk)
-                    length -= len(chunk)
-            with zipfile.ZipFile(path) as archive:
-                manifest = package_manifest(archive, HOME_ROOT)
-            self._send_json({"token": path.name, "kind": manifest["kind"], "version": manifest["id"],
-                             "size": sum(r["size"] for r in manifest["files"])})
-        except Exception:
-            path.unlink(missing_ok=True)
-            raise
-
-    def _install_imported_package(self):
-        self._require_local_update()
-        payload = self._read_request_json()
-        token = str(payload.get("token", ""))
-        if not re.fullmatch(r"web-[a-f0-9]{32}\.zip", token):
-            raise ValueError("无效导入包。")
-        path = HOME_ROOT / "imports" / token
-        if not path.is_file():
-            raise FileNotFoundError("导入包不存在。")
-        from portable import atomic_json
-        with self.registry._lock:
-            if any(j.status in RUNNING_STATES for j in self.registry._jobs.values()):
-                raise RuntimeError("请等待当前推理任务完成后安装。")
-            self.registry.quiescing = True
-        atomic_json(HOME_ROOT / "work/pending-update.json", {"packages": [str(path)]})
-        self.server.update_requested = True
-        self._send_json({"ok": True})
-        threading.Thread(target=self.server.shutdown, daemon=True).start()
 
     def _open_job_directory(self, job_id: str) -> None:
         # Opening a host application is a local, same-origin POST action. The
@@ -964,7 +916,7 @@ def main(argv: list[str] | None = None) -> int:
         print("\n正在停止本地网页……", flush=True)
     finally:
         server.server_close()
-    return 75 if getattr(server, "update_requested", False) else 0
+    return 0
 
 
 if __name__ == "__main__":

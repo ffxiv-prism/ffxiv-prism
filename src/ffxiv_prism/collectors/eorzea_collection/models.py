@@ -91,6 +91,7 @@ class DownloadedImageRecord:
     byte_size: int
     from_cache: bool
     image_kind: str
+    downloaded_at: str | None = None
     slot: str | None = None
     gearset_slug: str | None = None
     model_gender: str | None = None

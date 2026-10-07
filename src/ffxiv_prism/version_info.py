@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import subprocess
 from ffxiv_prism.paths import APP_ROOT, PROJECT_ROOT
+from ffxiv_prism.gallery_info import gallery_info
 
 def version_info():
     def read(path):
@@ -11,7 +12,7 @@ def version_info():
         except (OSError, ValueError):
             return {}
     release = read(APP_ROOT / "manifests/release.json")
-    gallery = read(PROJECT_ROOT / "gallery.json")
+    gallery = gallery_info(PROJECT_ROOT, APP_ROOT)
     selection = read(PROJECT_ROOT / "data/current_best_selection.json")
     commit = release.get("code_commit")
     if not commit and (APP_ROOT / ".git").exists():

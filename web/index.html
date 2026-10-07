@@ -6,8 +6,8 @@
   <meta name="color-scheme" content="dark">
   <meta name="description" content="FFXIV Prism 本地装备外观识别工作台">
   <title>FFXIV Prism · 本地识别工作台</title>
-  <link rel="stylesheet" href="/static/styles.css?v=10">
-  <script src="/static/app.js?v=8" defer></script>
+  <link rel="stylesheet" href="/static/styles.css?v=11">
+  <script src="/static/app.js?v=9" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -80,7 +80,6 @@
                     <b>GPU</b>
                     <small id="gpu-detail">正在检测 CUDA…</small>
                   </span>
-                  <span class="device-badge">推荐</span>
                 </span>
               </label>
               <label class="device-option" data-device-option="cpu">
@@ -90,7 +89,6 @@
                     <b>CPU</b>
                     <small id="cpu-detail">正在读取运行环境…</small>
                   </span>
-                  <span class="device-badge device-badge-neutral">兼容</span>
                 </span>
               </label>
             </div>
@@ -127,13 +125,10 @@
           </div>
           <div class="metric-grid">
             <div><strong id="metric-pieces">—</strong><span>装备条目</span></div>
-            <div><strong id="metric-images">—</strong><span>可用图片</span></div>
+            <div><strong id="metric-images">—</strong><span>可检索项</span></div>
             <div><strong id="metric-missing">—</strong><span>缺失图片</span></div>
           </div>
           <p class="updated-time" id="dataset-updated">正在读取本地摘要…</p>
-          <button class="button button-secondary button-block" type="button" data-open-update>
-            导入更新包
-          </button>
         </section>
 
         <section class="panel guide-card">
@@ -187,30 +182,6 @@
     <span>FFXIV Prism</span>
     <span>候选分数仅用于相对排序，请结合裁剪质检图人工确认。</span>
   </footer>
-
-  <dialog id="update-dialog">
-    <form method="dialog" class="dialog-shell" id="update-form">
-      <div class="dialog-header">
-        <div>
-          <span class="eyebrow">LOCAL PACKAGE</span>
-          <h2>导入离线更新包</h2>
-        </div>
-        <button class="icon-button" value="cancel" aria-label="关闭">×</button>
-      </div>
-      <p>选择维护者提供的程序包或图库资源 ZIP。校验后确认安装，服务将停止并重新启动。不会联网检查新版本。</p>
-      <label class="field">
-        <span>本地 ZIP 文件</span>
-        <input id="update-package" type="file" accept=".zip">
-      </label>
-      <div class="mode-note" id="mode-note">
-        大文件也可放入 imports 文件夹，关闭服务后双击“导入更新.bat”。程序与图库同时升级时，请使用此方式一次导入两个包。
-      </div>
-      <div class="dialog-actions">
-        <button class="button button-quiet" value="cancel">取消</button>
-        <button class="button button-primary" id="start-update" value="default">校验更新包</button>
-      </div>
-    </form>
-  </dialog>
 
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 </body>

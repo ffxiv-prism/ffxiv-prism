@@ -135,8 +135,6 @@ main { width: min(1180px, calc(100% - 40px)); margin: 0 auto; }
 .device-option-copy { display: grid; min-width: 0; gap: 3px; }
 .device-option-copy b { color: var(--ink); font-size: 15px; }
 .device-option-copy small { overflow: hidden; color: var(--faint); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.device-badge { flex: 0 0 auto; padding: 3px 7px; border-radius: 999px; background: rgba(131, 191, 255, 0.12); color: var(--blue); font-size: 10px; }
-.device-badge-neutral { background: rgba(255, 255, 255, 0.06); color: var(--muted); }
 .device-note { min-height: 19px; margin: 8px 2px 0; color: var(--faint); font-size: 11px; }
 .device-note strong { color: var(--green); font-weight: 600; }
 .slot-fieldset { margin: 16px 0 0; padding: 0; border: 0; }
@@ -223,15 +221,6 @@ main { width: min(1180px, calc(100% - 40px)); margin: 0 auto; }
 footer { display: flex; width: min(1180px, calc(100% - 40px)); align-items: center; justify-content: space-between; gap: 24px; margin: 60px auto 0; padding: 25px 0 36px; border-top: 1px solid var(--border); color: var(--faint); font-size: 12px; }
 footer span:first-child { color: var(--gold); font-weight: 700; letter-spacing: 0.08em; }
 
-dialog { width: min(520px, calc(100% - 32px)); padding: 0; border: 1px solid var(--border-strong); border-radius: 16px; background: var(--surface); color: var(--ink); box-shadow: 0 28px 90px rgba(0, 0, 0, 0.55); }
-dialog::backdrop { background: rgba(4, 7, 11, 0.76); backdrop-filter: blur(5px); }
-.dialog-shell { padding: 24px; }
-.dialog-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
-.dialog-header h2 { margin: 7px 0 0; font-size: 24px; }
-.dialog-shell > p { margin: 20px 0; color: var(--muted); }
-.icon-button { width: 36px; height: 36px; border: 1px solid var(--border); border-radius: 50%; background: transparent; color: var(--muted); font-size: 22px; cursor: pointer; }
-.mode-note { margin-top: 12px; padding: 12px; border-radius: 9px; background: var(--surface-3); color: var(--faint); font-size: 12px; }
-.dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px; }
 .toast { position: fixed; z-index: 50; right: 22px; bottom: 22px; max-width: min(420px, calc(100% - 44px)); padding: 12px 15px; border: 1px solid var(--border-strong); border-radius: 10px; background: #222b38; color: var(--ink); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.38); }
 
 @media (max-width: 920px) {

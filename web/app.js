@@ -29,15 +29,8 @@ const elements = {
   resultSummary: $("#result-summary"),
   rawReport: $("#raw-report-link"),
   openDirectory: $("#open-report-directory"),
-  updateDialog: $("#update-dialog"),
-  updateForm: $("#update-form"),
-  updatePackage: $("#update-package"),
-  modeNote: $("#mode-note"),
-  startUpdate: $("#start-update"),
   toast: $("#toast"),
 };
-
-let importedPackage = null;
 
 let selectedImage = null;
 let previewUrl = null;
@@ -70,15 +63,8 @@ function updateRecognizeAvailability() {
 }
 
 function updateDeviceNote() {
-  const device = selectedDevice();
-  if (device === "cuda") {
-    const gpuName = elements.gpuDetail.dataset.deviceName;
-    elements.deviceNote.innerHTML = `本次任务将固定使用 <strong>GPU</strong>${gpuName ? ` · ${escapeHtml(gpuName)}` : ""}。`;
-  } else if (device === "cpu") {
-    elements.deviceNote.innerHTML = "本次任务将固定使用 <strong>CPU</strong>，并对该子进程隐藏 CUDA。";
-  } else {
-    elements.deviceNote.textContent = "当前没有可用的运行设备。";
-  }
+  elements.deviceNote.hidden = Boolean(selectedDevice());
+  elements.deviceNote.textContent = "当前没有可用的运行设备。";
 }
 
 function renderExecutionRuntime(execution) {
@@ -87,13 +73,11 @@ function renderExecutionRuntime(execution) {
   runtimeLoaded = true;
   elements.deviceCpu.disabled = !cpu.available;
   elements.deviceGpu.disabled = !gpu.available;
-  elements.cpuDetail.textContent = execution?.logical_processors
-    ? `${execution.logical_processors} 个逻辑处理器 · 兼容性优先`
-    : "兼容性优先，推断速度较慢";
+  elements.cpuDetail.textContent = [cpu.device_name || "CPU 型号未识别",
+    execution?.logical_processors ? `${execution.logical_processors} 个逻辑处理器` : "逻辑处理器数量未知"].join(" · ");
   elements.gpuDetail.textContent = gpu.available
     ? gpu.device_name || "CUDA 可用"
     : gpu.reason || "当前环境不可用";
-  elements.gpuDetail.dataset.deviceName = gpu.available ? gpu.device_name || "CUDA" : "";
   $("[data-device-option=\"cuda\"]").classList.toggle("unavailable", !gpu.available);
 
   if (!selectedDevice()) {
@@ -130,10 +114,9 @@ async function loadStatus() {
     const payload = await api("/api/status");
     const version = payload.version_info || {};
     const code = version.release || `开发版 · ${version.code_commit || "未记录"}`;
-    const date = version.gallery_updated_at ? new Date(version.gallery_updated_at).toLocaleDateString("zh-CN") : "未记录";
+    const date = version.gallery_updated_at?.slice(0, 10) || "未记录";
     $("#release-info").textContent = `版本：${code}　|　样本图库更新于：${date}`;
     $("#release-info").title = `代码：${version.code_commit || "未记录"}；图库：${version.gallery_version || "未记录"}`;
-    for (const button of $$("[data-open-update]")) button.disabled = !payload.portable;
     renderDatasetStatus(payload.dataset);
     renderExecutionRuntime(payload.execution);
     const active = payload.jobs.find((job) => ["queued", "running"].includes(job.status));
@@ -148,6 +131,7 @@ async function loadStatus() {
     elements.deviceCpu.disabled = true;
     elements.deviceGpu.disabled = true;
     elements.deviceNote.textContent = "无法读取运行环境，请检查本地服务日志。";
+    elements.deviceNote.hidden = false;
     updateRecognizeAvailability();
     $("#dataset-ready").textContent = "读取失败";
     $("#dataset-ready").classList.add("unready");
@@ -163,10 +147,9 @@ function renderDatasetStatus(dataset) {
   $("#metric-images").textContent = formatNumber(dataset.ready_images);
   $("#metric-missing").textContent = formatNumber(dataset.missing_images);
   if (dataset.last_updated) {
-    const date = new Date(dataset.last_updated);
-    $("#dataset-updated").textContent = `本地资源记录时间：${date.toLocaleString("zh-CN", { hour12: false })}`;
+    $("#dataset-updated").textContent = `本地资料库更新时间：${dataset.last_updated.slice(0, 10)}`;
   } else {
-    $("#dataset-updated").textContent = "尚未生成数据集摘要";
+    $("#dataset-updated").textContent = "本地资料库更新时间：未记录";
   }
 }
 
@@ -368,15 +351,6 @@ function renderResults(result, reportUrl, directoryUrl) {
   elements.results.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
-function escapeHtml(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
 elements.openDirectory.addEventListener("click", async () => {
   if (!openDirectoryUrl) return;
   elements.openDirectory.disabled = true;
@@ -391,46 +365,6 @@ elements.openDirectory.addEventListener("click", async () => {
     showToast(error.message);
   } finally {
     elements.openDirectory.disabled = !openDirectoryUrl;
-  }
-});
-
-for (const button of $$("[data-open-update]")) {
-  button.addEventListener("click", () => elements.updateDialog.showModal());
-}
-
-elements.updatePackage.addEventListener("change", () => {
-  importedPackage = null;
-  elements.startUpdate.textContent = "校验更新包";
-});
-
-elements.updateForm.addEventListener("submit", async (event) => {
-  if (event.submitter?.value === "cancel") return;
-  event.preventDefault();
-  elements.startUpdate.disabled = true;
-  try {
-    if (!importedPackage) {
-      const file = elements.updatePackage.files[0];
-      if (!file) throw new Error("请先选择 ZIP 文件。");
-      elements.modeNote.textContent = "正在传输并验证更新包，请稍候…";
-      importedPackage = await api("/api/packages/import", {
-        method: "POST", headers: { "Content-Type": "application/zip", "X-Prism-Local-Action": "import-package" }, body: file,
-      });
-      elements.modeNote.textContent = `${importedPackage.kind === "app" ? "程序" : "图库"}：${importedPackage.version}；解压约 ${formatBytes(importedPackage.size)}。确认后停止服务并安装，失败保留原版本。`;
-      elements.startUpdate.textContent = "确认安装并重启";
-    } else {
-      await api("/api/packages/install", { method: "POST",
-        headers: { "Content-Type": "application/json", "X-Prism-Local-Action": "import-package" },
-        body: JSON.stringify({ token: importedPackage.token }),
-      });
-      elements.updateDialog.close();
-      showToast("正在安装，请查看命令行。服务重新启动后刷新页面。");
-      importedPackage = null;
-      elements.startUpdate.textContent = "校验更新包";
-    }
-  } catch (error) {
-    showToast(error.message);
-  } finally {
-    elements.startUpdate.disabled = false;
   }
 });
 
