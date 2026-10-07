@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -9,6 +10,16 @@ from scripts import portable_upgrade as upgrade
 
 
 class UpgradeTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == "nt", "Windows byte-range lock")
+    def test_running_launcher_lock_reports_close_service_before_reading_locked_byte(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            (home / "work").mkdir()
+            with upgrade.installation_lock(home):
+                with self.assertRaisesRegex(RuntimeError, "请先关闭旧版服务"):
+                    with upgrade.installation_lock(home):
+                        self.fail("Acquired an already-held installation lock")
+
     def fixture(self, root, version):
         home, bundle = root / "home", root / "bundle"
         for name, content in {"bootstrap/obsolete.py": "old bootstrap", "启动.bat": "old bat",

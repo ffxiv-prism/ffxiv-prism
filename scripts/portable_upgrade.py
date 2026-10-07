@@ -25,8 +25,9 @@ STATE = ("manifests/active.json", "manifests/previous.json", "runtime/python/pyt
 def installation_lock(home):
     import msvcrt
     with safe_path(home, "work/app.lock").open("a+b") as lock:
-        lock.seek(0)
-        if not lock.read(1):
+        # Reading a byte locked by the running launcher already fails on Windows.
+        # Inspect the file length without touching the locked region instead.
+        if os.fstat(lock.fileno()).st_size == 0:
             lock.write(b"0")
             lock.flush()
         lock.seek(0)
