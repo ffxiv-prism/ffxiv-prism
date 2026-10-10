@@ -13,6 +13,21 @@ from scripts.export_current_best_assets import inference_checkpoint_payload
 
 
 class CurrentBestAssetsTests(unittest.TestCase):
+    def test_auto_processor_pins_backend_in_local_and_remote_loads(self) -> None:
+        class AutoProcessor:
+            calls = []
+
+            @classmethod
+            def from_pretrained(cls, _source, **kwargs):
+                cls.calls.append(kwargs)
+                if kwargs.get("local_files_only"):
+                    raise OSError("not cached")
+                return object()
+
+        load_pretrained(AutoProcessor, "example/model")
+        self.assertEqual([c["backend"] for c in AutoProcessor.calls],
+                         ["torchvision", "torchvision"])
+
     def test_remote_model_ids_do_not_include_project_paths(self) -> None:
         self.assertTrue(is_remote_model_id("facebook/dinov2-base"))
         self.assertFalse(

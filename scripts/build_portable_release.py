@@ -16,9 +16,10 @@ sys.path[:0] = [str(ROOT / "src"), str(ROOT / "bootstrap")]
 from portable import atomic_json, digest, verify_signature
 from ffxiv_prism.jsonl import read_jsonl
 
-VERSION = "v0.2.0-beta.3"
-RESOURCE_ID = "gallery-20260926-head-v2"
-CONTRACT = "prism-current-best-eye-v2"
+VERSION = "v0.2.0-beta.5"
+RESOURCE_ID = "gallery-20261009-visor-feet-v3"
+CONTRACT = "prism-current-best-visor-feet-v3"
+ALLOW_TRUSTED_PREVIOUS_KEY = False
 
 def sign(path):
     if not (ROOT / "work/signing/portable-private.xml").is_file():
@@ -26,7 +27,8 @@ def sign(path):
     subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
                     str(ROOT / "scripts/sign_portable.ps1"), "-Manifest", str(path),
                     "-KeyPath", str(ROOT / "work/signing/portable-private.xml"),
-                    "-PublicPath", str(ROOT / "bootstrap/public-key.json")], check=True, capture_output=True)
+                    "-PublicPath", str(ROOT / "bootstrap/public-key.json"),
+                    *(["-AllowTrustedPreviousKey"] if ALLOW_TRUSTED_PREVIOUS_KEY else [])], check=True, capture_output=True)
 
 def pack(files, destination, manifest):
     manifest["schema"] = 1
@@ -86,9 +88,19 @@ def gallery():
     for relative in ("data/current_best_selection.json", "data/raw/eorzea_collection/metadata/gear_pieces_raw.jsonl",
                      "data/raw/game_data/cafemaker_item_names_for_gear_pieces_raw.jsonl", "data/raw/game_data/cafemaker_item_names_raw.jsonl"):
         files[relative] = ROOT / relative
-    for path in (ROOT / "data/local_features").rglob("*"):
-        if path.is_file():
-            files[path.relative_to(ROOT).as_posix()] = path
+    feature_root = ROOT / "data/local_features"
+    feature_manifest = json.loads((feature_root / "catalogue.json").read_text("utf-8"))
+    head_index = selection["candidate_indexes"]["facebook-dinov2-base-head-multiscale-v4"]
+    head_images = {r["local_path"] for r in read_jsonl(ROOT / head_index / "metadata.jsonl")
+                   if r.get("candidate_crop") == "full"}
+    if feature_manifest["head_index"] != head_index or set(feature_manifest["images"]) != head_images:
+        raise ValueError("Rebuild catalogue features for the active HEAD index before packaging")
+    for name in feature_manifest["files"]:
+        path = feature_root / name
+        if not path.resolve().is_relative_to(feature_root.resolve()):
+            raise ValueError("Invalid catalogue feature path")
+        files[path.relative_to(ROOT).as_posix()] = path
+    files["data/local_features/catalogue.json"] = feature_root / "catalogue.json"
     # Read-only SQLite backup avoids copying an inconsistent live database/WAL.
     build = ROOT / "work/build/gallery"
     build.mkdir(parents=True, exist_ok=True)
@@ -113,15 +125,17 @@ def gallery():
 
 def app():
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
-    atomic_json(ROOT / "manifests/release.json", {"version": VERSION, "code_commit": commit, "prerelease": True})
+    dirty = bool(subprocess.check_output(["git", "status", "--porcelain", "--", "src", "web", "scripts", "manifests"], cwd=ROOT, text=True).strip())
+    atomic_json(ROOT / "manifests/release.json", {"version": VERSION, "code_commit": commit,
+                                               "working_tree_modified": dirty, "prerelease": True})
     files = {}
     for folder in ("src", "web", "manifests"):
         for path in (ROOT / folder).rglob("*"):
             if path.is_file() and "__pycache__" not in path.parts and path.suffix not in {".pyc"}:
                 files[path.relative_to(ROOT).as_posix()] = path
-    for name in ("scripts/recognize_glamour.py", "scripts/web_app.py", "scripts/open_report_directory.ps1", "README.md", "docs/portable_release_zh.md"):
+    for name in ("scripts/recognize_glamour.py", "scripts/web_app.py", "scripts/open_report_directory.ps1", "README.md", "docs/portable_release_zh.md", "docs/runtime_parity_zh.md"):
         files[name] = ROOT / name
-    manifest = pack(files, ROOT / "dist" / f"FFXIV-Prism-{VERSION}-app.zip", {"kind": "app", "id": VERSION, "resource_compatibility": [CONTRACT]})
+    manifest = pack(files, ROOT / "dist" / f"FFXIV-Prism-{VERSION}-app.zip", {"kind": "app", "id": VERSION, "resource_compatibility": [CONTRACT, "prism-current-best-eye-v2"]})
     source = ROOT / "dist" / f"FFXIV-Prism-{VERSION}-app.zip"
     output = ROOT / "dist" / f"FFXIV-Prism-{VERSION}-windows.zip"
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED, compresslevel=4) as archive:
@@ -173,7 +187,7 @@ def update_bundle(app_zip):
     files[bat.name] = bat
     metadata = staging / "update.json"
     atomic_json(metadata, {"schema": 1, "kind": "portable-upgrade", "version": VERSION,
-                           "supported_from": ["v0.2.0-beta.1", "v0.2.0-beta.2", VERSION],
+                           "supported_from": ["v0.2.0-beta.1", "v0.2.0-beta.2", "v0.2.0-beta.3", "v0.2.0-beta.4", VERSION],
                            "app_package": "packages/" + app_zip.name,
                            "files": [{"path": name, "size": path.stat().st_size, "sha256": digest(path)}
                                      for name, path in sorted(files.items())]})
@@ -204,7 +218,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--app-only", action="store_true")
     parser.add_argument("--gallery-only", action="store_true")
+    parser.add_argument("--allow-trusted-previous-key", action="store_true",
+                        help="Explicitly authorize signing this build with an already trusted historical key; never changes public trust.")
     args = parser.parse_args()
+    ALLOW_TRUSTED_PREVIOUS_KEY = args.allow_trusted_previous_key
     if not args.app_only:
         gallery()
     if not args.gallery_only:

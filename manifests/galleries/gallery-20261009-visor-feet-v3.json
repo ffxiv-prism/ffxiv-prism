@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "id": "gallery-20261009-visor-feet-v3",
+  "updated_at": "2026-10-09",
+  "date_basis": "Latest downloaded_at among published source images; not the package, installation or index build date.",
+  "source_manifest": "data/raw/eorzea_collection/metadata/image_manifest_raw.jsonl",
+  "source_timestamp": "2026-10-09T13:21:54Z",
+  "source_example": "https://gearsets.eorzeacollection.com/tomes/scaevan/scaevan-healing/hyur-male-visor.png",
+  "image_count": 20703,
+  "piece_count": 11778,
+  "visor_image_count": 879,
+  "multiappearance_piece_count": 453,
+  "compatibility": "prism-current-best-visor-feet-v3",
+  "candidate_indexes": {
+    "facebook-dinov2-base-feet-multiscale-v7-clean": "data/indexes/facebook-dinov2-base-feet-multiscale-v7-clean-20261009-230000",
+    "facebook-dinov2-base-hands-multiscale-v5": "data/indexes/facebook-dinov2-base-hands-multiscale-v5-20260926-134639",
+    "facebook-dinov2-base-head-multiscale-v4": "data/indexes/facebook-dinov2-base-head-multiscale-v4-20261009-230000",
+    "facebook-dinov2-base-legs-multiscale-v6": "data/indexes/facebook-dinov2-base-legs-multiscale-v6-20260926-134639",
+    "facebook-dinov2-base-slot-aligned-v3-body-multiscale": "data/indexes/facebook-dinov2-base-slot-aligned-v3-body-multiscale-20261009-230000",
+    "facebook-dinov3-vitb16-body-multiscale-v3": "data/indexes/facebook-dinov3-vitb16-body-multiscale-v3-20260926-134639",
+    "facebook-dinov3-vitb16-head-multiscale-v4": "data/indexes/facebook-dinov3-vitb16-head-multiscale-v4-20261009-230000",
+    "facebook-dinov3-vitb16-legs-multiscale-v6": "data/indexes/facebook-dinov3-vitb16-legs-multiscale-v6-20260926-134639",
+    "google-siglip2-base-patch16-224-feet-multiscale-v7-clean": "data/indexes/google-siglip2-base-patch16-224-feet-multiscale-v7-clean-20261009-230000",
+    "google-siglip2-base-patch16-224-head-multiscale-v4": "data/indexes/google-siglip2-base-patch16-224-head-multiscale-v4-20261009-230000",
+    "facebook-dinov3-vitb16-feet-multiscale-v1": "data/indexes/facebook-dinov3-vitb16-feet-multiscale-v1-20261009-230000"
+  }
+}

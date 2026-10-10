@@ -403,6 +403,28 @@ def style_policy(
     )
 
 
+def footwear_style_records(records):
+    """Whole shoes only: ankle crops cannot establish the height of a boot."""
+    return [r for r in records if r.get("name") in {"feet_full_left", "feet_full_right"}
+            and r.get("visibility") == "visible"
+            and "source_edge_truncation_risk" not in r.get("tags", ())]
+
+
+def footwear_style_consensus_policy(prediction, corroborations, *, minimum_confidence=0.7):
+    """Do not let socks/trousers in the leg context override shoe identity."""
+    if prediction.slot != "FEET" or any(p.slot != "FEET" for p in corroborations):
+        raise ValueError("Footwear consensus requires FEET predictions")
+    policy = style_policy(prediction, minimum_confidence=minimum_confidence)
+    if not policy.active:
+        return policy
+    if not corroborations:
+        return StylePolicy(False, {}, {}, {}, "footwear_style_corroboration_unavailable")
+    if any(p.confidence < minimum_confidence or p.predicted_class != prediction.predicted_class
+           for p in corroborations):
+        return StylePolicy(False, {}, {}, {}, "footwear_style_views_disagree_or_uncertain")
+    return policy
+
+
 def body_style_consensus_policy(
     prediction: StylePrediction,
     corroboration: StylePrediction | None,

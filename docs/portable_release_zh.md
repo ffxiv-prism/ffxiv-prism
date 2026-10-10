@@ -4,8 +4,8 @@
 
 ## 第一次使用
 
-1. 下载 `FFXIV-Prism-v0.2.0-beta.3-windows.zip` 并解压到较短、可写的英文目录，例如 `D:\FFXIV-Prism`。整个存放路径不能包含中文，避免过深的目录。不要直接在压缩包里运行，也不要选择 `Source code`。
-2. 从维护者提供的网盘下载 `FFXIV-Prism-gallery-20260926-head-v2.zip`，原样放入解压目录的 `imports` 文件夹。网盘链接由维护者上传后提供；测试草稿暂未填写链接。
+1. 下载 `FFXIV-Prism-v0.2.0-beta.5-windows.zip` 并解压到较短、可写的英文目录，例如 `D:\FFXIV-Prism`。整个存放路径不能包含中文，避免过深的目录。不要直接在压缩包里运行，也不要选择 `Source code`。
+2. 从维护者提供的网盘下载 `FFXIV-Prism-gallery-20261009-visor-feet-v3.zip`，原样放入解压目录的 `imports` 文件夹。网盘链接由维护者上传后提供；测试草稿暂未填写链接。
 3. 双击 `导入更新.bat`。它会校验并安装图库、下载固定版本的运行依赖和模型。网络中断后可以重新运行；不要删除 `.part` 文件。
 4. 完成后双击 `启动.bat`，复制命令行中的 `http://127.0.0.1:8765` 到浏览器。不会自动打开浏览器。
 5. 上传单人截图，选择部位，点击“开始识别”。页面显示当前版本和可检索图库日期。报告保存在 `user/reports`。
@@ -33,18 +33,18 @@
 镜像可能尚未同步某个固定版本，失败会继续尝试下一个来源；所有来源都失败时，
 窗口保留各来源错误与手动放置路径。镜像与官方源使用相同的文件大小及 SHA-256。
 
-## 从 beta.1 / beta.2 升级到 beta.3
+## 从 beta.1 / beta.2 / beta.3 / beta.4 升级到 beta.5
 
-1. 关闭旧版服务。下载 `FFXIV-Prism-v0.2.0-beta.3-update.zip`，解压到旧安装目录之外的临时目录。
+1. 关闭旧版服务。下载 `FFXIV-Prism-v0.2.0-beta.5-update.zip`，解压到旧安装目录之外的临时目录。
 2. 双击其中的 `更新到新版.bat`，输入旧版安装根目录（例如 `D:\FFXIV-Prism`，不含引号）。
 3. 脚本验证签名和文件 SHA-256，自动备份并替换 `bootstrap`、四个 BAT 和使用说明，然后安装完整程序包并自检。
-4. 完成后在原安装目录双击 `启动.bat`。无需逐版安装，支持 beta.1 和 beta.2 直接更新，以及 beta.3 重试。
+4. 完成后在原安装目录双击 `启动.bat`。无需逐版安装，支持 beta.1、beta.2、beta.3 和 beta.4 直接更新，以及 beta.5 重试。
 
 脚本自动移走旧启动器（含已废弃文件），删除过期的待更新状态文件，并把 `imports` 中已签名的程序 ZIP 归档到 `work/upgrade-backups`。图库 ZIP 不移动。模型、依赖缓存、图库与用户报告保留；失败恢复原启动器、活动版本和 Python 路径。服务仍在运行时拒绝更新。
 
-`回退.bat` 可恢复升级前程序版本；启动器备份留在 `work/upgrade-backups`。本版沿用 `gallery-20260926-head-v2`，无需重下图库。CPU 运行依赖与识别模型保持原版本。
+`回退.bat` 可恢复升级前程序版本；启动器备份留在 `work/upgrade-backups`。要启用本次多外观头饰与鞋部优化，升级程序后还需导入新的 `gallery-20261009-visor-feet-v3` 图库。旧图库仍可使用，但不包含新功能所需样本和索引。识别模型保持原版本；CPU 依赖新增锁定的 torchvision，与开发 CUDA 环境使用相同预处理后端。详见 [运行环境一致性](runtime_parity_zh.md)。
 
-图库日期固定为 **2026-09-26**，来自发布索引所引用的装备样本采集记录。旧下载清单没有逐图下载时间，因此复用 URL 采集/检查记录的 `checked_at`；不是安装时间或索引构建时间。来源、样本数与索引范围见 `manifests/galleries/gallery-20260926-head-v2.json`。之后新下载的样本会记录 `downloaded_at`。
+图库日期固定为 **2026-10-09**，来自新增装备样本的 `downloaded_at`，不是安装或索引构建时间。新增 879 张可调节头饰状态图；来源、样本数与索引范围见 `manifests/galleries/gallery-20261009-visor-feet-v3.json`。
 
 ## 模型下载失败
 
@@ -59,7 +59,7 @@
 | VitPose | `models/usyd-community--vitpose-base-simple/` |
 | DINOv3 | `models/facebook--dinov3-vitb16-pretrain-lvd1689m/` |
 
-准确文件名、下载链接、大小和 SHA-256 见 `app/v0.2.0-beta.3/manifests/models.json`。必须包含该模型列出的权重、配置和处理器/词表文件。不要只放一个权重文件。DINOv3 等第三方模型仍适用各自许可。
+准确文件名、下载链接、大小和 SHA-256 见 `app/v0.2.0-beta.5/manifests/models.json`。必须包含该模型列出的权重、配置和处理器/词表文件。不要只放一个权重文件。DINOv3 等第三方模型仍适用各自许可。
 
 运行依赖下载失败时，将提示的同名 `.whl` 文件放入 `work/downloads` 后重试。准确链接和校验值见同目录的 `manifests/runtime.json`。不需要手动运行 pip。
 
@@ -92,4 +92,4 @@
 此操作需要指定用于初始签名的 `-Manifest`、新私钥 `-KeyPath` 和已有公钥 `-PublicPath`。
 新启动器随 update.zip 和 windows.zip 分发；已有用户使用更新脚本自动替换。
 
-beta.3 以 Pre-release 发布。图库单独分发，已有 beta.1 图库 ZIP 可直接复用。
+beta.5 以 Pre-release 发布。新图库单独分发，需要 beta.5 程序；请配套提供新的程序包、升级包与图库包。

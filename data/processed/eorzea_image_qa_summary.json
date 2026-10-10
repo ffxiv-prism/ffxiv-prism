@@ -1,23 +1,23 @@
 {
   "by_flag": {
-    "duplicate_sha256": 829,
+    "duplicate_sha256": 845,
     "invalid_image": 2
   },
   "by_format": {
-    "png": 40062,
+    "png": 40120,
     "unknown": 2,
-    "webp": 12
+    "webp": 833
   },
   "by_status": {
     "invalid": 2,
-    "ready": 40074
+    "ready": 40953
   },
   "byte_size_mismatch_rows": 0,
   "duplicate_local_path_rows": 0,
-  "duplicate_sha256_rows": 829,
-  "file_exists_rows": 40076,
+  "duplicate_sha256_rows": 845,
+  "file_exists_rows": 40955,
   "flagged_rows": 0,
-  "image_rows": 40076,
+  "image_rows": 40955,
   "index": "data/processed/eorzea_images_index.jsonl",
   "invalid_examples": [
     {
@@ -42,7 +42,7 @@
   "missing_manifest": "data/processed/eorzea_missing_images_manifest.jsonl",
   "missing_rows": 0,
   "output": "data/processed/eorzea_images_qa_index.jsonl",
-  "readable_image_rows": 40074,
-  "ready_rows": 40074,
+  "readable_image_rows": 40953,
+  "ready_rows": 40953,
   "too_small_rows": 0
 }

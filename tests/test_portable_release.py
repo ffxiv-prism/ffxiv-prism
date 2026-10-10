@@ -148,6 +148,12 @@ class PortableTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 portable.verify_signature(manifest.read_bytes(), unknown, trusted)
             sign('old.xml', ok=False)
+            before = public.read_bytes()
+            historical_sig = sign('old.xml', '-AllowTrustedPreviousKey')
+            self.assertEqual(public.read_bytes(), before)
+            portable.verify_signature(manifest.read_bytes(), historical_sig, trusted)
+            sign('unknown.xml', '-AllowTrustedPreviousKey', ok=False)
+            self.assertEqual(public.read_bytes(), before)
             sign('new.xml', '-RotateKey', ok=False)
             sign('new.xml')
             self.assertEqual(portable.read_json(public), trusted)

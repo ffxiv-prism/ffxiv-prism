@@ -78,6 +78,8 @@ def main():
         np.linalg.inv(np.eye(2, dtype=np.float32))
         import torch
         from ffxiv_prism.matching.inference import current_best_configs, inspect_assets
+        from ffxiv_prism.runtime_contract import validate_runtime
+        validate_runtime()
         from ffxiv_prism.matching.runtime.query import load_query_head_from_checkpoint
         from ffxiv_prism.matching.report_export import write_report_bundle
         web = runpy.run_path(str(app / "scripts/web_app.py"), run_name="prism_selfcheck")

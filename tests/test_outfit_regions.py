@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import unittest
+import tempfile
+from pathlib import Path
+
+import numpy as np
 
 from PIL import Image
 
@@ -14,10 +18,20 @@ from ffxiv_prism.vision.outfit_regions import (
     pose_selection_score,
     render_debug_overlay,
     single_person_search_boxes,
+    save_region_crops,
 )
 
 
 class OutfitRegionTests(unittest.TestCase):
+    def test_encoder_crops_preserve_pixels_without_jpeg_roundtrip(self):
+        pixels = np.random.default_rng(14).integers(0, 256, (32, 40, 3), dtype=np.uint8)
+        region = CropRegion("HEAD", "detail", (3, 5, 27, 29), 1., "visible")
+        with tempfile.TemporaryDirectory() as directory:
+            path, = save_region_crops(Image.fromarray(pixels), [region], Path(directory), "query")
+            with Image.open(path) as saved:
+                self.assertEqual(saved.format, "PNG")
+                np.testing.assert_array_equal(np.asarray(saved), pixels[5:29, 3:27])
+
     def setUp(self) -> None:
         coordinates = [
             (100, 45), (94, 42), (106, 42), (88, 45), (112, 45),

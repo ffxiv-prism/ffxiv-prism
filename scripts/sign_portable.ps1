@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][string]$Manifest, [Parameter(Mandatory=$true)][string]$KeyPath, [Parameter(Mandatory=$true)][string]$PublicPath, [switch]$InitializeKey, [switch]$RotateKey)
+param([Parameter(Mandatory=$true)][string]$Manifest, [Parameter(Mandatory=$true)][string]$KeyPath, [Parameter(Mandatory=$true)][string]$PublicPath, [switch]$InitializeKey, [switch]$RotateKey, [switch]$AllowTrustedPreviousKey)
 $ErrorActionPreference = 'Stop'
 $existing = $null
 if (Test-Path -LiteralPath $PublicPath) {
@@ -25,8 +25,12 @@ if (Test-Path -LiteralPath $KeyPath) {
 $pub = $rsa.ExportParameters($false)
 $n = ([BitConverter]::ToString($pub.Modulus)).Replace('-', '').ToLower()
 $e = ([BitConverter]::ToString($pub.Exponent)).Replace('-', '').ToLower()
+$usingPrevious = $false
 if (-not $creating -and $existing -and ($existing.n -ne $n -or $existing.e -ne $e)) {
+    $usingPrevious = $AllowTrustedPreviousKey -and @($existing.previous_keys | Where-Object { $_.n -eq $n -and $_.e -eq $e }).Count -gt 0
+    if (-not $usingPrevious) {
     throw 'Private key does not match the current public key. Refusing to change release trust.'
+    }
 }
 $public = [ordered]@{algorithm='RS256'; n=$n; e=$e}
 if ($creating -and $existing) {
@@ -35,7 +39,9 @@ if ($creating -and $existing) {
     $public.previous_keys = @($existing.previous_keys)
 }
 $json = $public | ConvertTo-Json -Depth 5 -Compress
-[IO.File]::WriteAllText($PublicPath, $json, (New-Object Text.UTF8Encoding($false)))
+if (-not $usingPrevious) {
+    [IO.File]::WriteAllText($PublicPath, $json, (New-Object Text.UTF8Encoding($false)))
+}
 $bytes = [IO.File]::ReadAllBytes($Manifest)
 $signature = $rsa.SignData($bytes, [Security.Cryptography.CryptoConfig]::MapNameToOID('SHA256'))
 [IO.File]::WriteAllText([IO.Path]::ChangeExtension($Manifest, '.sig'), [Convert]::ToBase64String($signature))

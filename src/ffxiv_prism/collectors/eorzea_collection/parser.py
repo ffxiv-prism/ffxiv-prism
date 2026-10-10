@@ -42,6 +42,7 @@ SLOT_TO_IMAGE_PART = {
     "FEET": "feet",
 }
 IMAGE_PART_TO_SLOT = {image_part: slot for slot, image_part in SLOT_TO_IMAGE_PART.items()}
+IMAGE_PART_TO_SLOT["visor"] = "HEAD"
 GENDERS = ("Female", "Male")
 RACES = (
     "Hyur Midlander",

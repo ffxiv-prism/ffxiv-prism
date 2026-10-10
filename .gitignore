@@ -215,3 +215,19 @@ data/processed/equipment_image_samples.jsonl
 !data/indexes/google-siglip2-base-patch16-224-feet-multiscale-v7-clean-20260926-134639/**
 !data/indexes/google-siglip2-base-patch16-224-head-multiscale-v4-20260926-134639/
 !data/indexes/google-siglip2-base-patch16-224-head-multiscale-v4-20260926-134639/**
+
+# Published multi-appearance and footwear candidate snapshot (2026-10-09).
+!data/indexes/facebook-dinov2-base-feet-multiscale-v7-clean-20261009-230000/
+!data/indexes/facebook-dinov2-base-feet-multiscale-v7-clean-20261009-230000/**
+!data/indexes/facebook-dinov2-base-head-multiscale-v4-20261009-230000/
+!data/indexes/facebook-dinov2-base-head-multiscale-v4-20261009-230000/**
+!data/indexes/facebook-dinov2-base-slot-aligned-v3-body-multiscale-20261009-230000/
+!data/indexes/facebook-dinov2-base-slot-aligned-v3-body-multiscale-20261009-230000/**
+!data/indexes/facebook-dinov3-vitb16-head-multiscale-v4-20261009-230000/
+!data/indexes/facebook-dinov3-vitb16-head-multiscale-v4-20261009-230000/**
+!data/indexes/google-siglip2-base-patch16-224-feet-multiscale-v7-clean-20261009-230000/
+!data/indexes/google-siglip2-base-patch16-224-feet-multiscale-v7-clean-20261009-230000/**
+!data/indexes/google-siglip2-base-patch16-224-head-multiscale-v4-20261009-230000/
+!data/indexes/google-siglip2-base-patch16-224-head-multiscale-v4-20261009-230000/**
+!data/indexes/facebook-dinov3-vitb16-feet-multiscale-v1-20261009-230000/
+!data/indexes/facebook-dinov3-vitb16-feet-multiscale-v1-20261009-230000/**

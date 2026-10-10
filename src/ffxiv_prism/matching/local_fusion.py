@@ -23,7 +23,8 @@ def appearance_keys(equivalence):
 
 def score_ranks(scores):
     """Stable ranks along the last axis, with non-finite entries unavailable."""
-    values = np.asarray(scores)
+    # Match global cosine retrieval's precision and stable tie convention.
+    values = np.round(np.asarray(scores), decimals=6)
     ranks = (
         np.argsort(np.argsort(-values, axis=-1, kind="stable"), axis=-1, kind="stable")
         + 1

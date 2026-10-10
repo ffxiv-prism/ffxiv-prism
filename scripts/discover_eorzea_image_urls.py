@@ -45,7 +45,7 @@ def main() -> int:
     parser.add_argument(
         "--parts",
         default=None,
-        help="Comma-separated image parts to test, e.g. front,back,head,body,hands,legs,feet.",
+        help="Comma-separated image parts to test, e.g. front,back,head,visor,body,hands,legs,feet.",
     )
     parser.add_argument(
         "--dye-states",

@@ -184,6 +184,13 @@ def target_plan(source_suffix: str, output_suffix: str) -> list[Target]:
             full_image_encoding=True,
             feet_crop_policy="multiscale",
         ),
+        Target(
+            name="feet_dinov3",
+            source=source("facebook-dinov3-vitb16-feet-multiscale-v1"),
+            output=output("facebook-dinov3-vitb16-feet-multiscale-v1"),
+            model_id=DINO_V3, encoder_group="dinov3", slots=("FEET",),
+            expected_new_rows=None, full_image_encoding=True, feet_crop_policy="multiscale",
+        ),
     ]
 
 
@@ -420,6 +427,10 @@ def main() -> int:
 def active_target_plan(selection: dict[str, Any], suffix: str, *, source_suffix: str | None = None) -> list[Target]:
     base_suffix = source_suffix or str(selection["candidate_suffix"])
     targets = target_plan(base_suffix, suffix)
+    # Older galleries have no DINOv3 footwear branch. Do not implicitly create
+    # or activate a new retrieval policy during a routine image-only update.
+    if "facebook-dinov3-vitb16-feet-multiscale-v1" not in (selection.get("candidate_indexes") or {}):
+        targets = [target for target in targets if target.name != "feet_dinov3"]
     if source_suffix:
         return targets
     overrides = selection.get("candidate_indexes") or {}

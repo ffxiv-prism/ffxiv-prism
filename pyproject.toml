@@ -4,20 +4,24 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ffxiv-prism"
-version = "0.1.0"
+version = "0.2.0b5"
 description = "Local FFXIV glamour appearance dataset builder."
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "beautifulsoup4>=4.12",
     "cloudscraper>=1.2.71",
     "httpx>=0.28",
-    "numpy>=2.0",
-    "pillow>=10.4",
+    "numpy==2.4.6",
+    "pillow==11.1.0",
     "selenium>=4.20",
-    "torch>=2.4",
-    "transformers>=4.45,<6",
+    "torch==2.11.0",
+    "torchvision==0.26.0",
+    "transformers==5.12.1",
     "websocket-client>=1.8",
 ]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[project.optional-dependencies]
+collection = ["curl-cffi>=0.13,<1"]

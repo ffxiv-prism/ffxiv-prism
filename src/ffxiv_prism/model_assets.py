@@ -59,6 +59,10 @@ def load_pretrained(
 ) -> Any:
     """Load from the project cache first and download remote models if absent."""
 
+    # AutoProcessor otherwise silently selects different resize implementations
+    # according to whether torchvision happens to be installed.
+    if getattr(factory, "__name__", "") == "AutoProcessor":
+        kwargs.setdefault("backend", "torchvision")
     source = str(model_id)
     portable = portable_model_path(source)
     if portable is not None:

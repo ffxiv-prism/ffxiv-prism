@@ -13,6 +13,16 @@ DINO_MEAN = np.asarray([0.485, 0.456, 0.406], dtype=np.float32)
 DINO_STD = np.asarray([0.229, 0.224, 0.225], dtype=np.float32)
 
 
+def similarity_order(scores: np.ndarray) -> np.ndarray:
+    """Use shared tie handling at FP32 cosine precision on every device.
+
+    Repeated catalogue views often have equal or numerically indistinguishable
+    scores. Preserve catalogue order instead of backend-specific argsort ties;
+    otherwise rank fusion amplifies sub-micro cosine differences.
+    """
+    return np.argsort(-np.round(np.asarray(scores), decimals=6), kind="stable")
+
+
 class EmbeddingEncoder:
     def __init__(self, model_id: str, kind: str, device: str, preprocess: str) -> None:
         self.model_id = model_id
@@ -258,11 +268,10 @@ def search_crops(
                     )
                 query = torch.as_tensor(crop_embeddings[path], device=torch_device)
                 scores_tensor = candidate_tensors[group_key] @ query
-                order = torch.argsort(scores_tensor, descending=True).cpu().numpy()
                 scores = scores_tensor.cpu().numpy()
             else:
                 scores = candidate_array @ crop_embeddings[path]
-                order = np.argsort(scores)[::-1]
+            order = similarity_order(scores)
             results[path] = _candidate_rows_from_order(
                 metadata,
                 indices,

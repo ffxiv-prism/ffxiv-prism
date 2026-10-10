@@ -85,7 +85,14 @@ def classify_eye_coverage(paths, *, classifier, device, batch_size, cache_dir=No
     cache_dir.mkdir(parents=True, exist_ok=True)
     contract = json.dumps((1, model_id, EYE_COVERAGE_PROMPTS, "full-rgb",
                            asset_signature(model_id))).encode()
-    keys = [hashlib.sha256(contract + Path(p).read_bytes()).hexdigest() for p in paths]
+    from ffxiv_prism.paths import EORZEA_IMAGE_DIR
+    from ffxiv_prism.runtime_contract import INFERENCE_CONTRACT
+    # Published catalogue profiles are immutable shared inputs. Mutable query
+    # profiles must be invalidated when inference precision/preprocessing changes.
+    keys = [hashlib.sha256(contract + (
+        b"" if Path(p).is_relative_to(EORZEA_IMAGE_DIR)
+        else INFERENCE_CONTRACT.encode()
+    ) + Path(p).read_bytes()).hexdigest() for p in paths]
     found, missing = {}, {}
     for key, path in zip(keys, paths, strict=True):
         cache = cache_dir / (key + ".npy")

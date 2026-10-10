@@ -563,10 +563,11 @@ class GlamourInferenceTests(unittest.TestCase):
         )
         self.assertEqual(
             configs["FEET"].ensemble_model_ids,
-            ("google/siglip2-base-patch16-224",),
+            ("google/siglip2-base-patch16-224", "var/models/dinov3-vitb16-pretrain-lvd1689m"),
         )
-        self.assertEqual(len(configs["FEET"].ensemble_index_dirs), 1)
-        self.assertEqual(configs["FEET"].ensemble_query_checkpoints, (None,))
+        self.assertEqual(len(configs["FEET"].ensemble_index_dirs), 2)
+        self.assertEqual(configs["FEET"].ensemble_query_checkpoints, (None, None))
+        self.assertTrue(configs["FEET"].footwear_style_consensus)
         self.assertEqual(configs["FEET"].ensemble_rrf_k, 1)
         self.assertIsNone(configs["FEET"].ensemble_final_pool_branches)
         self.assertEqual(

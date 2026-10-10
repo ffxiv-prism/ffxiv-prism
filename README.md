@@ -8,16 +8,16 @@ FFXIV Prism 是一个本地优先的《最终幻想 XIV》装备外观候选检�
 
 ## 便携测试版：下载后如何使用
 
-无需安装 Python、Conda 或 Git。当前便携测试版为 **v0.2.0-beta.3 Pre-release**。
+无需安装 Python、Conda 或 Git。当前便携测试版为 **v0.2.0-beta.5 Pre-release**。
 
-1. 下载维护者提供的 `FFXIV-Prism-v0.2.0-beta.3-windows.zip`，解压到较短的英文目录，例如 `D:\FFXIV-Prism`，整个路径不要包含中文。
-2. 从维护者网盘下载 `FFXIV-Prism-gallery-20260926-head-v2.zip`，放入 `imports`，双击 `导入更新.bat`。网盘链接待维护者上传后补充。
+1. 下载维护者提供的 `FFXIV-Prism-v0.2.0-beta.5-windows.zip`，解压到较短的英文目录，例如 `D:\FFXIV-Prism`，整个路径不要包含中文。
+2. 从维护者网盘下载 `FFXIV-Prism-gallery-20261009-visor-feet-v3.zip`，放入 `imports`，双击 `导入更新.bat`。网盘链接待维护者上传后补充。
 3. 等待环境和模型准备完成，双击 `启动.bat`，把命令行显示的地址复制到浏览器。
 4. 上传截图开始识别。结果在 `user/reports`；按 `Ctrl+C` 停止服务。
 
 Release 附件不含大型依赖、模型本体和图库。首次准备会下载固定的运行依赖和模型；网络不通时可手动下载至提示目录。准备完成后可离线使用。
-beta.3 精简运行环境与本地资料库界面，显示 CPU 型号、逻辑处理器数量、可检索项和固定采集日期；移除 Web 导入更新功能。
-beta.1 / beta.2 用户下载 `FFXIV-Prism-v0.2.0-beta.3-update.zip`，解压后运行内附 `更新到新版.bat`，输入旧安装目录；脚本自动更新启动器和程序、归档旧程序更新包，保留图库、模型、缓存和报告。
+beta.5 增加可调节头饰的多外观检索，补充鞋部 DINOv3 视觉分支，并对鞋高重排加入完整鞋图一致性检查；同时统一 CPU/CUDA 预处理、无损裁剪、数值精度与并列排序。请同时更新程序和图库。源码环境按 [运行环境一致性](docs/runtime_parity_zh.md) 安装和检查依赖。
+beta.1 / beta.2 / beta.3 / beta.4 用户下载 `FFXIV-Prism-v0.2.0-beta.5-update.zip`，解压后运行内附 `更新到新版.bat`，输入旧安装目录；脚本自动更新启动器和程序、归档旧程序更新包，保留图库、模型、缓存和报告。
 后续程序更新使用 Release 附带脚本；图库仍可放入 `imports` 后运行 `导入更新.bat`。**没有联网检查更新**。
 
 详细步骤、模型放置目录、修复和回退说明见[便携版使用说明](docs/portable_release_zh.md)。

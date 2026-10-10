@@ -13,6 +13,7 @@ from PIL import Image
 
 from ffxiv_prism.jsonl import read_jsonl
 from ffxiv_prism.version_info import version_info
+from ffxiv_prism.runtime_contract import validate_runtime
 from ffxiv_prism.matching.item_names import enrich_report_item_names
 from ffxiv_prism.matching.equipment_slots import filter_candidates_for_slot, load_official_slots
 from ffxiv_prism.matching.inference import (
@@ -67,6 +68,8 @@ from ffxiv_prism.matching.garment_morphology import (
     StylePrediction,
     apply_style_crop_multipliers,
     body_style_consensus_policy,
+    footwear_style_consensus_policy,
+    footwear_style_records,
     long_body_legwear_decision,
     long_top_probability,
     rerank_candidates_with_legwear_profile,
@@ -80,7 +83,7 @@ from ffxiv_prism.paths import (
     portable_path,
     resolve_project_path,
 )
-from ffxiv_prism.torch_device import resolve_torch_device
+from ffxiv_prism.torch_device import configure_inference_precision, resolve_torch_device
 from ffxiv_prism.vision.outfit_regions import (
     DEFAULT_POSE_MODEL,
     SinglePersonPoseEstimator,
@@ -157,6 +160,8 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    runtime = validate_runtime()
+    configure_inference_precision()
     if args.top_k < 1:
         parser.error("--top-k must be positive")
     if args.candidate_k < args.top_k:
@@ -185,7 +190,9 @@ def main(argv: list[str] | None = None) -> int:
     device = resolve_torch_device(args.device)
 
     print(f"stage=pose device={device} image={args.image}", flush=True)
-    estimator = SinglePersonPoseEstimator(args.pose_model, str(device))
+    # Integer crop boundaries must not depend on CUDA/CPU heatmap rounding.
+    # Pose is small; use one canonical CPU path for both retrieval devices.
+    estimator = SinglePersonPoseEstimator(args.pose_model, "cpu")
     with Image.open(args.image) as source:
         image = source.convert("RGB")
     keypoints, person_box = estimator.estimate(image, refine=not args.no_refine)
@@ -298,6 +305,7 @@ def main(argv: list[str] | None = None) -> int:
     payload: dict[str, Any] = {
         "version": 1,
         "release_info": version_info(),
+        "runtime_info": runtime,
         "input": image_info,
         "profile": args.profile,
         "device": str(device),
@@ -784,6 +792,18 @@ def _run_slot(
                     )
                 style_policy_result = body_style_consensus_policy(
                     style_prediction, corroboration_prediction,
+                    minimum_confidence=config.style_min_confidence,
+                )
+            if config.slot == "FEET" and config.footwear_style_consensus:
+                shoe_records = footwear_style_records(slot_records["query"])
+                shoe_profiles = (_classify_style_paths(
+                    config.style_model_id, STYLE_PROMPTS_BY_SLOT["FEET"],
+                    [resolve_project_path(r["path"]) for r in shoe_records],
+                    device=device, batch_size=1,
+                ) if shoe_records else [])
+                style_policy_result = footwear_style_consensus_policy(
+                    style_prediction,
+                    [StylePrediction.from_probabilities("FEET", p) for p in shoe_profiles],
                     minimum_confidence=config.style_min_confidence,
                 )
             if style_policy_result.active:
@@ -1853,11 +1873,9 @@ def _classify_style_path_prompt_groups(
                 for key, value in inputs.items()
                 if isinstance(value, torch.Tensor)
             }
-            with torch.inference_mode(), torch.autocast(
-                device_type=device.type,
-                dtype=torch.float16,
-                enabled=device.type == "cuda",
-            ):
+            # Keep thresholds and fusion gates on the same FP32 policy on CPU
+            # and CUDA. Half precision can change the selected style class.
+            with torch.inference_mode():
                 logits = model(**inputs).logits_per_image
             for name, (prompt_start, prompt_end) in prompt_offsets.items():
                 probabilities[name].extend(

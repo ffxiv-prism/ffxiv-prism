@@ -5,6 +5,13 @@ from typing import Any
 import torch
 
 
+def configure_inference_precision() -> None:
+    """Use IEEE FP32, including cuDNN's otherwise TF32 patch convolutions."""
+    torch.backends.fp32_precision = "ieee"
+    torch.backends.cuda.matmul.fp32_precision = "ieee"
+    torch.backends.cudnn.conv.fp32_precision = "ieee"
+
+
 def resolve_torch_device(
     requested: str | torch.device | None = "auto",
     *,

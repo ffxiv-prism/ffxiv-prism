@@ -890,8 +890,10 @@ def save_region_crops(image: Image.Image, regions: list[CropRegion], output_dir:
     output_dir.mkdir(parents=True, exist_ok=True)
     paths = []
     for region in regions:
-        path = output_dir / f"{stem}-{region.name}.jpg"
-        image.crop(region.box).convert("RGB").save(path, quality=92)
+        # These pixels feed the encoders. JPEG introduces a second lossy encode
+        # and depends on the installed libjpeg build, even at the same quality.
+        path = output_dir / f"{stem}-{region.name}.png"
+        image.crop(region.box).convert("RGB").save(path)
         paths.append(path)
     return paths
 

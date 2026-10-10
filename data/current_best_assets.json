@@ -3,19 +3,19 @@
   "profile": "current-best",
   "files": [
     {
-      "path": "data/indexes/facebook-dinov2-base-feet-multiscale-v7-clean-20260926-134639/embeddings.npy",
-      "size": 59658368,
-      "sha256": "58653a109f56239dd339eaced9a2e64b9fe7195636a3ed7110083e40a92d6afd"
+      "path": "data/indexes/facebook-dinov2-base-feet-multiscale-v7-clean-20261009-230000/embeddings.npy",
+      "size": 59643008,
+      "sha256": "236b40c13a23a98ae6d260c52a5da9dc5daa9316c230f45b3d6df91cd26af489"
     },
     {
-      "path": "data/indexes/facebook-dinov2-base-feet-multiscale-v7-clean-20260926-134639/metadata.jsonl",
-      "size": 13746934,
-      "sha256": "13c1d38a93d43a4a827ca5c7a5bc54358dfacdaf2f457a37be3923d894e25479"
+      "path": "data/indexes/facebook-dinov2-base-feet-multiscale-v7-clean-20261009-230000/metadata.jsonl",
+      "size": 13743380,
+      "sha256": "6f9688a66fbdd872736dfd609349819d5aab1d72a1b75f3a60cc5b713d3dd597"
     },
     {
-      "path": "data/indexes/facebook-dinov2-base-feet-multiscale-v7-clean-20260926-134639/summary.json",
-      "size": 1223,
-      "sha256": "a61881837f605e68f603f3af1b09bbddceada987ff04255487dc67fcd0e30caf"
+      "path": "data/indexes/facebook-dinov2-base-feet-multiscale-v7-clean-20261009-230000/summary.json",
+      "size": 1528,
+      "sha256": "ce5bba9527ada61b1a7fde684df845adf615a37ba84b093e0d76b06665b5e445"
     },
     {
       "path": "data/indexes/facebook-dinov2-base-hands-multiscale-v5-20260926-134639/embeddings.npy",
@@ -33,19 +33,19 @@
       "sha256": "744401a117135d70e178846b28d93635b77cf2b711593e3917fc7866562976c4"
     },
     {
-      "path": "data/indexes/facebook-dinov2-base-head-multiscale-v4-20260926-134639/embeddings.npy",
-      "size": 39711872,
-      "sha256": "d3cd2954e7a06e3e83fbed74e7929336d9844ce5e19347f53907cf6b692dbc4a"
+      "path": "data/indexes/facebook-dinov2-base-head-multiscale-v4-20261009-230000/embeddings.npy",
+      "size": 47803520,
+      "sha256": "7caeb1c313f9ae6501a703fd6a768a215d6f4149ac2a3d2cb328013b761c9708"
     },
     {
-      "path": "data/indexes/facebook-dinov2-base-head-multiscale-v4-20260926-134639/metadata.jsonl",
-      "size": 9241800,
-      "sha256": "d6a41a545682c76bc508cae35e1d0b3d4faf5347d8117c663b72c760a07e05a8"
+      "path": "data/indexes/facebook-dinov2-base-head-multiscale-v4-20261009-230000/metadata.jsonl",
+      "size": 11139026,
+      "sha256": "9c7dd9d7b833b9644fa3aee0d147714a49bb1f8f280d69d81e63ffc314f7c76f"
     },
     {
-      "path": "data/indexes/facebook-dinov2-base-head-multiscale-v4-20260926-134639/summary.json",
-      "size": 936,
-      "sha256": "2cc8bf755b9d481fdec9ced0ee2022c20847896f9628e45b966d369accf104f9"
+      "path": "data/indexes/facebook-dinov2-base-head-multiscale-v4-20261009-230000/summary.json",
+      "size": 12155,
+      "sha256": "ee10e3c3d66e72afaddeef800238aeaf6ca5f96f7951ec47431d26373684168c"
     },
     {
       "path": "data/indexes/facebook-dinov2-base-legs-multiscale-v6-20260926-134639/embeddings.npy",
@@ -63,19 +63,19 @@
       "sha256": "7fda5406ba0ed1ebad77105b05a53f7e4d5faf8839a537277d9af02f9699b765"
     },
     {
-      "path": "data/indexes/facebook-dinov2-base-slot-aligned-v3-body-multiscale-20260926-134639/embeddings.npy",
-      "size": 96012416,
-      "sha256": "bdaef9fd1df0b44337af005a32e9285aebe393bd681ca410e6f5d67ac410dd35"
+      "path": "data/indexes/facebook-dinov2-base-slot-aligned-v3-body-multiscale-20261009-230000/embeddings.npy",
+      "size": 98706560,
+      "sha256": "579d5ff116d4d98b0a6dc02d7066c2f878d6bb354a7dc1831ed05ba69f40e816"
     },
     {
-      "path": "data/indexes/facebook-dinov2-base-slot-aligned-v3-body-multiscale-20260926-134639/metadata.jsonl",
-      "size": 22686635,
-      "sha256": "1757e29d2d867a70412d72ce84982d2999879fcc625af616594b1efefc63da58"
+      "path": "data/indexes/facebook-dinov2-base-slot-aligned-v3-body-multiscale-20261009-230000/metadata.jsonl",
+      "size": 23308390,
+      "sha256": "cb994fcdefde037bb72500c87e16e3aa95ff7e3ea8d22208333819aa5e862383"
     },
     {
-      "path": "data/indexes/facebook-dinov2-base-slot-aligned-v3-body-multiscale-20260926-134639/summary.json",
-      "size": 941,
-      "sha256": "d3881abc663805344156d65c56897031f79da37619a5fd9c6a124b4461632d60"
+      "path": "data/indexes/facebook-dinov2-base-slot-aligned-v3-body-multiscale-20261009-230000/summary.json",
+      "size": 12276,
+      "sha256": "68d7c130f68335bebbbcc73164332706d0830b84af2b6958d44f3aacb6ef8bcd"
     },
     {
       "path": "data/indexes/facebook-dinov3-vitb16-body-multiscale-v3-20260926-134639/embeddings.npy",
@@ -93,24 +93,34 @@
       "sha256": "3f1acfef284f15f6b31f75777211da4fe80cc27b27530fa3ef70b228a3be18bd"
     },
     {
-      "path": "data/indexes/facebook-dinov3-vitb16-head-multiscale-v4-20260926-134639/embeddings.npy",
-      "size": 39711872,
-      "sha256": "d59aeba6a4ea7c78a021f7e57e75649fb3b3f79bf24007b04c54dc44106c5dd8"
+      "path": "data/indexes/facebook-dinov3-vitb16-feet-multiscale-v1-20261009-230000/embeddings.npy",
+      "size": 59643008,
+      "sha256": "dac102c4f39eb6ea3ca6b90a09a5e0db101f39ff97ed001e8af40a92348a3258"
     },
     {
-      "path": "data/indexes/facebook-dinov3-vitb16-head-multiscale-v4-20260926-134639/manifest.json",
-      "size": 626,
-      "sha256": "d6b647ab28ec19d2461e9c01ae69b558c00a0f7620ed5d2eb89fb9219124a6a2"
+      "path": "data/indexes/facebook-dinov3-vitb16-feet-multiscale-v1-20261009-230000/metadata.jsonl",
+      "size": 13743380,
+      "sha256": "6f9688a66fbdd872736dfd609349819d5aab1d72a1b75f3a60cc5b713d3dd597"
     },
     {
-      "path": "data/indexes/facebook-dinov3-vitb16-head-multiscale-v4-20260926-134639/metadata.jsonl",
-      "size": 9241800,
-      "sha256": "d6a41a545682c76bc508cae35e1d0b3d4faf5347d8117c663b72c760a07e05a8"
+      "path": "data/indexes/facebook-dinov3-vitb16-feet-multiscale-v1-20261009-230000/summary.json",
+      "size": 852,
+      "sha256": "269e064ec5dfbe51a92b0504fc4ae1cf5d705ccc64bbb87763187650a4fc1cab"
     },
     {
-      "path": "data/indexes/facebook-dinov3-vitb16-head-multiscale-v4-20260926-134639/summary.json",
-      "size": 527,
-      "sha256": "080f8ff7f22db32a1bd73d848cdae0b867558df98656d2014e56c761bdd8ede7"
+      "path": "data/indexes/facebook-dinov3-vitb16-head-multiscale-v4-20261009-230000/embeddings.npy",
+      "size": 47803520,
+      "sha256": "97978c0bfe587f3c51686e19e6f40d3b5063adce71f298e3a7f82e579c623b14"
+    },
+    {
+      "path": "data/indexes/facebook-dinov3-vitb16-head-multiscale-v4-20261009-230000/metadata.jsonl",
+      "size": 11139026,
+      "sha256": "9c7dd9d7b833b9644fa3aee0d147714a49bb1f8f280d69d81e63ffc314f7c76f"
+    },
+    {
+      "path": "data/indexes/facebook-dinov3-vitb16-head-multiscale-v4-20261009-230000/summary.json",
+      "size": 11734,
+      "sha256": "da25e452ecdb3e85ee950acc39252f5eca9529fd94b0a9a7f187f2dc7051c56f"
     },
     {
       "path": "data/indexes/facebook-dinov3-vitb16-legs-multiscale-v6-20260926-134639/embeddings.npy",
@@ -128,39 +138,34 @@
       "sha256": "180288eb426dd94686e60b6e7e9190f61598ebf9b6acf00f6636b04f76ad57da"
     },
     {
-      "path": "data/indexes/google-siglip2-base-patch16-224-feet-multiscale-v7-clean-20260926-134639/embeddings.npy",
-      "size": 59658368,
-      "sha256": "075d45213df3087a5201718531bf8a3b33ffd1ff4e51f07bc1c346fe2826fd9b"
+      "path": "data/indexes/google-siglip2-base-patch16-224-feet-multiscale-v7-clean-20261009-230000/embeddings.npy",
+      "size": 59643008,
+      "sha256": "4d8cdb553fff8b8176c8e34878a7e1658b760fca99af7dd8e37350592a76dfda"
     },
     {
-      "path": "data/indexes/google-siglip2-base-patch16-224-feet-multiscale-v7-clean-20260926-134639/metadata.jsonl",
-      "size": 13746934,
-      "sha256": "13c1d38a93d43a4a827ca5c7a5bc54358dfacdaf2f457a37be3923d894e25479"
+      "path": "data/indexes/google-siglip2-base-patch16-224-feet-multiscale-v7-clean-20261009-230000/metadata.jsonl",
+      "size": 13743380,
+      "sha256": "6f9688a66fbdd872736dfd609349819d5aab1d72a1b75f3a60cc5b713d3dd597"
     },
     {
-      "path": "data/indexes/google-siglip2-base-patch16-224-feet-multiscale-v7-clean-20260926-134639/summary.json",
-      "size": 897,
-      "sha256": "1f3fac10fb8946830c9469c024e3af5cc1bc808804f9a6b959123ec092f8aded"
+      "path": "data/indexes/google-siglip2-base-patch16-224-feet-multiscale-v7-clean-20261009-230000/summary.json",
+      "size": 1198,
+      "sha256": "b9c1e4711a7d2bdf9d60039c1e60e65a9b92a494b7dd410cf4bedf800e542f26"
     },
     {
-      "path": "data/indexes/google-siglip2-base-patch16-224-head-multiscale-v4-20260926-134639/embeddings.npy",
-      "size": 39711872,
-      "sha256": "a0f79a43a38cb47a3a9c8275332acc34fbf15747b1cb697b3741347ce315bc1a"
+      "path": "data/indexes/google-siglip2-base-patch16-224-head-multiscale-v4-20261009-230000/embeddings.npy",
+      "size": 47803520,
+      "sha256": "31fa9c12a03280ddf2fd988d461d6708777675540d4b4fc1b7aca68c47a16f99"
     },
     {
-      "path": "data/indexes/google-siglip2-base-patch16-224-head-multiscale-v4-20260926-134639/manifest.json",
-      "size": 640,
-      "sha256": "73a168c70678c5faad9bac67a6ad15a1f4858bad9e381387ed77912cd58d60d1"
+      "path": "data/indexes/google-siglip2-base-patch16-224-head-multiscale-v4-20261009-230000/metadata.jsonl",
+      "size": 11139026,
+      "sha256": "9c7dd9d7b833b9644fa3aee0d147714a49bb1f8f280d69d81e63ffc314f7c76f"
     },
     {
-      "path": "data/indexes/google-siglip2-base-patch16-224-head-multiscale-v4-20260926-134639/metadata.jsonl",
-      "size": 9241800,
-      "sha256": "d6a41a545682c76bc508cae35e1d0b3d4faf5347d8117c663b72c760a07e05a8"
-    },
-    {
-      "path": "data/indexes/google-siglip2-base-patch16-224-head-multiscale-v4-20260926-134639/summary.json",
-      "size": 545,
-      "sha256": "77d43969d395c9d0fc6ca8094cc2699fc5f0a0c14e0f4946c36f6d5fcca80cc1"
+      "path": "data/indexes/google-siglip2-base-patch16-224-head-multiscale-v4-20261009-230000/summary.json",
+      "size": 11761,
+      "sha256": "7dae256ab5ddf83d9e263f0cda83f5c400b19a80ed1aefb059914843d9f6c890"
     },
     {
       "path": "data/models/current-best/refresh_v110_body_fold01_dinov2_e10.pt",

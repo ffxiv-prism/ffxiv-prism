@@ -95,6 +95,7 @@ class SlotInferenceConfig:
     style_model_id: str | None = None
     style_query_crop_name: str | None = None
     style_corroboration_crop_name: str | None = None
+    footwear_style_consensus: bool = False
     style_rerank_k: int = 50
     style_blend: float = 0.35
     style_min_confidence: float = 0.5
@@ -135,6 +136,9 @@ def current_best_configs() -> dict[str, SlotInferenceConfig]:
     checkpoints = selection["checkpoints"]
     benchmarks = selection["benchmarks"]
     body_policy = str(selection.get("body_policy") or "baseline")
+    feet_policy = str(selection.get("feet_policy") or "baseline")
+    if feet_policy not in {"baseline", "dinov3-consensus"}:
+        raise ValueError(f"Unsupported FEET current-best policy: {feet_policy}")
     if body_policy not in {"baseline", "safe-gate"}:
         raise ValueError(f"Unsupported BODY current-best policy: {body_policy}")
 
@@ -325,13 +329,17 @@ def current_best_configs() -> dict[str, SlotInferenceConfig]:
             slot="FEET",
             index_dir=index("facebook-dinov2-base-feet-multiscale-v7-clean"),
             query_checkpoint=checkpoint("feet_dinov2"),
-            ensemble_model_ids=("google/siglip2-base-patch16-224",),
+            ensemble_model_ids=("google/siglip2-base-patch16-224",) + (
+                ("var/models/dinov3-vitb16-pretrain-lvd1689m",) if feet_policy == "dinov3-consensus" else ()
+            ),
             ensemble_index_dirs=(
                 index(
                     "google-siglip2-base-patch16-224-feet-multiscale-v7-clean"
                 ),
-            ),
-            ensemble_query_checkpoints=(None,),
+            ) + ((index("facebook-dinov3-vitb16-feet-multiscale-v1"),)
+                 if feet_policy == "dinov3-consensus" else ()),
+            ensemble_query_checkpoints=(None, None) if feet_policy == "dinov3-consensus" else (None,),
+            footwear_style_consensus=feet_policy == "dinov3-consensus",
             ensemble_rrf_k=1,
             fusion="rrf",
             rrf_k=1,
@@ -342,12 +350,12 @@ def current_best_configs() -> dict[str, SlotInferenceConfig]:
             style_min_confidence=0.70,
             benchmark_top1=benchmark("FEET", "top1"),
             benchmark_top10=benchmark("FEET", "top10"),
-            benchmark_scope=scope(
+            benchmark_scope=str(selection.get("feet_benchmark_scope") or scope(
                 "strict three-fold pooled DINOv2+SigLIP2 rank ensemble "
                 "with query-crop RRF(k=1), after primary visual-piece "
                 f"metadata cleanup ({eligible('FEET')} images); the confidence-gated "
                 "footwear-height reranker is reported separately"
-            ),
+            )),
         ),
     }
 

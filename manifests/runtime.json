@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "id": "cpu-3cd963efba02fb65",
+  "id": "cpu-3b17e7cc2a928a4e",
   "wheels": [
     {
       "filename": "annotated_doc-0.0.5-py3-none-any.whl",
@@ -346,6 +346,14 @@
       "sha256": "1abeaa46fa7532ed35ed79146f4de5d7a9d4b30462c98052ea4ddfe781ea3eca",
       "urls": [
         "https://download.pytorch.org/whl/cpu/torch-2.11.0%2Bcpu-cp312-cp312-win_amd64.whl"
+      ]
+    },
+    {
+      "filename": "torchvision-0.26.0+cpu-cp312-cp312-win_amd64.whl",
+      "size": 4255267,
+      "sha256": "52aa8401850a9792e71a8a1e65ac004e2b23622a6b6fd278cd11179efbefc65b",
+      "urls": [
+        "https://download.pytorch.org/whl/cpu/torchvision-0.26.0%2Bcpu-cp312-cp312-win_amd64.whl"
       ]
     },
     {

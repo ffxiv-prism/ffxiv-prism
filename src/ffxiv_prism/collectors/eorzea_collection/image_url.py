@@ -10,7 +10,9 @@ from urllib.parse import urlparse
 GEARSETS_IMAGE_HOST = "gearsets.eorzeacollection.com"
 RACE_SLUGS = ("hyur", "elezen", "miqote", "lalafell", "roegadyn", "aura", "viera", "hrothgar")
 GENDER_SLUGS = ("male", "female")
-GEAR_IMAGE_PARTS = ("front", "back", "head", "body", "hands", "legs", "feet")
+# EC stores the alternate adjustable headgear appearance as a separate image.
+# Keep its part distinct for filenames/cache keys, but link it to the HEAD item.
+GEAR_IMAGE_PARTS = ("front", "back", "head", "visor", "body", "hands", "legs", "feet")
 DYE_STATES = ("normal", "dyed")
 ROLE_SUFFIXES = (
     "fending",
@@ -89,7 +91,9 @@ def parse_gearsets_image_url(url: str) -> GearsetImageMeta | None:
         race=race,
         model_gender=gender,
         image_part=image_part,
-        slot=image_part.upper() if image_part in {"head", "body", "hands", "legs", "feet"} else None,
+        slot=("HEAD" if image_part == "visor" else image_part.upper())
+        if image_part in {"head", "visor", "body", "hands", "legs", "feet"}
+        else None,
         dye_state=dye_state,
     )
 
