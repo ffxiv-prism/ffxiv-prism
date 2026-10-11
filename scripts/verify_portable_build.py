@@ -44,7 +44,7 @@ def main():
             if not target.exists():
                 shutil.copyfile(source / row["path"], target)
     python = home / "runtime/python/python.exe"
-    result = subprocess.run([str(python), "-X", "utf8", str(home / "bootstrap/launch.py"), "import",
+    result = subprocess.run([str(python), "-X", "utf8", str(home / "bootstrap/launch.py"), "import", "--runtime", "cpu",
                              str((args.gallery_zip or ROOT / f"FFXIV-Prism-{RESOURCE_ID}.zip").resolve())], cwd=home)
     return result.returncode
 

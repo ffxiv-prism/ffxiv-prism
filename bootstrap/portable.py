@@ -295,13 +295,14 @@ def download(row, destination, timeout=20):
                 time.sleep(.2)
     raise RuntimeError(f"无法准备 {destination}；可手动下载到此路径。\n" + "\n".join(errors))
 
-def prepare_runtime(home, app):
+def prepare_runtime(home, app, manifest_name="runtime.json"):
     home, app = Path(home), Path(app)
-    lock = read_json(app / "manifests/runtime.json")
+    manifest_path = app / "manifests" / manifest_name
+    lock = read_json(manifest_path)
     status(f"检查 Python 运行依赖：{len(lock['wheels'])} 个固定版本包")
     target = home / "runtime/envs" / lock["id"] / "site-packages"
     marker = target.parent / "ready.json"
-    if marker.is_file() and read_json(marker).get("lock_sha256") == digest(app / "manifests/runtime.json"):
+    if marker.is_file() and read_json(marker).get("lock_sha256") == digest(manifest_path):
         status("Python 运行依赖已就绪。")
         return target
     target.mkdir(parents=True, exist_ok=True)
@@ -326,7 +327,7 @@ def prepare_runtime(home, app):
                 output.parent.mkdir(parents=True, exist_ok=True)
                 with archive.open(info) as source, output.open("wb") as stream:
                     shutil.copyfileobj(source, stream)
-    atomic_json(marker, {"lock_sha256": digest(app / "manifests/runtime.json")})
+    atomic_json(marker, {"lock_sha256": digest(manifest_path)})
     status("Python 运行依赖准备完成。")
     return target
 
@@ -364,6 +365,8 @@ def configure_environment(home, resource_root=None):
         "TORCH_HOME": str(home / "work/cache/torch"),
         "XDG_CACHE_HOME": str(home / "work/cache"),
         "CUDA_CACHE_PATH": str(home / "work/cache/cuda"),
+        "PIP_CACHE_DIR": str(home / "work/cache/pip"),
+        "TORCHINDUCTOR_CACHE_DIR": str(home / "work/cache/torchinductor"),
         "MPLCONFIGDIR": str(home / "work/cache/matplotlib"),
         "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
         "HF_HUB_DISABLE_TELEMETRY": "1", "DO_NOT_TRACK": "1",

@@ -364,7 +364,7 @@ def build_recognition_command(
         raise ValueError("运行设备必须是 CPU 或 GPU。")
 
     command = [
-        python_executable,
+        os.environ.get("PRISM_GPU_PYTHON", python_executable) if device == "cuda" else python_executable,
         str(APP_ROOT / "scripts" / "recognize_glamour.py"),
         str(image_path),
         "--slots",
@@ -454,7 +454,16 @@ def _probe_execution_runtime(python_executable: str) -> dict[str, Any]:
 
 @lru_cache(maxsize=4)
 def execution_runtime_status(python_executable: str) -> dict[str, Any]:
-    return _probe_execution_runtime(python_executable)
+    runtime = _probe_execution_runtime(python_executable)
+    gpu_python = os.environ.get("PRISM_GPU_PYTHON")
+    if gpu_python:
+        try:
+            from gpu_runtime import probe
+            runtime["gpu"] = probe(gpu_python)
+        except (ImportError, OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
+            runtime["gpu"] = {"available": False, "label": "GPU", "device_name": None,
+                              "reason": f"GPU 环境自检失败；CPU 仍可使用：{exc}"}
+    return runtime
 
 
 def validate_execution_device(device: str, runtime: dict[str, Any]) -> str:
@@ -462,6 +471,8 @@ def validate_execution_device(device: str, runtime: dict[str, Any]) -> str:
         raise ValueError("运行设备必须是 CPU 或 GPU。")
     if device == "cuda" and not bool(runtime.get("gpu", {}).get("available")):
         reason = runtime.get("gpu", {}).get("reason") or "当前环境没有可用 CUDA GPU。"
+        if os.environ.get("PRISM_PORTABLE") == "1":
+            raise ValueError(f"无法使用 GPU：{reason} 请关闭服务后运行安装环境.bat 追加 GPU，或改选 CPU。")
         raise ValueError(
             f"无法使用 GPU：{reason} 请按 environment-gpu.yml 配置环境并重启 WebUI，"
             "或改选 CPU。"

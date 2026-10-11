@@ -21,7 +21,8 @@ class UpgradeTests(unittest.TestCase):
                         self.fail("Acquired an already-held installation lock")
 
     def fixture(self, root, version):
-        home, bundle = root / "home", root / "bundle"
+        home = root / "home"
+        bundle = home / "FFXIV-Prism-Update"
         for name, content in {"bootstrap/obsolete.py": "old bootstrap", "启动.bat": "old bat",
                               "runtime/python/python312._pth": "old paths",
                               "manifests/active.json": json.dumps({"app": version, "resources": "gallery"}),
@@ -52,6 +53,7 @@ class UpgradeTests(unittest.TestCase):
                 self.assertFalse((home / "work/pending-update.json").exists())
                 self.assertFalse((home / "work/proposed.json").exists())
                 self.assertEqual((home / "user/report.txt").read_text(), "keep")
+                self.assertTrue((bundle / 'payload/bootstrap/launch.py').is_file())
                 self.assertEqual(len(list((home / "work/upgrade-backups").glob("*/bootstrap/obsolete.py"))), 1)
 
     def test_install_failure_restores_files_activation_and_python_paths(self):

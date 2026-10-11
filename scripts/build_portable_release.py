@@ -16,7 +16,7 @@ sys.path[:0] = [str(ROOT / "src"), str(ROOT / "bootstrap")]
 from portable import atomic_json, digest, verify_signature
 from ffxiv_prism.jsonl import read_jsonl
 
-VERSION = "v0.2.0-beta.5"
+VERSION = "v0.2.0-beta.6"
 RESOURCE_ID = "gallery-20261009-visor-feet-v3"
 CONTRACT = "prism-current-best-visor-feet-v3"
 ALLOW_TRUSTED_PREVIOUS_KEY = False
@@ -133,7 +133,7 @@ def app():
         for path in (ROOT / folder).rglob("*"):
             if path.is_file() and "__pycache__" not in path.parts and path.suffix not in {".pyc"}:
                 files[path.relative_to(ROOT).as_posix()] = path
-    for name in ("scripts/recognize_glamour.py", "scripts/web_app.py", "scripts/open_report_directory.ps1", "README.md", "docs/portable_release_zh.md", "docs/runtime_parity_zh.md"):
+    for name in ("scripts/recognize_glamour.py", "scripts/recognition_worker.py", "scripts/web_app.py", "scripts/open_report_directory.ps1", "README.md", "docs/portable_release_zh.md", "docs/runtime_parity_zh.md", "docs/inference_performance_zh.md"):
         files[name] = ROOT / name
     manifest = pack(files, ROOT / "dist" / f"FFXIV-Prism-{VERSION}-app.zip", {"kind": "app", "id": VERSION, "resource_compatibility": [CONTRACT, "prism-current-best-eye-v2"]})
     source = ROOT / "dist" / f"FFXIV-Prism-{VERSION}-app.zip"
@@ -151,7 +151,7 @@ def app():
             for name in python.namelist():
                 archive.writestr(prefix + "runtime/python/" + name, python.read(name))
         archive.writestr(prefix + "manifests/active.json", json.dumps({"app": VERSION, "resources": None}))
-        for name, action in (("启动", "start"), ("导入更新", "import"), ("检查修复", "repair"), ("回退", "rollback")):
+        for name, action in (("安装环境", "install"), ("启动", "start"), ("导入更新", "import"), ("检查修复", "repair"), ("回退", "rollback")):
             bat = launcher_bat(name, action)
             archive.writestr(prefix + name + ".bat", bat.encode("utf-8"))
         archive.write(ROOT / "docs/portable_release_zh.md", prefix + "使用说明.md")
@@ -172,22 +172,16 @@ def update_bundle(app_zip):
     for path in (ROOT / "bootstrap").glob("*"):
         if path.is_file():
             files["payload/bootstrap/" + path.name] = path
-    for name, action in (("启动", "start"), ("导入更新", "import"), ("检查修复", "repair"), ("回退", "rollback")):
+    for name, action in (("安装环境", "install"), ("启动", "start"), ("导入更新", "import"), ("检查修复", "repair"), ("回退", "rollback")):
         path = staging / (name + ".bat")
         path.write_bytes(launcher_bat(name, action).encode("utf-8"))
         files["payload/" + path.name] = path
-    bat = staging / "更新到新版.bat"
-    bat.write_bytes(('@echo off\r\nsetlocal\r\nchcp 65001 >nul\r\n'
-                     'set "PRISM_INSTALL=%~1"\r\n'
-                     'if not defined PRISM_INSTALL set /p "PRISM_INSTALL=请输入旧版安装根目录（不含引号）："\r\n'
-                     'if not exist "%PRISM_INSTALL%\\runtime\\python\\python.exe" (\r\n'
-                     'echo 未找到旧版内置 Python，请检查路径。\r\npause\r\nexit /b 1\r\n)\r\n'
-                     '"%PRISM_INSTALL%\\runtime\\python\\python.exe" -u -X utf8 "%~dp0update.py" --home "%PRISM_INSTALL%"\r\n'
-                     'set "PRISM_EXIT=%errorlevel%"\r\npause\r\nexit /b %PRISM_EXIT%\r\n').encode("utf-8"))
+    bat = staging / "更新.bat"
+    bat.write_bytes(upgrade_bat().encode("utf-8"))
     files[bat.name] = bat
     metadata = staging / "update.json"
     atomic_json(metadata, {"schema": 1, "kind": "portable-upgrade", "version": VERSION,
-                           "supported_from": ["v0.2.0-beta.1", "v0.2.0-beta.2", "v0.2.0-beta.3", "v0.2.0-beta.4", VERSION],
+                           "supported_from": ["v0.2.0-beta.1", "v0.2.0-beta.2", "v0.2.0-beta.3", "v0.2.0-beta.4", "v0.2.0-beta.5", VERSION],
                            "app_package": "packages/" + app_zip.name,
                            "files": [{"path": name, "size": path.stat().st_size, "sha256": digest(path)}
                                      for name, path in sorted(files.items())]})
@@ -202,6 +196,15 @@ def update_bundle(app_zip):
         archive.write(metadata.with_suffix(".sig"), "FFXIV-Prism-Update/update.sig")
     output.with_suffix(".zip.sha256").write_text(digest(output) + "  " + output.name + "\n", "utf-8")
     print(f"Built automatic upgrade ZIP: {output.stat().st_size/1024**2:.1f} MiB", flush=True)
+
+def upgrade_bat():
+    return ('@echo off\r\nsetlocal\r\nchcp 65001 >nul\r\n'
+            'for %%I in ("%~dp0..") do set "PRISM_INSTALL=%%~fI"\r\n'
+            'if not exist "%PRISM_INSTALL%\\runtime\\python\\python.exe" (\r\n'
+            'echo 请把解压后的 FFXIV-Prism-Update 文件夹放在原项目根目录下，再运行更新.bat。\r\npause\r\nexit /b 1\r\n)\r\n'
+            '"%PRISM_INSTALL%\\runtime\\python\\python.exe" -u -X utf8 "%~dp0update.py"\r\n'
+            'set "PRISM_EXIT=%errorlevel%"\r\npause\r\nexit /b %PRISM_EXIT%\r\n')
+
 
 def launcher_bat(name, action):
     return ('@echo off\r\nsetlocal\r\nchcp 65001 >nul\r\n'

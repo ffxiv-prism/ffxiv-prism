@@ -17,7 +17,7 @@ sys.path.insert(0, str(BUNDLE / "support"))
 from portable import (package_manifest, read_json, safe_path, status,
                       verify_files, verify_signature)
 
-MANAGED = ("bootstrap", "启动.bat", "导入更新.bat", "检查修复.bat", "回退.bat", "使用说明.md")
+MANAGED = ("bootstrap", "安装环境.bat", "启动.bat", "导入更新.bat", "检查修复.bat", "回退.bat", "使用说明.md")
 STATE = ("manifests/active.json", "manifests/previous.json", "runtime/python/python312._pth")
 
 
@@ -156,20 +156,28 @@ def apply_upgrade(home, bundle, manifest, installer=install_app):
                 status(f"已归档程序更新包：{archive.name}")
         except (OSError, ValueError, KeyError, zipfile.BadZipFile) as exc:
             status(f"保留未归档的 ZIP {archive.name}：{exc}")
-    status("升级完成。请在原安装目录双击“启动.bat”。旧版本、图库、模型和用户文件均已保留。")
+    status("升级完成。请在原安装目录双击“启动.bat”。旧版本、图库、模型和用户文件均已保留。确认成功后可删除本次解压的 FFXIV-Prism-Update 文件夹。")
+
+
+def discover_home(bundle):
+    bundle = Path(bundle).resolve()
+    home = bundle.parent
+    if not (home / "runtime/python/python.exe").is_file() or not (home / "manifests/active.json").is_file():
+        raise ValueError("请把解压后的 FFXIV-Prism-Update 文件夹放在原项目根目录下，再执行更新.bat。")
+    return home
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--home", type=Path, required=True)
+    parser.add_argument("--home", type=Path, help="仅供自动化验证；通常自动使用更新文件夹的父目录")
     args = parser.parse_args()
-    home = args.home.resolve()
+    home = args.home.resolve() if args.home else discover_home(BUNDLE)
     if not (home / "runtime/python/python.exe").is_file() or not (home / "manifests/active.json").is_file():
         raise ValueError("请选择旧版 FFXIV-Prism 安装根目录。")
     if not str(home).isascii():
         raise ValueError("安装目录必须为短英文路径。")
     if BUNDLE.is_relative_to(home / "bootstrap"):
-        raise ValueError("请将更新包解压到安装目录之外。")
+        raise ValueError("请将更新文件夹放在安装根目录下，不要放进 bootstrap。")
     safe_path(home, "work").mkdir(exist_ok=True)
     with installation_lock(home):
         manifest = validate_bundle(BUNDLE)

@@ -11,6 +11,7 @@ HOME = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(HOME / "bootstrap"))
 from portable import (atomic_json, configure_environment, installed_manifest, install_package,
                       prepare_models, prepare_runtime, read_json, status, validate_combination)
+from gpu_runtime import expose_optional, installation_choice, prepare_optional
 
 def activate_paths(active, prepare=True):
     status(f"设置运行路径：程序 {active['app']}，图库 {active.get('resources') or '尚未导入'}")
@@ -27,6 +28,7 @@ def activate_paths(active, prepare=True):
                    os.path.relpath(app / "src", pth.parent), os.path.relpath(app, pth.parent),
                    os.path.relpath(HOME / "bootstrap", pth.parent), "import site"]
         pth.write_text("\n".join(entries) + "\n", "utf-8")
+    expose_optional(HOME, app)
     return app, resource
 
 def selfcheck(active):
@@ -47,6 +49,7 @@ def install_inputs(active, filenames):
         proposed["app" if manifest["kind"] == "app" else "resources"] = manifest["id"]
     validate_combination(HOME, proposed, full=False)
     app, _ = activate_paths(proposed)
+    prepare_optional(HOME, app)
     prepare_models(HOME, app, full=True)
     # Probe must receive the target, without publishing active.json prematurely.
     atomic_json(HOME / "work/proposed.json", proposed)
@@ -62,11 +65,12 @@ def main():
     if not str(HOME).isascii():
         raise ValueError("请将整个项目移到不包含中文的短英文路径，例如 D:\\FFXIV-Prism，然后重试。")
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=("start", "import", "repair", "rollback", "probe"), default="start", nargs="?")
+    parser.add_argument("action", choices=("start", "install", "import", "repair", "rollback", "probe"), default="start", nargs="?")
     parser.add_argument("packages", nargs="*")
     parser.add_argument("--proposed", action="store_true")
+    parser.add_argument("--runtime", choices=("cpu", "gpu"))
     args = parser.parse_args()
-    actions = {"start": "启动", "import": "导入更新", "repair": "检查修复", "rollback": "回退", "probe": "环境自检"}
+    actions = {"start": "启动", "install": "安装环境", "import": "导入更新", "repair": "检查修复", "rollback": "回退", "probe": "环境自检"}
     status(f"FFXIV Prism · {actions[args.action]} · 初始化中")
     configure_environment(HOME)
     active_path = HOME / "manifests/active.json"
@@ -101,8 +105,7 @@ def main():
     # OS releases this byte-range lock even after a crash.
     import msvcrt
     with (HOME / "work/app.lock").open("a+b") as lock:
-        lock.seek(0)
-        if not lock.read(1):
+        if os.fstat(lock.fileno()).st_size == 0:
             lock.write(b"0")
             lock.flush()
         lock.seek(0)
@@ -121,23 +124,42 @@ def main():
             atomic_json(active_path, previous)
             print("已恢复上一版本。请重新双击启动。")
             return 0
+        if args.action in {"install", "import"}:
+            requested = args.runtime or installation_choice()
+            if args.action == "install":
+                app, _ = activate_paths(active)
+                gpu_result = prepare_optional(HOME, app, requested)
+                prepare_models(HOME, app)
+                print("CPU 环境已就绪。图库请放入 imports 后执行导入更新；已有图库可直接启动。")
+                return 1 if gpu_result is False else 0
         if args.action == "import":
             status("扫描待导入 ZIP……")
             packages = [Path(p).resolve() for p in args.packages] or sorted((HOME / "imports").glob("*.zip"))
             if not packages:
-                raise ValueError("请将维护者提供的 ZIP 放入 imports，再运行导入更新。")
+                app, _ = activate_paths(active)
+                gpu_result = prepare_optional(HOME, app, requested)
+                print("环境已准备。请将图库 ZIP 放入 imports 后重新运行；已有图库可直接启动。")
+                return 1 if gpu_result is False else 0
             try:
                 active = install_inputs(active, packages)
+                gpu_result = prepare_optional(HOME, HOME / 'app' / active['app'], requested)
             except Exception:
                 activate_paths(active, prepare=False)
                 raise
-            return 0
+            return 1 if gpu_result is False else 0
         # The launcher can repair Python dependencies before inspecting resources.
         if args.action == "repair":
             status("开始完整修复：重新安装依赖并校验模型、程序及图库。")
             runtime_id = read_json(HOME / "app" / active["app"] / "manifests/runtime.json")["id"]
             (HOME / "runtime/envs" / runtime_id / "ready.json").unlink(missing_ok=True)
         app, resource = activate_paths(active)
+        if args.action == "repair":
+            from gpu_runtime import settings
+            variant = settings(HOME).get('gpu')
+            if variant in {'cu126', 'cu130'}:
+                gpu_id = read_json(app / f'manifests/runtime-{variant}.json')['id']
+                (HOME / 'runtime/envs' / gpu_id / 'ready.json').unlink(missing_ok=True)
+                prepare_optional(HOME, app)
         prepare_models(HOME, app, full=args.action == "repair")
         validate_combination(HOME, active, full=args.action == "repair")
         selfcheck(active)
