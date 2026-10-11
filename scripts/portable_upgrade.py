@@ -14,7 +14,7 @@ import zipfile
 
 BUNDLE = Path(__file__).resolve().parent
 sys.path.insert(0, str(BUNDLE / "support"))
-from portable import (package_manifest, read_json, safe_path, status,
+from portable import (package_manifest, read_json, safe_path, status, check_install_root,
                       verify_files, verify_signature)
 
 MANAGED = ("bootstrap", "安装环境.bat", "启动.bat", "导入更新.bat", "检查修复.bat", "回退.bat", "使用说明.md")
@@ -149,13 +149,12 @@ def apply_upgrade(home, bundle, manifest, installer=install_app):
             archive = safe_path(home, archive.relative_to(home).as_posix())
             with zipfile.ZipFile(archive) as package:
                 old = package_manifest(package, home)
-            if old["kind"] == "app":
-                archived = safe_path(backup, "imports/" + archive.name)
-                archived.parent.mkdir(parents=True, exist_ok=True)
-                archive.rename(archived)
-                status(f"已归档程序更新包：{archive.name}")
+            if old["kind"] == "app" and (home / 'app' / old['id'] / 'package.json').is_file():
+                verify_files(home / 'app' / old['id'], old, full=True)
+                archive.unlink()
+                status(f"已清理已安装的程序 ZIP：{archive.name}")
         except (OSError, ValueError, KeyError, zipfile.BadZipFile) as exc:
-            status(f"保留未归档的 ZIP {archive.name}：{exc}")
+            status(f"保留未清理的 ZIP {archive.name}：{exc}")
     status("升级完成。请在原安装目录双击“启动.bat”。旧版本、图库、模型和用户文件均已保留。确认成功后可删除本次解压的 FFXIV-Prism-Update 文件夹。")
 
 
@@ -174,8 +173,7 @@ def main():
     home = args.home.resolve() if args.home else discover_home(BUNDLE)
     if not (home / "runtime/python/python.exe").is_file() or not (home / "manifests/active.json").is_file():
         raise ValueError("请选择旧版 FFXIV-Prism 安装根目录。")
-    if not str(home).isascii():
-        raise ValueError("安装目录必须为短英文路径。")
+    check_install_root(home)
     if BUNDLE.is_relative_to(home / "bootstrap"):
         raise ValueError("请将更新文件夹放在安装根目录下，不要放进 bootstrap。")
     safe_path(home, "work").mkdir(exist_ok=True)

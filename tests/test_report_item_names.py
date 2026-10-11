@@ -72,7 +72,7 @@ class ReportItemNamesTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, patch(
             "ffxiv_prism.matching.item_names.load_chinese_item_names",
             return_value={"Critical Hit C-2 Tour Shoes": "暴击C2便鞋"},
-        ):
+        ), patch('ffxiv_prism.matching.inference.enrich_report_dye_counts', side_effect=lambda payload: payload):
             path = Path(directory) / "report.html"
             write_html_report(path, {"slots": [{"slot": "FEET", "candidates": [{
                 "name_en": "Critical Hit C-2 Tour Shoes", "name_zh": None,

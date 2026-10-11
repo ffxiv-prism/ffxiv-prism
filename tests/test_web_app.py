@@ -233,12 +233,6 @@ class WebAppTests(unittest.TestCase):
             image.unlink()
             job_dir.rmdir()
 
-    def test_build_dataset_command_rejects_unknown_mode(self) -> None:
-        with self.assertRaisesRegex(ValueError, "模式无效"):
-            web_app.build_dataset_command(
-                python_executable="python",
-                mode="unknown",
-            )
 
 
 if __name__ == "__main__":

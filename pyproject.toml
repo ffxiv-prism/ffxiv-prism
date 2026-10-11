@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ffxiv-prism"
-version = "0.2.0b6"
+version = "0.2.0"
 description = "Local FFXIV glamour appearance dataset builder."
 requires-python = ">=3.12,<3.13"
 dependencies = [

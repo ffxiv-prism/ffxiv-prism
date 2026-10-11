@@ -265,12 +265,6 @@ function renderJob(job) {
   const totalSeconds = job.performance?.elapsed_seconds;
   performanceSummary.hidden = job.status !== "succeeded" || !Number.isFinite(totalSeconds);
   performanceSummary.textContent = Number.isFinite(totalSeconds) ? `· 总耗时 ${totalSeconds.toFixed(1)} 秒` : "";
-  const datasetResult = $("#dataset-result");
-  datasetResult.hidden = !job.dataset_result;
-  if (job.dataset_result) {
-    const result = job.dataset_result;
-    datasetResult.textContent = `新发现 ${result.new_discovered_images} 张 · 下载 ${result.images_downloaded ?? "未执行"} 张 · 新通过质检 ${result.new_qa_ready_images} 张 · 新进入检索 ${result.new_indexed_images} 张 · 待标签 ${result.pending_label_images} 张 · 下载待补齐 ${result.missing_download_images} 张 · 训练准入尚未执行`;
-  }
   elements.jobLog.textContent = (job.logs || []).join("\n");
   elements.jobLog.scrollTop = elements.jobLog.scrollHeight;
   elements.jobState.className = `job-state ${job.status}`;
@@ -301,8 +295,7 @@ function startPolling(jobId) {
       if (job.status === "succeeded" && job.kind === "recognition") {
         const result = await api(job.result_url);
         renderResults(result, job.report_url, job.open_directory_url);
-      } else if (job.status === "succeeded" && job.kind === "dataset") {
-        showToast(job.dataset_result?.message || "任务结束，请查看图片更新结果。");
+
       } else if (job.status === "failed") {
         showToast(job.error || "任务运行失败，请展开日志查看。");
       }

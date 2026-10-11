@@ -20,7 +20,6 @@ from ffxiv_prism.dataset.sqlite_store import build_eorzea_sqlite
 from ffxiv_prism.jsonl import write_jsonl_atomic
 from scripts import run_lifecycle_pipeline as lifecycle
 from scripts import update_active_candidate_indexes as indexes
-from scripts import web_app
 from ffxiv_prism.matching import inference
 
 
@@ -35,21 +34,10 @@ class ImageUpdateWorkflowTests(unittest.TestCase):
         self.assertIn("--refresh-source", stages[1].command)
         self.assertTrue(all(s.advisory for s in stages[names.index("candidate-indexes") + 1:]))
 
-    def test_web_modes_share_the_image_lifecycle(self):
-        for mode, source in [("standard", "refresh"), ("full", "refresh"), ("local-index", "local")]:
-            command = web_app.build_dataset_command(python_executable="python", mode=mode)
-            self.assertTrue(command[1].endswith("run_lifecycle_pipeline.py"))
-            self.assertEqual(command[command.index("--source-mode") + 1], source)
-            self.assertEqual(command[command.index("--candidate-mode") + 1], "extend")
-            self.assertNotIn("--release-mode", command)
-
-    def test_metadata_only_is_not_reported_as_new_samples_and_web_keeps_result(self):
+    def test_metadata_only_is_not_reported_as_new_samples(self):
         result = update_result({}, {}, candidate={}, download={}, warnings=1, failed=False, planned=False)
         self.assertEqual(result["outcome"], "no_new_samples")
         self.assertIsNone(result["training_admitted_images"])
-        job = web_app.Job("test", "dataset", "update")
-        web_app._append_job_log(job, "DATASET_RESULT " + json.dumps(result))
-        self.assertEqual(job.public()["dataset_result"], result)
         changed = update_result({}, {"eligible": ["new"], "discovered": ["new", "missing"], "downloaded": ["new"]},
                                 candidate={"activated": True, "new_indexed_images": 1}, download={"images_downloaded": 1},
                                 warnings=0, failed=False, planned=False)

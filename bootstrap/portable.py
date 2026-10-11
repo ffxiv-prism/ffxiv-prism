@@ -17,6 +17,38 @@ import urllib.request
 import zipfile
 
 SCHEMA = 1
+MAX_INSTALL_ROOT_CHARS = 31  # 249 - separator - current gallery's 217-character relative path
+
+
+def check_install_root(home):
+    home = str(Path(home).resolve())
+    if not home.isascii():
+        raise ValueError('请使用不含中文的短英文安装路径，例如 D:\\FFXIV-Prism。')
+    if os.name == 'nt' and len(home) > MAX_INSTALL_ROOT_CHARS:
+        raise ValueError(f'安装根目录长 {len(home)} 个字符，当前资源允许最多 {MAX_INSTALL_ROOT_CHARS} 个（含盘符和分隔符）。请缩短 {len(home) - MAX_INSTALL_ROOT_CHARS} 个字符，例如 D:\\FFXIV-Prism。')
+
+
+def check_windows_paths(root, names):
+    if os.name != 'nt':
+        return
+    longest = max((len(str(Path(root) / name).encode('utf-16-le')) // 2 for name in names), default=0)
+    if longest >= 250:
+        raise ValueError(f'安装路径最长 {longest} 个字符，保守上限为 249；请将根目录至少缩短 {longest - 249} 个字符。')
+
+
+def remove_managed_files(home, paths, folder):
+    """Only delete completed managed downloads; never follow links outside home."""
+    home = Path(home).resolve()
+    managed = safe_path(home, folder)
+    for path in paths:
+        path = Path(path)
+        if not path.is_file() or path.is_symlink() or not path.resolve().is_relative_to(managed):
+            continue
+        try:
+            path.unlink(missing_ok=True)
+            status(f'已清理已安装的下载文件：{path.name}')
+        except OSError as exc:
+            status(f'安装成功，下载文件暂未清理：{path.name}：{exc}')
 
 def status(message):
     print(f"[{time.strftime('%H:%M:%S')}] {message}", flush=True)
@@ -167,13 +199,12 @@ def install_package(home, filename):
         if shutil.disk_usage(home).free < required + 256 * 1024**2:
             raise ValueError("磁盘空间不足，无法暂存并保留上一版本。")
 
-        longest = max(len(str(destination / row["path"])) for row in manifest["files"])
-        if os.name == "nt" and longest >= 250:
-            raise ValueError("安装目录过深，装备图片文件名可能超过 Windows 限制。请将整个项目移到短英文路径，例如 D:\\FFXIV-Prism。")
+        check_windows_paths(destination, [row['path'] for row in manifest['files']])
         staging_root = safe_path(home, "work/staging")
         staging_root.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix="app-" if category == "app" else "res-", dir=staging_root) as directory:
             staging = Path(directory)
+            check_windows_paths(staging, [row['path'] for row in manifest['files']])
             status(f"解压安装 {manifest['id']}：共 {len(manifest['files'])} 个文件")
             last = time.monotonic()
             for number, row in enumerate(manifest["files"], 1):
@@ -193,7 +224,9 @@ def install_package(home, filename):
             (staging / "package.sig").write_bytes(archive.read("package.sig"))
             destination.parent.mkdir(parents=True, exist_ok=True)
             if damaged:
-                backup = home / "work/rollback" / (category + "-" + manifest["id"] + "-" + str(time.time_ns()))
+                # Keep repaired-resource backups shorter than their installed path.
+                backup = home / "work/rollback" / f"{category[0]}-{time.time_ns():x}"
+                check_windows_paths(backup, [row['path'] for row in manifest['files']])
                 backup.parent.mkdir(parents=True, exist_ok=True)
                 destination.rename(backup)
             # Windows antivirus may briefly hold freshly extracted DLLs/files open.
@@ -304,6 +337,7 @@ def prepare_runtime(home, app, manifest_name="runtime.json"):
     marker = target.parent / "ready.json"
     if marker.is_file() and read_json(marker).get("lock_sha256") == digest(manifest_path):
         status("Python 运行依赖已就绪。")
+        remove_managed_files(home, [home / 'work/downloads' / row['filename'] for row in lock['wheels']], 'work/downloads')
         return target
     target.mkdir(parents=True, exist_ok=True)
     if shutil.disk_usage(home).free < sum(row["size"] for row in lock["wheels"]) * 4 + 256 * 1024**2:
@@ -314,6 +348,7 @@ def prepare_runtime(home, app, manifest_name="runtime.json"):
         download(row, path)
         status(f"解压安装依赖：{row['filename']}")
         with zipfile.ZipFile(path) as archive:
+            check_windows_paths(target, archive.namelist())
             for info in archive.infolist():
                 if info.is_dir():
                     continue
@@ -328,6 +363,7 @@ def prepare_runtime(home, app, manifest_name="runtime.json"):
                 with archive.open(info) as source, output.open("wb") as stream:
                     shutil.copyfileobj(source, stream)
     atomic_json(marker, {"lock_sha256": digest(manifest_path)})
+    remove_managed_files(home, [home / 'work/downloads' / row['filename'] for row in lock['wheels']], 'work/downloads')
     status("Python 运行依赖准备完成。")
     return target
 

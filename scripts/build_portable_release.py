@@ -16,7 +16,8 @@ sys.path[:0] = [str(ROOT / "src"), str(ROOT / "bootstrap")]
 from portable import atomic_json, digest, verify_signature
 from ffxiv_prism.jsonl import read_jsonl
 
-VERSION = "v0.2.0-beta.6"
+VERSION = "v0.2.0"
+RESOURCE_FILENAME = "FFXIV-Prism-gallery-20261009.zip"
 RESOURCE_ID = "gallery-20261009-visor-feet-v3"
 CONTRACT = "prism-current-best-visor-feet-v3"
 ALLOW_TRUSTED_PREVIOUS_KEY = False
@@ -121,19 +122,19 @@ def gallery():
     missing = [name for name, path in files.items() if not path.is_file()]
     if missing:
         raise ValueError(f"Missing catalogue assets: {missing[:20]}")
-    return pack(files, ROOT / f"FFXIV-Prism-{RESOURCE_ID}.zip", {"kind": "resources", "id": RESOURCE_ID, "compatibility": CONTRACT, "gallery": info})
+    return pack(files, ROOT / RESOURCE_FILENAME, {"kind": "resources", "id": RESOURCE_ID, "compatibility": CONTRACT, "gallery": info})
 
 def app():
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
-    dirty = bool(subprocess.check_output(["git", "status", "--porcelain", "--", "src", "web", "scripts", "manifests"], cwd=ROOT, text=True).strip())
+    dirty = bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True).strip())
     atomic_json(ROOT / "manifests/release.json", {"version": VERSION, "code_commit": commit,
-                                               "working_tree_modified": dirty, "prerelease": True})
+                                               "working_tree_modified": dirty, "prerelease": False})
     files = {}
-    for folder in ("src", "web", "manifests"):
+    for folder in ("src", "web", "manifests", "docs"):
         for path in (ROOT / folder).rglob("*"):
             if path.is_file() and "__pycache__" not in path.parts and path.suffix not in {".pyc"}:
                 files[path.relative_to(ROOT).as_posix()] = path
-    for name in ("scripts/recognize_glamour.py", "scripts/recognition_worker.py", "scripts/web_app.py", "scripts/open_report_directory.ps1", "README.md", "docs/portable_release_zh.md", "docs/runtime_parity_zh.md", "docs/inference_performance_zh.md"):
+    for name in ("scripts/recognize_glamour.py", "scripts/recognition_worker.py", "scripts/web_app.py", "scripts/open_report_directory.ps1", "README.md", "QUICKSTART.md"):
         files[name] = ROOT / name
     manifest = pack(files, ROOT / "dist" / f"FFXIV-Prism-{VERSION}-app.zip", {"kind": "app", "id": VERSION, "resource_compatibility": [CONTRACT, "prism-current-best-eye-v2"]})
     source = ROOT / "dist" / f"FFXIV-Prism-{VERSION}-app.zip"
@@ -181,7 +182,7 @@ def update_bundle(app_zip):
     files[bat.name] = bat
     metadata = staging / "update.json"
     atomic_json(metadata, {"schema": 1, "kind": "portable-upgrade", "version": VERSION,
-                           "supported_from": ["v0.2.0-beta.1", "v0.2.0-beta.2", "v0.2.0-beta.3", "v0.2.0-beta.4", "v0.2.0-beta.5", VERSION],
+                           "supported_from": ["v0.2.0-beta.1", "v0.2.0-beta.2", "v0.2.0-beta.3", "v0.2.0-beta.4", "v0.2.0-beta.5", "v0.2.0-beta.6", VERSION],
                            "app_package": "packages/" + app_zip.name,
                            "files": [{"path": name, "size": path.stat().st_size, "sha256": digest(path)}
                                      for name, path in sorted(files.items())]})

@@ -7,6 +7,8 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+# Generated acquisition errors can include machine-specific paths.
+data/raw/eorzea_collection/metadata/errors.jsonl
 .coverage
 htmlcov/
 

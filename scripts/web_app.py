@@ -37,11 +37,6 @@ SLOTS = ("HEAD", "BODY", "HANDS", "LEGS", "FEET")
 EXECUTION_DEVICES = {"cpu", "cuda"}
 RUNNING_STATES = {"queued", "running"}
 LOADING_WEIGHTS_PROGRESS = re.compile(r"\bLoading weights:\s*(\d{1,3})%")
-DATASET_MODES: dict[str, list[str]] = {
-    "standard": ["--source-mode", "refresh"],
-    "full": ["--source-mode", "refresh"],  # Backward-compatible API alias.
-    "local-index": ["--source-mode", "local"],
-}
 
 
 def _now() -> str:
@@ -63,7 +58,6 @@ class Job:
     output_dir: str | None = None
     device: str | None = None
     logs: list[str] = field(default_factory=list)
-    dataset_result: dict[str, Any] | None = None
     performance: dict[str, Any] | None = None
 
     def public(self, *, include_logs: bool = True) -> dict[str, Any]:
@@ -85,7 +79,6 @@ class JobRegistry:
         self._jobs: dict[str, Job] = {}
         self._processes: dict[str, subprocess.Popen[str]] = {}
         self._lock = threading.Lock()
-        self.quiescing = False
         self._worker = None
         self._worker_key = None
 
@@ -99,8 +92,6 @@ class JobRegistry:
         device: str | None = None,
     ) -> Job:
         with self._lock:
-            if self.quiescing:
-                raise RuntimeError("服务正在准备更新，请稍候。")
             active = next(
                 (job for job in self._jobs.values() if job.status in RUNNING_STATES),
                 None,
@@ -240,7 +231,7 @@ class JobRegistry:
                 job.finished_at = _now()
                 if return_code == 0:
                     job.status = "succeeded"
-                    job.stage = (job.dataset_result or {}).get("message", "已完成")
+                    job.stage = "已完成"
                 else:
                     job.status = "failed"
                     job.stage = "运行失败"
@@ -276,13 +267,6 @@ def _append_job_log(job: Job, line: str) -> None:
                 job.performance = result
         except ValueError:
             pass
-    if job.kind == "dataset" and line.startswith("DATASET_RESULT "):
-        try:
-            result = json.loads(line.removeprefix("DATASET_RESULT "))
-            if isinstance(result, dict):
-                job.dataset_result = result
-        except ValueError:
-            pass
     current_percent = _loading_weights_percent(line)
     previous_percent = (
         _loading_weights_percent(job.logs[-1]) if job.logs else None
@@ -314,23 +298,6 @@ def _stage_from_log(line: str, kind: str) -> str:
                 "report-png": "生成报告 PNG 图片",
             }
             return labels.get(stage, stage)
-    normalized = line.replace("\\", "/")
-    dataset_labels = {
-        "discover_eorzea_gearsets": "发现装备套装",
-        "collect_eorzea_gearset_details": "采集装备详情",
-        "build_eorzea_image_url_manifest": "发现与验证图片清单",
-        "download_eorzea_images_from_url_manifest": "下载新增与缺失图片",
-        "build_equipment_image_samples": "检查图片样本准入",
-        "update_active_candidate_indexes": "扩展并激活检索索引",
-        "download_cafemaker": "更新物品名称、槽位与染色资料",
-        "search_huiji_item_zh_name": "补充中文名称",
-        "build_eorzea_dataset_index": "重建数据索引",
-        "validate_eorzea_images": "校验本地图片",
-        "build_eorzea_sqlite": "生成本地数据库",
-    }
-    for marker, label in dataset_labels.items():
-        if marker in normalized:
-            return label
     return line[:96]
 
 
@@ -484,17 +451,6 @@ def execution_environment_overrides(device: str) -> dict[str, str]:
     if device not in EXECUTION_DEVICES:
         raise ValueError("运行设备必须是 CPU 或 GPU。")
     return {"CUDA_VISIBLE_DEVICES": "-1"} if device == "cpu" else {}
-
-
-def build_dataset_command(*, python_executable: str, mode: str) -> list[str]:
-    if mode not in DATASET_MODES:
-        raise ValueError("数据集更新模式无效。")
-    return [
-        python_executable,
-        str(PROJECT_ROOT / "scripts" / "run_lifecycle_pipeline.py"),
-        "--workflow", "sample-library", "--candidate-mode", "extend", "--device", "auto",
-        *DATASET_MODES[mode],
-    ]
 
 
 def parse_multipart_form(
@@ -671,8 +627,6 @@ class PrismRequestHandler(BaseHTTPRequestHandler):
                         "jobs": self.registry.list(),
                     }
                 )
-            elif parsed.path == "/api/jobs":
-                self._send_json({"jobs": self.registry.list()})
             elif parsed.path == "/api/file":
                 raw_path = parse_qs(parsed.query).get("path", [""])[0]
                 self._send_file(resolve_served_file(raw_path), cache=True)
@@ -708,8 +662,6 @@ class PrismRequestHandler(BaseHTTPRequestHandler):
         try:
             if parsed.path == "/api/recognize":
                 self._start_recognition()
-            elif parsed.path == "/api/dataset/update":
-                raise PermissionError("用户工作台不运行采集或索引构建，请导入维护者提供的资源包。")
             else:
                 route = _parse_job_route(parsed.path)
                 if route and route[1] == "open-directory":
@@ -811,24 +763,6 @@ class PrismRequestHandler(BaseHTTPRequestHandler):
             command,
             environment_overrides=execution_environment_overrides(device),
         )
-        self._send_json({"job": job.public()}, status=HTTPStatus.ACCEPTED)
-
-    def _start_dataset_update(self) -> None:
-        payload = self._read_request_json()
-        mode = str(payload.get("mode", "standard"))
-        labels = {
-            "standard": "更新装备图片库",
-            "full": "更新装备图片库",
-            "local-index": "修复本地图片库与索引",
-        }
-        if mode not in labels:
-            raise ValueError("数据集更新模式无效。")
-        command = build_dataset_command(
-            python_executable=self.registry.python_executable,
-            mode=mode,
-        )
-        job = self.registry.reserve(kind="dataset", title=labels[mode])
-        self.registry.start(job, command)
         self._send_json({"job": job.public()}, status=HTTPStatus.ACCEPTED)
 
     def _send_job_result(self, job: Job) -> None:

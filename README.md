@@ -6,18 +6,18 @@ FFXIV Prism 是一个本地优先的《最终幻想 XIV》装备外观候选检�
 
 2026-09-30 新增通用眼部关键点对齐与图像类别内局部检索：此前漏出 Top20 的眼罩案例已排到第 14，既有 HEAD 留出集 Top20 命中从 75/107 提升到 77/107。部分验证子集仍有回退，方法、边界与复现步骤见[眼部检索验证记录](docs/head_eye_experts_2026-09-30_zh.md)。
 
-## 便携测试版：下载后如何使用
+## Windows 正式版：下载后如何使用
 
-无需安装 Python、Conda 或 Git。当前便携测试版为 **v0.2.0-beta.6 Pre-release**。
+无需安装 Python、Conda 或 Git。当前正式版为 **v0.2.0**。
 
-1. 下载维护者提供的 `FFXIV-Prism-v0.2.0-beta.6-windows.zip`，解压到较短的英文目录，例如 `D:\FFXIV-Prism`，整个路径不要包含中文。
-2. 从维护者网盘下载 `FFXIV-Prism-gallery-20261009-visor-feet-v3.zip`，放入 `imports`，双击 `导入更新.bat`。网盘链接待维护者上传后补充。
+1. 下载维护者提供的 `FFXIV-Prism-v0.2.0-windows.zip`，解压到较短的英文目录，例如 `D:\FFXIV-Prism`，整个路径不要包含中文。
+2. 从维护者网盘下载 `FFXIV-Prism-gallery-20261009.zip`，放入 `imports`，双击 `导入更新.bat`。网盘链接待维护者上传后补充。
 3. 等待环境和模型准备完成，双击 `启动.bat`，把命令行显示的地址复制到浏览器。
 4. 上传截图开始识别。结果在 `user/reports`；按 `Ctrl+C` 停止服务。
 
 Release 附件不含大型依赖、模型本体和图库。首次准备会下载固定的运行依赖和模型；网络不通时可手动下载至提示目录。准备完成后可离线使用。
 beta.5 增加可调节头饰的多外观检索，补充鞋部 DINOv3 视觉分支，并对鞋高重排加入完整鞋图一致性检查；同时统一 CPU/CUDA 预处理、无损裁剪、数值精度与并列排序。请同时更新程序和图库。源码环境按 [运行环境一致性](docs/runtime_parity_zh.md) 安装和检查依赖。
-beta.1 / beta.2 / beta.3 / beta.4 / beta.5 用户下载 `FFXIV-Prism-v0.2.0-beta.6-update.zip`，将解压后的 `FFXIV-Prism-Update` 文件夹放在原项目根目录下，运行其中的 `更新.bat`，无需输入安装目录；脚本自动更新启动器和程序、归档旧程序更新包，保留图库、模型、缓存和报告。
+beta.1 至 beta.6 用户下载 `FFXIV-Prism-v0.2.0-update.zip`，将解压后的 `FFXIV-Prism-Update` 文件夹放在原项目根目录下，运行其中的 `更新.bat`，无需输入安装目录；脚本自动更新启动器和程序、清理已成功导入的 ZIP，保留图库、模型、推理缓存和报告。
 后续程序更新使用 Release 附带脚本；图库仍可放入 `imports` 后运行 `导入更新.bat`。**没有联网检查更新**。
 
 详细步骤、模型放置目录、修复和回退说明见[便携版使用说明](docs/portable_release_zh.md)。
@@ -321,14 +321,14 @@ python scripts\recognize_glamour.py --check
 python scripts/run_lifecycle_pipeline.py --workflow all --source-mode refresh --browser-verification --candidate-mode extend --release-mode publish --device cuda
 ```
 
-## beta.6 安装环境与自动升级
+## 安装环境与自动升级
 
 双击 `安装环境.bat`（或在 `导入更新.bat` 中选择）：
 
 1. **安装cpu环境（推荐）**：只准备 CPU 环境，无需 NVIDIA 显卡。
 2. **额外安装gpu环境（cpu环境+gpu环境）**：先保证 CPU 可用，再追加 GPU 环境；模型和图库共用。
 
-已有 CPU 环境时，关闭服务后重跑 `安装环境.bat` 并选择 2 即可追加 GPU，无需重装、重新导入图库或重复下载模型。已完成且校验通过的依赖会复用，中断下载可续传。选择 1 不删除已有 GPU 环境。
+已有 CPU 环境时，关闭服务后重跑 `安装环境.bat` 并选择 2 即可追加 GPU，无需重装、重新导入图库或重复下载模型。已安装环境会复用，中断下载可续传；成功安装后清理依赖 wheel，成功导入并自检后清理 imports 内对应 ZIP。失败保留下载文件，项目外的原始下载不删除。选择 1 不删除已有 GPU 环境。
 
 GPU 安装自动检测第一张 NVIDIA 显卡及驱动：Turing 及以后架构、Windows 驱动至少 580.88 时选 CUDA 13.0；兼容的旧架构或旧驱动选择 CUDA 12.6（驱动至少 560.76，不支持 Blackwell）。不支持的硬件保留 CPU 并显示原因。安装后验证实际 CUDA 矩阵和卷积运算；具体显卡仍须通过模型推理验收。AMD/Intel GPU 暂不支持。
 
@@ -337,3 +337,13 @@ CPU 与 GPU 的 torch/torchvision 核心版本保持 2.11.0/0.26.0，分别安�
 Python、运行库、模型、下载包、临时文件和缓存均位于项目根目录。系统必须已安装兼容 NVIDIA 驱动；本项目不安装驱动或系统级 CUDA Toolkit。
 
 升级示例：`D:\FFXIV-Prism\FFXIV-Prism-Update\更新.bat`。请先关闭服务，将升级包解压后的文件夹放入原项目根目录，再执行该 BAT。不要将更新文件夹内容覆盖到根目录，也不要放进 `imports`。**更新成功并确认可以启动后，可删除本次解压的 `FFXIV-Prism-Update` 文件夹**；用于恢复的备份保留在项目根目录的 `work/upgrade-backups`。更新器不会安装系统组件。
+
+## 安装路径、资源包与清理
+
+本版按 Windows 兼容路径上限 249 个字符做预检。现有图库最长相对路径为 217 个字符，因此**安装根目录绝对路径最多 31 个字符**（包含盘符、冒号和分隔符，不含末尾反斜杠）；推荐 `D:\FFXIV-Prism`。安装器在操作前提示实际长度和需要缩短的字符数，并检查暂存与依赖解压路径。这是当前发布内容的安装预算，不承诺任意未来第三方浏览器缓存文件的路径长度。
+
+网盘资源包使用中性名称 `FFXIV-Prism-gallery-20261009.zip`。它与此前 `FFXIV-Prism-gallery-20261009-visor-feet-v3.zip` **内容和 SHA-256 完全相同，仅外部文件名改变**；已上传网盘的旧包直接重命名即可，无需重新上传。不要解压重压、修改包内清单或签名。已安装旧包的用户不用重新导入。SHA-256 文本中的文件名已同步更新。
+
+导入成功且完整自检通过后自动删除 `imports` 中该 ZIP；失败保留供重试。下载依赖安装完成后删除对应 wheel 缓存；后续修复损坏的依赖可能需要重新下载。图库、模型、用户报告及用于回退的上一版本保留，它们不属于重复下载文件。项目外的“下载”文件夹不会被自动清理。
+
+页面“项目代码版本”读取 `/api/status.version_info.release`，“资料库更新时间”读取 `/api/status.dataset.last_updated`，与 `version_info.gallery_updated_at` 对齐。当前资料库日期仍为 **2026-10-09**，不随软件发布或安装日期改变。

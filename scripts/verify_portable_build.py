@@ -10,7 +10,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / "src")]
 from ffxiv_prism.model_assets import model_weight_files
-from scripts.build_portable_release import VERSION, RESOURCE_ID
+from scripts.build_portable_release import VERSION, RESOURCE_FILENAME
 
 def main():
     parser = argparse.ArgumentParser()
@@ -45,7 +45,7 @@ def main():
                 shutil.copyfile(source / row["path"], target)
     python = home / "runtime/python/python.exe"
     result = subprocess.run([str(python), "-X", "utf8", str(home / "bootstrap/launch.py"), "import", "--runtime", "cpu",
-                             str((args.gallery_zip or ROOT / f"FFXIV-Prism-{RESOURCE_ID}.zip").resolve())], cwd=home)
+                             str((args.gallery_zip or ROOT / RESOURCE_FILENAME).resolve())], cwd=home)
     return result.returncode
 
 if __name__ == "__main__":

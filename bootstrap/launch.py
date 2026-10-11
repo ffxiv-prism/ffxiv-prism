@@ -9,8 +9,8 @@ import sys
 
 HOME = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(HOME / "bootstrap"))
-from portable import (atomic_json, configure_environment, installed_manifest, install_package,
-                      prepare_models, prepare_runtime, read_json, status, validate_combination)
+from portable import (atomic_json, configure_environment, install_package, check_install_root,
+                      prepare_models, prepare_runtime, read_json, status, validate_combination, remove_managed_files)
 from gpu_runtime import expose_optional, installation_choice, prepare_optional
 
 def activate_paths(active, prepare=True):
@@ -37,7 +37,7 @@ def selfcheck(active):
     command = [sys.executable, str(HOME / "bootstrap/launch.py"), "probe"]
     subprocess.run(command, check=True, timeout=180, cwd=app)
 
-def install_inputs(active, filenames):
+def install_inputs(active, filenames, requested_runtime=None):
     status(f"开始导入更新：{len(filenames)} 个 ZIP")
     proposed = dict(active)
     kinds = set()
@@ -49,7 +49,7 @@ def install_inputs(active, filenames):
         proposed["app" if manifest["kind"] == "app" else "resources"] = manifest["id"]
     validate_combination(HOME, proposed, full=False)
     app, _ = activate_paths(proposed)
-    prepare_optional(HOME, app)
+    gpu_result = prepare_optional(HOME, app, requested_runtime)
     prepare_models(HOME, app, full=True)
     # Probe must receive the target, without publishing active.json prematurely.
     atomic_json(HOME / "work/proposed.json", proposed)
@@ -58,12 +58,14 @@ def install_inputs(active, filenames):
     if active.get("resources") and active != proposed:
         atomic_json(HOME / "manifests/previous.json", active)
     atomic_json(HOME / "manifests/active.json", proposed)
+    remove_managed_files(HOME, filenames, 'imports')
     print("安装成功。上一版本已保留，可用“回退.bat”恢复。", flush=True)
+    if gpu_result is False:
+        print('GPU 未就绪，CPU 和程序已安装成功。可重跑安装环境.bat 继续。', flush=True)
     return proposed
 
 def main():
-    if not str(HOME).isascii():
-        raise ValueError("请将整个项目移到不包含中文的短英文路径，例如 D:\\FFXIV-Prism，然后重试。")
+    check_install_root(HOME)
     parser = argparse.ArgumentParser()
     parser.add_argument("action", choices=("start", "install", "import", "repair", "rollback", "probe"), default="start", nargs="?")
     parser.add_argument("packages", nargs="*")
@@ -141,12 +143,11 @@ def main():
                 print("环境已准备。请将图库 ZIP 放入 imports 后重新运行；已有图库可直接启动。")
                 return 1 if gpu_result is False else 0
             try:
-                active = install_inputs(active, packages)
-                gpu_result = prepare_optional(HOME, HOME / 'app' / active['app'], requested)
+                active = install_inputs(active, packages, requested_runtime=requested)
             except Exception:
                 activate_paths(active, prepare=False)
                 raise
-            return 1 if gpu_result is False else 0
+            return 0
         # The launcher can repair Python dependencies before inspecting resources.
         if args.action == "repair":
             status("开始完整修复：重新安装依赖并校验模型、程序及图库。")
@@ -166,48 +167,26 @@ def main():
         if args.action == "repair":
             print("完整校验通过。")
             return 0
-        pending = HOME / "work/pending-update.json"
-        startup_fallback = None
-        while True:
-            app, _ = activate_paths(active)
-            status("正在启动本地网页服务，请等待访问地址……")
-            process = subprocess.Popen([sys.executable, "-u", str(app / "scripts/web_app.py"), "--no-open"], cwd=app,
-                                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                       text=True, encoding="utf-8", errors="replace")
+        status("正在启动本地网页服务，请等待访问地址……")
+        process = subprocess.Popen([sys.executable, "-u", str(app / "scripts/web_app.py"), "--no-open"], cwd=app,
+                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                   text=True, encoding="utf-8", errors="replace")
+        try:
+            with (HOME / "work/logs/server.log").open("a", encoding="utf-8") as log:
+                for line in process.stdout:
+                    print(line, end="", flush=True)
+                    log.write(line)
+                    log.flush()
+            return process.wait()
+        except KeyboardInterrupt:
             try:
-                with (HOME / "work/logs/server.log").open("a", encoding="utf-8") as log:
-                    for line in process.stdout:
-                        print(line, end="", flush=True)
-                        log.write(line)
-                        log.flush()
-                        if "本地网页已启动" in line:
-                            startup_fallback = None
-                returncode = process.wait()
-            except KeyboardInterrupt:
-                # Console Ctrl+C is delivered to both parent and child.
-                try:
-                    process.wait(timeout=15)
-                except subprocess.TimeoutExpired:
-                    process.terminate()
-                return 0
-            if returncode == 75 and pending.is_file():
-                filenames = read_json(pending)["packages"]
-                pending.unlink()
-                try:
-                    startup_fallback = dict(active)
-                    active = install_inputs(active, filenames)
-                except Exception as exc:
-                    print(f"更新失败，保留原版本：{exc}", flush=True)
-                    activate_paths(active, prepare=False)
-                    startup_fallback = None
-                continue
-            if returncode and startup_fallback is not None:
-                print("新版本服务启动失败，恢复上一版本。", flush=True)
-                active, startup_fallback = startup_fallback, None
-                atomic_json(active_path, active)
-                activate_paths(active, prepare=False)
-                continue
-            return returncode
+                process.wait(timeout=15)
+            except subprocess.TimeoutExpired:
+                process.terminate()
+                process.wait(timeout=15)
+            return 0
+        finally:
+            process.stdout.close()
 
 if __name__ == "__main__":
     try:
