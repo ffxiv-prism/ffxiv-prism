@@ -9,6 +9,7 @@ import torch
 from torch import nn
 from PIL import Image, ImageEnhance, ImageOps
 from .encoders import DINO_MEAN, DINO_STD
+from .session import timed
 SLOTS = ("HEAD", "BODY", "HANDS", "LEGS", "FEET")
 HANDS_RIGHT_CROP_NAMES = frozenset({"hands_right", "hands_forearm_right"})
 
@@ -150,6 +151,7 @@ def load_training_checkpoint(
     return payload
 
 
+@timed("query_checkpoint_load")
 def load_query_head_from_checkpoint(
     path: Path,
     model: torch.nn.Module,
@@ -176,6 +178,7 @@ def load_query_head_from_checkpoint(
 
 
 @torch.inference_mode()
+@timed("query_encode.adapted")
 def encode_records(
     model: torch.nn.Module,
     pooler: SlotAttentionPooler | None,

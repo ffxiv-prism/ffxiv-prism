@@ -64,6 +64,7 @@ class Job:
     device: str | None = None
     logs: list[str] = field(default_factory=list)
     dataset_result: dict[str, Any] | None = None
+    performance: dict[str, Any] | None = None
 
     def public(self, *, include_logs: bool = True) -> dict[str, Any]:
         payload = asdict(self)
@@ -85,6 +86,8 @@ class JobRegistry:
         self._processes: dict[str, subprocess.Popen[str]] = {}
         self._lock = threading.Lock()
         self.quiescing = False
+        self._worker = None
+        self._worker_key = None
 
     def reserve(
         self,
@@ -153,6 +156,17 @@ class JobRegistry:
             )
             return [job.public(include_logs=False) for job in jobs[:20]]
 
+    def close_worker(self):
+        process, self._worker = self._worker, None
+        self._worker_key = None
+        if process is not None:
+            if process.poll() is None:
+                process.terminate()
+            process.wait(timeout=30)
+            for stream in (process.stdin, process.stdout):
+                if stream is not None:
+                    stream.close()
+
     def _run(
         self,
         job_id: str,
@@ -171,17 +185,25 @@ class JobRegistry:
             environment.setdefault("PYTHONIOENCODING", "utf-8")
             environment.setdefault("PYTHONUTF8", "1")
             environment.update(environment_overrides)
-            process = subprocess.Popen(
-                command,
-                cwd=PROJECT_ROOT,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                bufsize=1,
-                env=environment,
-            )
+            persistent = job.kind == "recognition" and os.environ.get("PRISM_ONESHOT") != "1"
+            worker_key = (command[0], job.device, tuple(sorted(environment.items())))
+            if not persistent or self._worker_key != worker_key or (self._worker and self._worker.poll() is not None):
+                self.close_worker()
+            process = self._worker if persistent else None
+            if process is None:
+                process = subprocess.Popen(
+                    [command[0], str(APP_ROOT / "scripts" / "recognition_worker.py")] if persistent else command,
+                    cwd=PROJECT_ROOT,
+                    stdin=subprocess.PIPE if persistent else None,
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    text=True, encoding="utf-8", errors="replace", bufsize=1, env=environment,
+                )
+                if persistent:
+                    self._worker, self._worker_key = process, worker_key
+            if persistent:
+                process.stdin.write(json.dumps(dict(id=job_id, argv=command[2:])) + "\n")
+                process.stdin.flush()
+            return_code = None
             with self._lock:
                 self._processes[job_id] = process
 
@@ -191,6 +213,12 @@ class JobRegistry:
             with (log_dir / f"job-{job_id}.log").open("a", encoding="utf-8") as log:
                 for raw_line in process.stdout:
                     line = raw_line.rstrip()
+                    if persistent and line.startswith("WORKER_RESULT "):
+                        result = json.loads(line.removeprefix("WORKER_RESULT "))
+                        if result["id"] != job_id:
+                            raise RuntimeError("Recognition worker response mismatch")
+                        return_code = int(result["return_code"])
+                        break
                     if not line:
                         continue
                     log.write(line + "\n")
@@ -200,7 +228,12 @@ class JobRegistry:
                         _append_job_log(job, line)
                         job.stage = _stage_from_log(line, job.kind)
 
-            return_code = process.wait()
+            if return_code is None:
+                return_code = process.wait()
+                if persistent and return_code == 0:
+                    return_code = 1  # EOF without a completion record is a failed job.
+            if persistent and return_code:
+                self.close_worker()
             with self._lock:
                 job = self._jobs[job_id]
                 job.return_code = return_code
@@ -213,6 +246,7 @@ class JobRegistry:
                     job.stage = "运行失败"
                     job.error = _last_useful_log(job.logs) or f"进程退出码：{return_code}"
         except Exception as exc:
+            self.close_worker()
             with self._lock:
                 job = self._jobs[job_id]
                 job.status = "failed"
@@ -220,7 +254,7 @@ class JobRegistry:
                 job.error = str(exc)
                 job.finished_at = _now()
         finally:
-            if process is not None and process.stdout is not None:
+            if process is not None and process is not self._worker and process.stdout is not None:
                 process.stdout.close()
             with self._lock:
                 self._processes.pop(job_id, None)
@@ -235,6 +269,13 @@ def _loading_weights_percent(line: str) -> int | None:
 
 
 def _append_job_log(job: Job, line: str) -> None:
+    if job.kind == "recognition" and line.startswith("PERFORMANCE "):
+        try:
+            result = json.loads(line.removeprefix("PERFORMANCE "))
+            if isinstance(result, dict):
+                job.performance = result
+        except ValueError:
+            pass
     if job.kind == "dataset" and line.startswith("DATASET_RESULT "):
         try:
             result = json.loads(line.removeprefix("DATASET_RESULT "))
@@ -260,6 +301,10 @@ def _append_job_log(job: Job, line: str) -> None:
 
 def _stage_from_log(line: str, kind: str) -> str:
     if kind == "recognition":
+        if line.startswith("PERFORMANCE "):
+            return "识别完成，正在保存耗时记录"
+        if line.startswith("TIMING "):
+            return "阶段已完成，正在继续处理"
         match = re.search(r"\bstage=([^\s]+)(?:\s+slot=([^\s]+))?", line)
         if match:
             stage, slot = match.groups()
@@ -864,6 +909,10 @@ class PrismRequestHandler(BaseHTTPRequestHandler):
 class PrismServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
+
+    def server_close(self):
+        self.registry.close_worker()
+        super().server_close()
 
     def __init__(
         self,

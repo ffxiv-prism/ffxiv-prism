@@ -11,6 +11,14 @@ from scripts import web_app
 
 
 class WebAppTests(unittest.TestCase):
+    def test_recognition_performance_is_available_in_job_status(self):
+        job = web_app.Job(id="performance", kind="recognition", title="test")
+        payload = {"elapsed_seconds": 2.5, "stages": {"slot.HEAD": {"seconds": 1.2}}}
+        web_app._append_job_log(job, "PERFORMANCE " + json.dumps(payload))
+        self.assertEqual(job.public()["performance"], payload)
+        self.assertEqual(web_app._stage_from_log("PERFORMANCE {}", "recognition"),
+                         "识别完成，正在保存耗时记录")
+
     def test_dataset_status_preserves_zero_missing_images_after_refresh(self):
         with TemporaryDirectory() as directory:
             root = Path(directory)

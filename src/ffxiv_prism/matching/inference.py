@@ -1929,7 +1929,7 @@ def write_html_report(path: Path, payload: Mapping[str, Any]) -> None:
   <h1>FFXIV Prism 识别结果</h1>
   <p class="notice report-disclaimer">识别结果仅供参考，请结合图片进行核对，更准确结果请求助能工智人。</p>
   {f'<ul class="notice">{warnings}</ul>' if warnings else ''}
-  <p class="dye-legend muted"><strong>加粗表示可染色</strong>，非加粗表示不可染色</p>
+  <p class="dye-legend muted"><strong>加粗表示可染色</strong>，* 表示支持双染色，非加粗表示不可染色</p>
   <p class="pose-quality muted">输入图片姿态质量：<strong>{pose_quality_text}</strong></p>
   <section class="visuals">
     {_visual_panel('输入截图', source_uri)}
@@ -2021,15 +2021,16 @@ def _slot_html(result: Mapping[str, Any]) -> str:
 </details>"""
 
 
-def _dye_name_html(name: str, item: Mapping[str, Any]) -> str:
+def _dye_name_html(name: str, item: Mapping[str, Any], *, suffix: str = "") -> str:
     count = item.get("dye_count")
     if count is None:
         return (
-            f'<span class="equipment-name dye-unknown">{name}</span>'
+            f'<span class="equipment-name dye-unknown">{name}{suffix}</span>'
             '<span class="dye-unknown-note muted">（染色信息未知）</span>'
         )
     state = "dyeable" if count > 0 else "undyeable"
-    return f'<span class="equipment-name {state}">{name}</span>'
+    marker = "*" if count == 2 else ""
+    return f'<span class="equipment-name {state}">{name}{marker}{suffix}</span>'
 
 
 def _candidate_html(candidate: Mapping[str, Any]) -> str:
@@ -2042,8 +2043,10 @@ def _candidate_html(candidate: Mapping[str, Any]) -> str:
     )
     name_en = html.escape(str(candidate.get("name_en") or "未知装备"))
     name_zh = html.escape(str(candidate.get("name_zh") or ""))
-    name = f"{name_zh}<br><span class=\"muted\">{name_en}</span>" if name_zh else name_en
-    name = _dye_name_html(name, candidate)
+    name = _dye_name_html(
+        name_zh or name_en, candidate,
+        suffix=f'<br><span class="muted">{name_en}</span>' if name_zh else "",
+    )
     details_link = (
         f'<a href="{html.escape(details_url, quote=True)}" '
         'target="_blank" rel="noopener noreferrer">详细信息</a>'
@@ -2055,8 +2058,8 @@ def _candidate_html(candidate: Mapping[str, Any]) -> str:
         alternative_name_en = html.escape(str(row.get("name_en") or ""))
         if alternative_name_zh and alternative_name_en:
             alternative_names.append(_dye_name_html(
-                f'{alternative_name_zh} <span class="muted">'
-                f'({alternative_name_en})</span>', row,
+                alternative_name_zh, row,
+                suffix=f' <span class="muted">({alternative_name_en})</span>',
             ))
         elif alternative_name_zh or alternative_name_en:
             alternative_names.append(_dye_name_html(alternative_name_zh or alternative_name_en, row))
@@ -2090,17 +2093,11 @@ def _candidate_html(candidate: Mapping[str, Any]) -> str:
         if no_equipment
         else f"score={float(candidate.get('score', 0.0)):.5f}"
     )
-    local_recall_note = (
-        '<p class="detail-note">全局与局部外观融合</p>'
-        if candidate.get("local_fusion") else ""
-    )
-
     return f"""<article class="card{reference_class}">
   {f'<img src="{html.escape(preview, quote=True)}" alt="{name_en}">' if preview else ''}
   <h3><span class="rank">#{int(candidate.get('rank', 0))}</span> {name}{reference_badge}</h3>
   {alternatives_note}
   {no_equipment_badge}
-  {local_recall_note}
   <p>{identifier} · {score_label}</p>
   <p>{details_link}</p>
 </article>"""

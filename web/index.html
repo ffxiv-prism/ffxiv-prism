@@ -6,8 +6,8 @@
   <meta name="color-scheme" content="dark">
   <meta name="description" content="FFXIV Prism 本地装备外观识别工作台">
   <title>FFXIV Prism · 本地识别工作台</title>
-  <link rel="stylesheet" href="/static/styles.css?v=11">
-  <script src="/static/app.js?v=9" defer></script>
+  <link rel="stylesheet" href="/static/styles.css?v=13">
+  <script src="/static/app.js?v=11" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -24,7 +24,6 @@
         <h1 id="hero-title">FF14 幻化识别工作台</h1>
       </div>
       <p>上传任意包含人物形象的图片，Prism 会在本地拆分五个装备部位，并从你的本地资料库中返回候选装备图片。</p>
-      <p id="release-info" class="updated-time">正在读取本地版本…</p>
     </section>
 
     <section class="workspace-grid">
@@ -129,6 +128,7 @@
             <div><strong id="metric-missing">—</strong><span>缺失图片</span></div>
           </div>
           <p class="updated-time" id="dataset-updated">正在读取本地摘要…</p>
+          <p class="updated-time" id="release-info">项目代码版本：读取中…</p>
         </section>
 
         <section class="panel guide-card">
@@ -152,7 +152,10 @@
         <span class="job-state" id="job-state">等待中</span>
       </div>
       <div class="progress-track"><span id="progress-bar"></span></div>
-      <p class="job-stage" id="job-stage">等待本地进程启动…</p>
+      <p class="job-stage">
+        <span id="job-stage">等待本地进程启动…</span>
+        <span id="recognition-performance" hidden aria-live="polite" title="识别进程内总耗时，不含进程启动时间"></span>
+      </p>
       <p id="dataset-result" class="job-stage" hidden aria-live="polite"></p>
       <details>
         <summary>查看运行日志</summary>

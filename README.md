@@ -298,6 +298,8 @@ var/                    模型运行时与缓存（忽略）
 
 ## 验证
 
+推断默认启用资源复用；网页使用常驻识别进程跨任务保留冻结模型，并合并读取局部特征缓存（重启服务后生效，`PRISM_ONESHOT=1` 可恢复独立进程）；网页显示阶段耗时，输出目录保存 `performance.json`。计时口径、内存限制和对比方法见[推断性能说明](docs/inference_performance_zh.md)。
+
 ```powershell
 python -m unittest discover -s tests -v
 python scripts\recognize_glamour.py --check

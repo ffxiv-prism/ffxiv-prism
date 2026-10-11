@@ -5,6 +5,7 @@ import gc
 import json
 import sqlite3
 from pathlib import Path
+from time import perf_counter
 from typing import Any
 
 import numpy as np
@@ -14,6 +15,10 @@ from PIL import Image
 from ffxiv_prism.jsonl import read_jsonl
 from ffxiv_prism.version_info import version_info
 from ffxiv_prism.runtime_contract import validate_runtime
+from ffxiv_prism.matching.runtime.session import (
+    InferenceSession, current_session, frozen_resource, timed,
+    read_metadata, load_index_vectors,
+)
 from ffxiv_prism.matching.item_names import enrich_report_item_names
 from ffxiv_prism.matching.equipment_slots import filter_candidates_for_slot, load_official_slots
 from ffxiv_prism.matching.inference import (
@@ -138,6 +143,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--pose-model", default=DEFAULT_POSE_MODEL)
     parser.add_argument("--no-refine", action="store_true")
+    parser.add_argument("--no-runtime-cache", action="store_true",
+                        help="Disable request-local resource reuse for parity/performance comparisons.")
     parser.add_argument(
         "--profile",
         choices=("current-best", "base"),
@@ -157,9 +164,18 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, *, shared_models=None, model_limit=2) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    global _APPEARANCE_EQUIVALENCE, _APPEARANCE_EQUIVALENCE_CATALOG, _EMPEROR_NO_EQUIPMENT_CATALOG
+    _APPEARANCE_EQUIVALENCE = _APPEARANCE_EQUIVALENCE_CATALOG = _EMPEROR_NO_EQUIPMENT_CATALOG = None
+    with InferenceSession(enabled=not args.no_runtime_cache, shared_models=shared_models,
+                          model_limit=model_limit) as session:
+        return _execute(args, parser, session)
+
+
+def _execute(args, parser, session) -> int:
+    setup_start = perf_counter()
     runtime = validate_runtime()
     configure_inference_precision()
     if args.top_k < 1:
@@ -188,21 +204,26 @@ def main(argv: list[str] | None = None) -> int:
     )
     output_dir.mkdir(parents=True, exist_ok=True)
     device = resolve_torch_device(args.device)
+    setup_seconds = perf_counter() - setup_start
+    session.timings["setup"] = dict(calls=1, seconds=setup_seconds, self_seconds=setup_seconds)
 
     print(f"stage=pose device={device} image={args.image}", flush=True)
     # Integer crop boundaries must not depend on CUDA/CPU heatmap rounding.
     # Pose is small; use one canonical CPU path for both retrieval devices.
-    estimator = SinglePersonPoseEstimator(args.pose_model, "cpu")
+    with session.stage("pose_model_load"):
+        estimator = SinglePersonPoseEstimator(args.pose_model, "cpu")
     with Image.open(args.image) as source:
         image = source.convert("RGB")
-    keypoints, person_box = estimator.estimate(image, refine=not args.no_refine)
-    regions = build_outfit_regions(keypoints, image.size)
-    crop_dir = output_dir / "crops"
-    paths = save_region_crops(image, regions, crop_dir, args.image.stem)
-    overlay_path = output_dir / "overlay.jpg"
-    contact_path = output_dir / "crops.jpg"
-    render_debug_overlay(image, keypoints, person_box, regions).save(overlay_path, quality=94)
-    render_crop_contact_sheet(image, regions).save(contact_path, quality=92)
+    with session.stage("pose_estimate"):
+        keypoints, person_box = estimator.estimate(image, refine=not args.no_refine)
+    with session.stage("crop_and_preview"):
+        regions = build_outfit_regions(keypoints, image.size)
+        crop_dir = output_dir / "crops"
+        paths = save_region_crops(image, regions, crop_dir, args.image.stem)
+        overlay_path = output_dir / "overlay.jpg"
+        contact_path = output_dir / "crops.jpg"
+        render_debug_overlay(image, keypoints, person_box, regions).save(overlay_path, quality=94)
+        render_crop_contact_sheet(image, regions).save(contact_path, quality=92)
     image.close()
     records = crop_records(regions, paths)
     del estimator
@@ -245,23 +266,24 @@ def main(argv: list[str] | None = None) -> int:
         for slot in execution_slots:
             config = configs[slot]
             print(f"stage=retrieve slot={slot}", flush=True)
-            result = _run_slot(
-                config,
-                records,
-                device,
-                args.batch_size,
-                args.candidate_k,
-                args.top_k,
-                args.gender,
-                (
-                    (known_reference.get("core_slot_labels") or {}).get(slot)
-                    if known_reference
-                    else None
-                ),
-                body_style_diagnostic=(
-                    results_by_slot.get("BODY", {}).get("style_diagnostic")
-                ),
-            )
+            with session.stage("slot." + slot):
+                result = _run_slot(
+                    config,
+                    records,
+                    device,
+                    args.batch_size,
+                    args.candidate_k,
+                    args.top_k,
+                    args.gender,
+                    (
+                        (known_reference.get("core_slot_labels") or {}).get(slot)
+                        if known_reference
+                        else None
+                    ),
+                    body_style_diagnostic=(
+                        results_by_slot.get("BODY", {}).get("style_diagnostic")
+                    ),
+                )
             results_by_slot[slot] = result
         results.extend(results_by_slot[slot] for slot in configs)
 
@@ -327,7 +349,12 @@ def main(argv: list[str] | None = None) -> int:
     payload = enrich_report_item_names(payload)
     from ffxiv_prism.matching.report_export import write_report_bundle
 
-    png_path = write_report_bundle(output_dir, payload)
+    with session.stage("report_export"):
+        png_path = write_report_bundle(output_dir, payload)
+    payload["performance"] = session.snapshot()
+    write_json_report(json_path, payload)
+    write_json_report(output_dir / "performance.json", payload["performance"])
+    print("PERFORMANCE " + json.dumps(payload["performance"], ensure_ascii=False), flush=True)
     print(
         json.dumps(
             {
@@ -900,8 +927,8 @@ def _run_slot(
         result["slot_presence_diagnostic"] = slot_presence_diagnostic
         return result
 
-    metadata = read_jsonl(config.index_dir / "metadata.jsonl")
-    candidate_embeddings = np.load(
+    metadata = read_metadata(config.index_dir / "metadata.jsonl")
+    candidate_embeddings = load_index_vectors(
         config.index_dir / "embeddings.npy",
         mmap_mode="r",
     )
@@ -1006,8 +1033,8 @@ def _run_slot(
             ensemble_query_checkpoints,
             strict=True,
         ):
-            ensemble_metadata = read_jsonl(ensemble_index_dir / "metadata.jsonl")
-            ensemble_candidate_embeddings = np.load(
+            ensemble_metadata = read_metadata(ensemble_index_dir / "metadata.jsonl")
+            ensemble_candidate_embeddings = load_index_vectors(
                 ensemble_index_dir / "embeddings.npy",
                 mmap_mode="r",
             )
@@ -1619,6 +1646,7 @@ def _rerank_hands_shape(
     return output, diagnostic
 
 
+@timed("local_evidence")
 def _fuse_local_evidence(candidates, records, config, model, query_head, *, device, batch_size):
     from ffxiv_prism.matching.runtime.encoders import build_encoder, search_crops
     from ffxiv_prism.matching.runtime.query import encode_records
@@ -1638,7 +1666,7 @@ def _fuse_local_evidence(candidates, records, config, model, query_head, *, devi
     if any(p is None or not p.is_file() for p in paths):
         diagnostic["reason"] = "local_images_unavailable"
         return list(candidates), diagnostic
-    metadata = read_jsonl(config.index_dir / "metadata.jsonl")
+    metadata = read_metadata(config.index_dir / "metadata.jsonl")
     equivalence = _load_appearance_equivalence()
     full, ids, keys = catalogue(metadata, config.slot, load_official_slots(), equivalence)
     prompts = HEAD_TYPE_PROMPTS if config.slot == "HEAD" else STYLE_PROMPTS_BY_SLOT["LEGS"]
@@ -1712,7 +1740,7 @@ def _fuse_local_evidence(candidates, records, config, model, query_head, *, devi
         with torch.inference_mode():
             embeddings = encode_records(model, query_head, selected, batch_size, device)
         metadata, vectors = select_slot_candidate_index_rows(
-            metadata, np.load(config.index_dir / "embeddings.npy", mmap_mode="r"), config.slot,
+            metadata, load_index_vectors(config.index_dir / "embeddings.npy"), config.slot,
         )
         searches = search_crops(
             metadata, vectors, selected, embeddings, 1000, device=str(device),
@@ -1737,6 +1765,7 @@ def _fuse_local_evidence(candidates, records, config, model, query_head, *, devi
     return output, diagnostic
 
 
+@timed("head_detail")
 def _recall_head_details(candidates, records, config, *, device, batch_size):
     from ffxiv_prism.matching.runtime.encoders import build_encoder, search_crops
 
@@ -1761,8 +1790,8 @@ def _recall_head_details(candidates, records, config, *, device, batch_size):
         }
     index = config.ensemble_index_dirs[config.ensemble_model_ids.index(model_id)]
     metadata, vectors = select_slot_candidate_index_rows(
-        read_jsonl(index / "metadata.jsonl"),
-        np.load(index / "embeddings.npy", mmap_mode="r"), "HEAD",
+        read_metadata(index / "metadata.jsonl"),
+        load_index_vectors(index / "embeddings.npy"), "HEAD",
     )
     encoder = build_encoder(model_id, "auto", str(device), "color")
     queries = encoder.encode_paths(paths, batch_size)
@@ -1812,6 +1841,7 @@ def _classify_style_paths(
     )["default"]
 
 
+@timed("style_classification")
 def _classify_style_path_prompt_groups(
     model_id: str,
     prompt_groups: dict[str, tuple[str, ...]],
@@ -1838,8 +1868,11 @@ def _classify_style_path_prompt_groups(
         start = len(flattened_prompts)
         flattened_prompts.extend(prompts)
         prompt_offsets[name] = (start, len(flattened_prompts))
-    processor = load_pretrained(AutoProcessor, model_id)
-    model = load_pretrained(AutoModel, model_id).to(device).eval()
+    processor, model = frozen_resource(
+        ("style", model_id, str(device)),
+        lambda: (load_pretrained(AutoProcessor, model_id),
+                 load_pretrained(AutoModel, model_id).to(device).eval()),
+    )
     probabilities: dict[str, list[np.ndarray]] = {
         name: [] for name in prompt_groups
     }
@@ -1920,7 +1953,11 @@ def _find_known_reference(image_path: Path) -> dict[str, Any] | None:
     return None
 
 
+@timed("memory_cleanup")
 def _release_memory() -> None:
+    session = current_session()
+    if session is not None and session.enabled:
+        return
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()

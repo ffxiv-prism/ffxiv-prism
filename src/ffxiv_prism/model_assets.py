@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 from ffxiv_prism.paths import CACHE_DIR, HOME_ROOT, APP_ROOT, resolve_project_path
+from ffxiv_prism.matching.runtime.session import timed
 
 
 HUGGINGFACE_CACHE_DIR = CACHE_DIR / "huggingface" / "hub"
@@ -52,6 +53,7 @@ def model_weight_files(model_id: str) -> list[Path]:
     ]
 
 
+@timed("pretrained_load")
 def load_pretrained(
     factory: Any,
     model_id: str,

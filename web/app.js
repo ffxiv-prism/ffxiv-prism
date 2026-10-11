@@ -114,9 +114,8 @@ async function loadStatus() {
     const payload = await api("/api/status");
     const version = payload.version_info || {};
     const code = version.release || `开发版 · ${version.code_commit || "未记录"}`;
-    const date = version.gallery_updated_at?.slice(0, 10) || "未记录";
-    $("#release-info").textContent = `版本：${code}　|　样本图库更新于：${date}`;
-    $("#release-info").title = `代码：${version.code_commit || "未记录"}；图库：${version.gallery_version || "未记录"}`;
+    $("#release-info").textContent = `项目代码版本：${code}`;
+    $("#release-info").title = `代码：${version.code_commit || "未记录"}`;
     renderDatasetStatus(payload.dataset);
     renderExecutionRuntime(payload.execution);
     const active = payload.jobs.find((job) => ["queued", "running"].includes(job.status));
@@ -262,6 +261,10 @@ function renderJob(job) {
     ? `${job.title} · ${deviceLabel(job.device)}`
     : job.title;
   elements.jobStage.textContent = job.error || job.stage || "等待中";
+  const performanceSummary = $("#recognition-performance");
+  const totalSeconds = job.performance?.elapsed_seconds;
+  performanceSummary.hidden = job.status !== "succeeded" || !Number.isFinite(totalSeconds);
+  performanceSummary.textContent = Number.isFinite(totalSeconds) ? `· 总耗时 ${totalSeconds.toFixed(1)} 秒` : "";
   const datasetResult = $("#dataset-result");
   datasetResult.hidden = !job.dataset_result;
   if (job.dataset_result) {

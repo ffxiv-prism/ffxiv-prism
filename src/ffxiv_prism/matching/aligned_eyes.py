@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+from ffxiv_prism.matching.runtime.feature_store import read_feature_batch
 import json
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -12,6 +13,7 @@ from ffxiv_prism.matching.eye_accessory import CANDIDATE_BOXES
 from ffxiv_prism.model_assets import model_weight_files
 from ffxiv_prism.paths import PROJECT_ROOT
 from ffxiv_prism.matching.asset_identity import asset_signature, candidate_cache, require_candidate_cache
+from ffxiv_prism.matching.runtime.session import read_image_bytes, timed
 
 
 def legacy_asset_signature(model_id):
@@ -47,6 +49,7 @@ def boxes_for_pose(keypoints, image_size):
     return dict(boxes=boxes, aligned=aligned)
 
 
+@timed("candidate_eye_geometry")
 def candidate_eye_boxes(paths, *, device, batch_size=32, cache_dir=None):
     """Estimate each distinct image once; no identities or labels are inputs."""
     from ffxiv_prism.vision.outfit_regions import (
@@ -59,11 +62,12 @@ def candidate_eye_boxes(paths, *, device, batch_size=32, cache_dir=None):
     contract = json.dumps((1, DEFAULT_POSE_MODEL, asset_signature(DEFAULT_POSE_MODEL),
                            "full-image-box", "build_eye_regions-v1", .55,
                            CANDIDATE_BOXES)).encode()
-    keys = [hashlib.sha256(contract + Path(p).read_bytes()).hexdigest() for p in paths]
+    keys = [hashlib.sha256(contract + read_image_bytes(p)).hexdigest() for p in paths]
+    packed = read_feature_batch(cache_dir, keys, ".json")
     found, missing = {}, {}
     for key, path in zip(keys, paths, strict=True):
         try:
-            value = json.loads((cache_dir / (key + ".json")).read_text("utf-8"))
+            value = json.loads(packed[key])
             boxes = value["boxes"]
             if (len(boxes) == 2 and isinstance(value["aligned"], bool)
                     and all(len(b) == 4 and all(isinstance(v, int) for v in b)

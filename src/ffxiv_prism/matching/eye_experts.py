@@ -5,6 +5,8 @@ No catalogue identity, name, answer, or output position enters these scores.
 from __future__ import annotations
 
 import hashlib
+from io import BytesIO
+from ffxiv_prism.matching.runtime.feature_store import read_feature_batch
 import json
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -14,6 +16,7 @@ import numpy as np
 from ffxiv_prism.matching.aligned_eyes import asset_signature
 from ffxiv_prism.matching.local_fusion import score_ranks
 from ffxiv_prism.paths import PROJECT_ROOT
+from ffxiv_prism.matching.runtime.session import read_image_bytes, timed
 
 EYE_COVERAGE_PROMPTS = (
     "a person wearing an eyepatch or a cloth bandana covering one eye",
@@ -77,6 +80,7 @@ def eye_expert_scores(local_ranks, query_profiles, candidate_profiles, gate, *,
     return weight * gate[..., None] * evidence
 
 
+@timed("eye_coverage")
 def classify_eye_coverage(paths, *, classifier, device, batch_size, cache_dir=None):
     """Cache visual profiles by source content, model assets and prompt contract."""
     model_id = "google/siglip2-base-patch16-224"
@@ -92,13 +96,14 @@ def classify_eye_coverage(paths, *, classifier, device, batch_size, cache_dir=No
     keys = [hashlib.sha256(contract + (
         b"" if Path(p).is_relative_to(EORZEA_IMAGE_DIR)
         else INFERENCE_CONTRACT.encode()
-    ) + Path(p).read_bytes()).hexdigest() for p in paths]
+    ) + read_image_bytes(p)).hexdigest() for p in paths]
+    packed = read_feature_batch(cache_dir, keys, ".npy")
     found, missing = {}, {}
     for key, path in zip(keys, paths, strict=True):
         cache = cache_dir / (key + ".npy")
-        if cache.is_file():
+        if key in packed:
             try:
-                value = np.load(cache, allow_pickle=False)
+                value = np.load(BytesIO(packed[key]), allow_pickle=False)
                 if (value.shape == (6,) and np.isfinite(value).all()
                         and np.all(value >= 0) and np.isclose(value.sum(), 1, atol=1e-4)):
                     found[key] = value

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hashlib
+from io import BytesIO
+from ffxiv_prism.matching.runtime.feature_store import read_feature_batch
 import json
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -12,6 +14,7 @@ import numpy as np
 from ffxiv_prism.model_assets import model_weight_files
 from ffxiv_prism.paths import PROJECT_ROOT
 from ffxiv_prism.matching.asset_identity import asset_signature, candidate_cache, require_candidate_cache
+from ffxiv_prism.matching.runtime.session import read_image_bytes, timed
 
 EYE_NAMES = ("head_eye_left", "head_eye_right")
 PRESENCE_NAMES = ("head_tight", "head_face_accessory")
@@ -19,6 +22,7 @@ CANDIDATE_BOXES = ((0.28, 0.36, 0.53, 0.72), (0.47, 0.36, 0.72, 0.72))
 MODEL_IDS = ("facebook/dinov2-base", "google/siglip2-base-patch16-224")
 
 
+@timed("candidate_eye_features")
 def encode_candidate_eyes(encoder, paths, *, batch_size, cache_dir=None, boxes_by_path=None):
     """Cache image-content/weights/preprocessing-bound vectors, never ranks."""
     cache_dir = cache_dir or candidate_cache("eye-accessory-v2")
@@ -30,13 +34,14 @@ def encode_candidate_eyes(encoder, paths, *, batch_size, cache_dir=None, boxes_b
     keys = [hashlib.sha256(contract + (
         json.dumps(("pixel-boxes-v1", boxes_by_path[str(p)])).encode()
         if boxes_by_path is not None else b""
-    ) + Path(p).read_bytes()).hexdigest() for p in paths]
+    ) + read_image_bytes(p)).hexdigest() for p in paths]
+    packed = read_feature_batch(cache_dir, keys, ".npy")
     found, missing = {}, {}
     for key, path in zip(keys, paths, strict=True):
         cache = cache_dir / (key + ".npy")
-        if cache.is_file():
+        if key in packed:
             try:
-                value = np.load(cache, allow_pickle=False)
+                value = np.load(BytesIO(packed[key]), allow_pickle=False)
                 if value.ndim == 2 and value.shape[0] == 2 and np.isfinite(value).all():
                     found[key] = value
                     continue

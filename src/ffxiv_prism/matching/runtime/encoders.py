@@ -9,6 +9,7 @@ import torch
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 from ffxiv_prism.model_assets import load_pretrained
 from ffxiv_prism.torch_device import resolve_torch_device
+from .session import frozen_resource, timed
 DINO_MEAN = np.asarray([0.485, 0.456, 0.406], dtype=np.float32)
 DINO_STD = np.asarray([0.229, 0.224, 0.225], dtype=np.float32)
 
@@ -30,6 +31,7 @@ class EmbeddingEncoder:
         self.device = resolve_torch_device(device)
         self.preprocess = preprocess
 
+    @timed("query_encode.frozen")
     def encode_paths(self, paths: Sequence[Path], batch_size: int) -> np.ndarray:
         outputs: list[np.ndarray] = []
         for start in range(0, len(paths), batch_size):
@@ -117,6 +119,13 @@ def build_encoder(
     preprocess: str,
     pooling: str = "cls",
 ) -> EmbeddingEncoder:
+    return frozen_resource(
+        ("encoder", model_id, kind, str(resolve_torch_device(device)), preprocess, pooling),
+        lambda: _build_encoder(model_id, kind, device, preprocess, pooling),
+    )
+
+
+def _build_encoder(model_id, kind, device, preprocess, pooling):
     if kind == "auto":
         normalized_model_id = str(model_id).lower()
         if "dinov3" in normalized_model_id:
@@ -156,6 +165,7 @@ def preprocess_image(image: Image.Image, mode: str) -> Image.Image:
     raise ValueError(f"Unknown preprocess mode: {mode}")
 
 
+@timed("candidate_search")
 def search_crops(
     metadata: list[dict[str, Any]],
     candidate_embeddings: np.ndarray,
@@ -173,6 +183,7 @@ def search_crops(
     candidate_tensors: dict[
         tuple[str, tuple[str, ...], str], torch.Tensor
     ] = {}
+    candidate_arrays: dict[tuple[str, tuple[str, ...], str], np.ndarray] = {}
     piece_ids_by_group: dict[
         tuple[str, tuple[str, ...], str], np.ndarray
     ] = {}
@@ -243,7 +254,10 @@ def search_crops(
                     f"slot={record['slot']} crops={allowed_crops} "
                     f"gender={candidate_gender or 'any'}"
                 )
-            candidate_array = np.asarray(candidate_embeddings[indices])
+            # Advanced indexing copies the entire routed matrix. Materialize it
+            # only once per route, not once per query crop (also on CUDA).
+            if group_key not in candidate_arrays and group_key not in candidate_tensors:
+                candidate_arrays[group_key] = np.asarray(candidate_embeddings[indices])
             if group_key not in piece_ids_by_group:
                 max_pieces = max(
                     len(metadata[int(index)]["pieces"])
@@ -263,14 +277,14 @@ def search_crops(
             if use_cuda:
                 if group_key not in candidate_tensors:
                     candidate_tensors[group_key] = torch.tensor(
-                        candidate_array,
+                        candidate_arrays.pop(group_key),
                         device=torch_device,
                     )
                 query = torch.as_tensor(crop_embeddings[path], device=torch_device)
                 scores_tensor = candidate_tensors[group_key] @ query
                 scores = scores_tensor.cpu().numpy()
             else:
-                scores = candidate_array @ crop_embeddings[path]
+                scores = candidate_arrays[group_key] @ crop_embeddings[path]
             order = similarity_order(scores)
             results[path] = _candidate_rows_from_order(
                 metadata,
