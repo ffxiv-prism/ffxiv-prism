@@ -25,12 +25,12 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 
 APP_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_ROOT / "src"))
-from ffxiv_prism.paths import PROJECT_ROOT, HOME_ROOT
+from ffxiv_prism.paths import PROJECT_ROOT, HOME_ROOT, EORZEA_IMAGE_DIR
 from ffxiv_prism.version_info import version_info
 from ffxiv_prism.gallery_info import gallery_info
 WEB_ROOT = APP_ROOT / "web"
 OUTPUT_ROOT = HOME_ROOT / "user/reports" if os.environ.get("PRISM_HOME") else PROJECT_ROOT / "data/outputs/web"
-DATA_IMAGE_ROOT = PROJECT_ROOT / "data" / "raw" / "eorzea_collection" / "images"
+DATA_IMAGE_ROOT = EORZEA_IMAGE_DIR
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 MAX_JSON_BYTES = 1024 * 1024
 SLOTS = ("HEAD", "BODY", "HANDS", "LEGS", "FEET")
