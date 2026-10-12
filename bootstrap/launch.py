@@ -18,7 +18,7 @@ def activate_paths(active, prepare=True):
     app = HOME / "app" / active["app"]
     resource = HOME / "resources" / active["resources"] if active.get("resources") else HOME
     configure_environment(HOME, resource)
-    dependencies = prepare_runtime(HOME, app) if prepare else HOME / "runtime/envs" / read_json(app / "manifests/runtime.json")["id"] / "site-packages"
+    dependencies = prepare_runtime(HOME, app) if prepare else HOME / "runtime" / read_json(app / "manifests/runtime.json")["id"] / "site-packages"
     sys.path[:0] = [str(app / "src"), str(app), str(dependencies)]
     # Embedded CPython ignores PYTHONPATH. Persist explicit, relative package paths
     # for the worker and device-probe subprocesses; service is stopped before changes.
@@ -38,7 +38,7 @@ def selfcheck(active):
     subprocess.run(command, check=True, timeout=180, cwd=app)
 
 def install_inputs(active, filenames, requested_runtime=None):
-    status(f"开始导入更新：{len(filenames)} 个 ZIP")
+    status(f"开始导入图库：{len(filenames)} 个 ZIP")
     proposed = dict(active)
     kinds = set()
     for filename in filenames:
@@ -59,7 +59,7 @@ def install_inputs(active, filenames, requested_runtime=None):
         atomic_json(HOME / "manifests/previous.json", active)
     atomic_json(HOME / "manifests/active.json", proposed)
     remove_managed_files(HOME, filenames, 'imports')
-    print("安装成功。上一版本已保留，可用“回退.bat”恢复。", flush=True)
+    print("安装成功，可运行“启动.bat”开始识别。", flush=True)
     if gpu_result is False:
         print('GPU 未就绪，CPU 和程序已安装成功。可重跑安装环境.bat 继续。', flush=True)
     return proposed
@@ -72,7 +72,7 @@ def main():
     parser.add_argument("--proposed", action="store_true")
     parser.add_argument("--runtime", choices=("cpu", "gpu"))
     args = parser.parse_args()
-    actions = {"start": "启动", "install": "安装环境", "import": "导入更新", "repair": "检查修复", "rollback": "回退", "probe": "环境自检"}
+    actions = {"start": "启动", "install": "安装环境", "import": "导入图库", "repair": "检查修复", "rollback": "回退", "probe": "环境自检"}
     status(f"FFXIV Prism · {actions[args.action]} · 初始化中")
     configure_environment(HOME)
     active_path = HOME / "manifests/active.json"
@@ -132,7 +132,7 @@ def main():
                 app, _ = activate_paths(active)
                 gpu_result = prepare_optional(HOME, app, requested)
                 prepare_models(HOME, app)
-                print("CPU 环境已就绪。图库请放入 imports 后执行导入更新；已有图库可直接启动。")
+                print("CPU 环境已就绪。图库请放入 imports 后执行导入图库；已有图库可直接启动。")
                 return 1 if gpu_result is False else 0
         if args.action == "import":
             status("扫描待导入 ZIP……")
@@ -152,14 +152,14 @@ def main():
         if args.action == "repair":
             status("开始完整修复：重新安装依赖并校验模型、程序及图库。")
             runtime_id = read_json(HOME / "app" / active["app"] / "manifests/runtime.json")["id"]
-            (HOME / "runtime/envs" / runtime_id / "ready.json").unlink(missing_ok=True)
+            (HOME / "runtime" / runtime_id / "ready.json").unlink(missing_ok=True)
         app, resource = activate_paths(active)
         if args.action == "repair":
             from gpu_runtime import settings
             variant = settings(HOME).get('gpu')
             if variant in {'cu126', 'cu130'}:
                 gpu_id = read_json(app / f'manifests/runtime-{variant}.json')['id']
-                (HOME / 'runtime/envs' / gpu_id / 'ready.json').unlink(missing_ok=True)
+                (HOME / 'runtime' / gpu_id / 'ready.json').unlink(missing_ok=True)
                 prepare_optional(HOME, app)
         prepare_models(HOME, app, full=args.action == "repair")
         validate_combination(HOME, active, full=args.action == "repair")

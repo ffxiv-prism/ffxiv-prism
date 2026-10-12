@@ -1,6 +1,6 @@
 # FFXIV Prism 源码快速开始
 
-普通用户请先阅读 [Windows 正式版安装与升级](docs/portable_release_zh.md)；本页仅面向源码开发环境。
+普通用户请先阅读 [Windows 正式版安装](docs/portable_release_zh.md)；本页仅面向源码开发环境。
 
 当前项目已经提供单张截图到五个核心装备槽位候选的本地推理闭环。它适合清晰、单人物、正面或近正面的 FFXIV 全身截图，输出候选排名供人工确认。
 
@@ -9,7 +9,7 @@
 ```powershell
 git lfs install
 git lfs pull
-python -m pip install -e .
+python -m pip install --index-url https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple -e .
 python scripts\prepare_current_best.py
 ```
 

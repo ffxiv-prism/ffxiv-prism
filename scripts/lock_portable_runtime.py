@@ -9,13 +9,15 @@ import urllib.request
 ROOT = Path(__file__).resolve().parents[1]
 
 def download_urls(url):
-    """Mirror the exact PyPI wheel; CPU torch stays on its official wheel feed."""
+    """Try domestic mirrors of the exact locked wheel before its upstream URL."""
     urls = [url]
     if url.startswith("https://files.pythonhosted.org/packages/"):
         suffix = url.removeprefix("https://files.pythonhosted.org/packages/")
         urls.append("https://mirrors.huaweicloud.com/repository/pypi/packages/" + suffix)
         urls.append("https://mirrors.tuna.tsinghua.edu.cn/pypi/web/packages/" + suffix)
-    return urls
+    if url.startswith("https://download.pytorch.org/whl/"):
+        urls.append(url.replace("https://download.pytorch.org/whl/", "https://mirror.sjtu.edu.cn/pytorch-wheels/"))
+    return urls[1:] + urls[:1]
 
 def fetch(info):
     url = info["download_info"]["url"].replace("https://download-r2.pytorch.org/", "https://download.pytorch.org/")

@@ -17,7 +17,7 @@ import urllib.request
 import zipfile
 
 SCHEMA = 1
-MAX_INSTALL_ROOT_CHARS = 31  # 249 - separator - current gallery's 217-character relative path
+MAX_INSTALL_ROOT_CHARS = 64  # Checked against compact gallery and installed wheel paths.
 
 
 def check_install_root(home):
@@ -252,7 +252,7 @@ def validate_combination(home, active, full=False):
     verify_files(Path(home) / "app" / active["app"], app, full)
     resource_id = active.get("resources")
     if not resource_id:
-        raise ValueError("尚未导入图库资源包。请从维护者的网盘下载 ZIP，放入 imports，双击“导入更新.bat”。")
+        raise ValueError("尚未导入图库资源包。请从维护者的网盘下载 ZIP，放入 imports，双击“导入图库.bat”。")
     resources = installed_manifest(home, "resources", resource_id)
     if resources["compatibility"] not in app["resource_compatibility"]:
         raise ValueError("程序与图库不兼容，请导入配套程序包和图库包。")
@@ -333,7 +333,7 @@ def prepare_runtime(home, app, manifest_name="runtime.json"):
     manifest_path = app / "manifests" / manifest_name
     lock = read_json(manifest_path)
     status(f"检查 Python 运行依赖：{len(lock['wheels'])} 个固定版本包")
-    target = home / "runtime/envs" / lock["id"] / "site-packages"
+    target = home / "runtime" / lock["id"] / "site-packages"
     marker = target.parent / "ready.json"
     if marker.is_file() and read_json(marker).get("lock_sha256") == digest(manifest_path):
         status("Python 运行依赖已就绪。")

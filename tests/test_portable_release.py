@@ -107,12 +107,12 @@ class DownloadTests(unittest.TestCase):
         from scripts.lock_portable_runtime import download_urls
         lock = portable.read_json(ROOT / 'manifests/runtime.json')
         for row in lock['wheels']:
-            self.assertEqual(row['urls'], download_urls(row['urls'][0]))
+            self.assertEqual(row['urls'], download_urls(row['urls'][-1]))
             self.assertEqual(len(row['sha256']), 64)
-            if 'files.pythonhosted.org' in row['urls'][0]:
+            if 'files.pythonhosted.org' in row['urls'][-1]:
                 self.assertEqual(len(row['urls']), 3)
             else:
-                self.assertIn('download.pytorch.org', row['urls'][0])
+                self.assertIn('mirror.sjtu.edu.cn', row['urls'][0])
 
 class PortableTests(unittest.TestCase):
     @unittest.skipUnless(os.name == "nt", "Uses Windows signing tool")

@@ -37,10 +37,11 @@ def main():
             row = {"path": path.name, "size": path.stat().st_size, "sha256": sha(path), "urls": []}
             # HF snapshot folder records the exact revision that was tested.
             if folder.parent.name == "snapshots":
-                row["urls"].append(f"https://huggingface.co/{remote}/resolve/{folder.name}/{path.name}")
+                row["urls"].extend([f"https://hf-mirror.com/{remote}/resolve/{folder.name}/{path.name}",
+                                    f"https://huggingface.co/{remote}/resolve/{folder.name}/{path.name}"])
             mirror = mirrors.get(path.name)
             if mirror and mirror.get("Sha256") == row["sha256"] and mirror.get("Size") == row["size"]:
-                row["urls"].append(f"https://modelscope.cn/models/{remote}/resolve/{mirror['Revision']}/{path.name}")
+                row["urls"].insert(0, f"https://modelscope.cn/models/{remote}/resolve/{mirror['Revision']}/{path.name}")
             rows.append(row)
         models.append({"id": model_id, "directory": "models/" + remote.replace("/", "--"), "source_page": f"https://huggingface.co/{remote}", "files": rows})
         print(f"{remote}: {len(rows)} files, {sum(bool(r['urls']) for r in rows)} downloadable", flush=True)

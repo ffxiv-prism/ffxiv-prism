@@ -1,13 +1,15 @@
 name: ffxiv-prism-gpu
 channels:
-  - defaults
+  - https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main
+  - nodefaults
 dependencies:
   - python=3.12
   - pip
   - setuptools
   - wheel
   - pip:
-      - --extra-index-url https://download.pytorch.org/whl/cu130
+      - --index-url https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
+      - --extra-index-url https://mirror.sjtu.edu.cn/pytorch-wheels/cu130
       - torch==2.11.0+cu130
       - torchvision==0.26.0+cu130
       - -e .

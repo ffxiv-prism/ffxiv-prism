@@ -6,6 +6,8 @@ from pathlib import Path
 import urllib.parse
 import urllib.request
 
+from lock_portable_runtime import download_urls
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -35,7 +37,7 @@ def main():
             url = url.split('#')[0].replace('https://download-r2.pytorch.org/', 'https://download.pytorch.org/')
             with urllib.request.urlopen(urllib.request.Request(url, headers={'Range': 'bytes=0-0'}), timeout=60) as response:
                 size = int(response.headers['Content-Range'].split('/')[-1]) if response.status == 206 else int(response.headers['Content-Length'])
-            wheels.append(dict(filename=filename, size=size, sha256=digest, urls=[url]))
+            wheels.append(dict(filename=filename, size=size, sha256=digest, urls=download_urls(url)))
         wheels.sort(key=lambda r: r['filename'])
         identity = hashlib.sha256(json.dumps(wheels, sort_keys=True).encode()).hexdigest()[:16]
         path = ROOT / f'manifests/runtime-{variant}.json'

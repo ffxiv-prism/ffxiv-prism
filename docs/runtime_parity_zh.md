@@ -1,21 +1,23 @@
 # 本地与便携环境的一致性
 
-beta.5 统一使用 PyTorch 2.11.0、torchvision 0.26.0、Transformers 5.12.1、NumPy 2.4.6、Pillow 11.1.0。CPU 的 `+cpu` 和 CUDA 的 `+cu130` 是同一版本的设备构建，并非算法版本差异。Windows Pillow 统一使用官方 wheel 的 libjpeg-turbo 3.1.0，避免同版本 Conda 构建仍有不同 JPEG 像素。
+正式版统一使用 PyTorch 2.11.0、torchvision 0.26.0、Transformers 5.12.1、NumPy 2.4.6、Pillow 11.1.0。CPU 的 `+cpu` 和 CUDA 的 `+cu130` 是同一版本的设备构建，并非算法版本差异。Windows Pillow 统一使用官方 wheel 的 libjpeg-turbo 3.1.0，避免同版本 Conda 构建仍有不同 JPEG 像素。
 
 这组选用的是两套现有环境的共同版本；没有把版本号相同误判为其中一套更旧。便携环境增加与已有 CUDA 环境匹配的 torchvision，消除 AutoProcessor 自动降级到 PIL 后端的问题。准确 CPU wheel URL、大小、SHA-256 与运行环境 ID 位于 `manifests/runtime.json`。
 
 ## 源码环境
 
-使用 Python 3.12。CUDA 环境先从官方对应索引安装设备构建，再安装项目依赖：
+使用 Python 3.12。CUDA 环境先从国内镜像对应索引安装设备构建，再安装项目依赖：
 
 ```powershell
-python -m pip install --index-url https://download.pytorch.org/whl/cu130 torch==2.11.0 torchvision==0.26.0
-python -m pip install -e .
-python -m pip install --force-reinstall --no-deps --only-binary=:all: --index-url https://pypi.org/simple pillow==11.1.0
+python -m pip install --index-url https://mirror.sjtu.edu.cn/pytorch-wheels/cu130 torch==2.11.0 torchvision==0.26.0
+python -m pip install --index-url https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple -e .
+python -m pip install --force-reinstall --no-deps --only-binary=:all: --index-url https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple pillow==11.1.0
 python scripts/check_runtime_environment.py
 ```
 
-CPU 源码环境把第一条的 `cu130` 改为 `cpu`。不要在 CPU 便携版目录中直接执行这些 pip 命令；便携版通过正式升级包安装清单锁定的依赖。原 Conda 环境中相同版本的 Pillow 可能来自不同构建，所以这里明确重新安装官方 wheel。
+国内镜像不可用时，PyTorch 索引可切换为 `https://download.pytorch.org/whl/cu130`，普通依赖切换为 `https://pypi.org/simple`。
+
+CPU 源码环境把第一条的 `cu130` 改为 `cpu`。不要在 CPU 便携版目录中直接执行这些 pip 命令；便携版通过安装器准备清单锁定的依赖。原 Conda 环境中相同版本的 Pillow 可能来自不同构建，所以这里明确重新安装官方 wheel。
 
 ## 推断约定
 

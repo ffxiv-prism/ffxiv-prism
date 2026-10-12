@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'bootstrap'))
 import gpu_runtime as gpu
 import portable
-from scripts import portable_upgrade, build_portable_release, web_app
+from scripts import portable_upgrade, web_app
 
 
 class OptionalGpuTests(unittest.TestCase):
@@ -88,7 +88,7 @@ class OptionalGpuTests(unittest.TestCase):
                 command = web_app.build_recognition_command(python_executable='cpu-python', image_path=Path('input.png'), output_dir=Path('out'), slots=['HEAD'], top_k=10, gender=None, profile='current-best', device=device)
                 self.assertEqual(command[0], expected)
 
-    def test_update_discovers_parent_and_bat_never_prompts_for_path(self):
+    def test_update_discovers_parent(self):
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
             self.fixture(home)
@@ -99,9 +99,7 @@ class OptionalGpuTests(unittest.TestCase):
             self.assertEqual(portable_upgrade.discover_home(bundle), home.resolve())
             with self.assertRaisesRegex(ValueError, '根目录'):
                 portable_upgrade.discover_home(home)
-        bat = build_portable_release.upgrade_bat()
-        self.assertNotIn('set /p', bat)
-        self.assertIn('%~dp0..', bat)
+
 
 
 if __name__ == '__main__':

@@ -41,9 +41,9 @@ class ReleaseHygieneTests(unittest.TestCase):
 
     def test_path_budget_boundary_counts_drive_and_separators(self):
         with patch.object(portable.os, 'name', 'nt'):
-            with patch.object(portable.Path, 'resolve', return_value='D:\\' + 'a' * 28):
+            with patch.object(portable.Path, 'resolve', return_value='D:\\' + 'a' * 61):
                 portable.check_install_root('unused')
-            with patch.object(portable.Path, 'resolve', return_value='D:\\' + 'a' * 29):
+            with patch.object(portable.Path, 'resolve', return_value='D:\\' + 'a' * 62):
                 with self.assertRaisesRegex(ValueError, '缩短 1'):
                     portable.check_install_root('unused')
 

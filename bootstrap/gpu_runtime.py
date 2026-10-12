@@ -48,7 +48,7 @@ def worker_python(home, app, variant):
         raise ValueError('未知 GPU 环境')
     lock_path = Path(app) / f'manifests/runtime-{variant}.json'
     lock = read_json(lock_path)
-    env = safe_path(home, 'runtime/envs/' + lock['id'])
+    env = safe_path(home, 'runtime/' + lock['id'])
     marker = env / 'ready.json'
     if not marker.exists() or read_json(marker).get('lock_sha256') != digest(lock_path):
         raise ValueError('GPU 依赖尚未准备完成，请重新运行安装环境.bat')
