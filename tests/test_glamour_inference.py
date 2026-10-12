@@ -760,6 +760,18 @@ class GlamourInferenceTests(unittest.TestCase):
             self.assertTrue(report["ok"])
             self.assertEqual(report["slots"]["BODY"]["embedding_shape"], [1, 4])
 
+    def test_asset_inspection_rejects_index_row_or_dimension_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "metadata.jsonl").write_text('{"slot":"BODY"}\n', encoding="utf-8")
+            config = SlotInferenceConfig("BODY", root, None)
+            for shape in ((2, 4), (4,)):
+                with self.subTest(shape=shape):
+                    np.save(root / "embeddings.npy", np.zeros(shape, dtype=np.float32))
+                    report = inspect_assets({"BODY": config})
+                    self.assertFalse(report["ok"])
+                    self.assertTrue(any("do not align" in error for error in report["invalid"]))
+
     def test_html_report_escapes_candidate_names(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "report.html"

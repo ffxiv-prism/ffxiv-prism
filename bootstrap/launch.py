@@ -15,8 +15,9 @@ from portable import (atomic_json, configure_environment, install_package, check
                       cleanup_installation, installed_manifest, package_manifest)
 from gpu_runtime import expose_optional, installation_choice, prepare_optional
 
-def activate_paths(active, prepare=True):
-    status(f"设置运行路径：程序 {active['app']}，图库 {active.get('resources') or '尚未导入'}")
+def activate_paths(active, prepare=True, *, announce=True, persist=True):
+    if announce:
+        status(f"设置运行路径：程序 {active['app']}，图库 {active.get('resources') or '尚未导入'}")
     app = HOME / "app" / active["app"]
     resource = HOME / "resources" / active["resources"] if active.get("resources") else HOME
     configure_environment(HOME, resource)
@@ -25,18 +26,18 @@ def activate_paths(active, prepare=True):
     # Embedded CPython ignores PYTHONPATH. Persist explicit, relative package paths
     # for the worker and device-probe subprocesses; service is stopped before changes.
     pth = HOME / "runtime/python/python312._pth"
-    if pth.exists():
+    if persist and pth.exists():
         entries = ["python312.zip", ".", os.path.relpath(dependencies, pth.parent),
                    os.path.relpath(app / "src", pth.parent), os.path.relpath(app, pth.parent),
                    os.path.relpath(HOME / "bootstrap", pth.parent), "import site"]
         pth.write_text("\n".join(entries) + "\n", "utf-8")
-    expose_optional(HOME, app)
+    if persist:
+        expose_optional(HOME, app)
     return app, resource
 
-def selfcheck(active):
+def selfcheck(app):
     status("正在自检运行环境与索引，首次加载可能需要数十秒……")
-    app, resource = activate_paths(active)
-    command = [sys.executable, str(HOME / "bootstrap/launch.py"), "probe"]
+    command = [sys.executable, "-B", str(HOME / "bootstrap/launch.py"), "probe"]
     subprocess.run(command, check=True, timeout=180, cwd=app)
 
 
@@ -102,12 +103,15 @@ def main():
     parser.add_argument("--runtime", choices=("cpu", "gpu"))
     args = parser.parse_args()
     actions = {"start": "启动", "install": "安装环境", "repair": "修复", "probe": "环境自检"}
-    status(f"FFXIV Prism · {actions[args.action]} · 初始化中")
+    if args.action != "probe":
+        status(f"FFXIV Prism · {actions[args.action]} · 初始化中")
     configure_environment(HOME)
     active_path = HOME / "manifests/active.json"
     active = read_json(HOME / "work/proposed.json" if args.proposed else active_path)
     if args.action == "probe":
-        app, resource = activate_paths(active, prepare=False)
+        # The parent already prepared dependencies and subprocess paths. Only
+        # configure this process; do not repeat installation checks or writes.
+        app, resource = activate_paths(active, prepare=False, announce=False, persist=False)
         status("加载 NumPy / PyTorch 与识别模块……")
         import numpy as np
         np.linalg.inv(np.eye(2, dtype=np.float32))
@@ -121,17 +125,10 @@ def main():
         server = web["PrismServer"](("127.0.0.1", 0))
         server.server_close()
         check_worker_entrypoint(app)
-        result = inspect_assets(current_best_configs())
         status("检查五部位索引与候选行数……")
+        result = inspect_assets(current_best_configs())
         if not result["ok"]:
             raise ValueError(json.dumps(result, ensure_ascii=False))
-        for config in current_best_configs().values():
-            for folder in (config.index_dir, *config.ensemble_index_dirs):
-                matrix = np.load(folder / "embeddings.npy", mmap_mode="r")
-                with (folder / "metadata.jsonl").open(encoding="utf-8") as stream:
-                    rows = sum(1 for line in stream if line.strip())
-                if matrix.ndim != 2 or len(matrix) != rows:
-                    raise ValueError(f"索引行数不匹配：{folder}")
         print(f"自检通过：Python {sys.version.split()[0]} / torch {torch.__version__}", flush=True)
         return 0
     # OS releases this byte-range lock even after a crash.
@@ -170,7 +167,7 @@ def main():
                 gpu_result = prepare_optional(HOME, app)
         prepare_models(HOME, app, full=args.action == "repair")
         validate_combination(HOME, active, full=args.action == "repair")
-        selfcheck(active)
+        selfcheck(app)
         if args.action == "repair":
             if gpu_result is False:
                 print("CPU 与图库自检通过，GPU 修复未完成；下载文件保留供重试。")
