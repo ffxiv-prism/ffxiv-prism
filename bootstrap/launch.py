@@ -39,6 +39,13 @@ def selfcheck(active):
     command = [sys.executable, str(HOME / "bootstrap/launch.py"), "probe"]
     subprocess.run(command, check=True, timeout=180, cwd=app)
 
+
+def check_worker_entrypoint(app):
+    # Exercise the same subprocess entry point used by the web UI. EOF exits
+    # after imports, without loading models or submitting a recognition job.
+    subprocess.run([sys.executable, "-B", str(app / "scripts/recognition_worker.py")],
+                   stdin=subprocess.DEVNULL, check=True, timeout=60, cwd=app)
+
 def check_gallery_inputs(active, filenames):
     """Reject ambiguous or incompatible input before extracting or downloading anything."""
     if len(filenames) > 1:
@@ -65,7 +72,7 @@ def install_inputs(active, filenames, requested_runtime=None):
         manifest = install_package(HOME, filename)
         proposed["resources"] = manifest["id"]
     validate_combination(HOME, proposed, full=False)
-    status("[2/4] 安装运行环境与模型（已安装的内容会复用）")
+    status("[2/4] Installing runtime and models (existing files will be reused)")
     app, _ = activate_paths(proposed)
     gpu_result = prepare_optional(HOME, app, requested_runtime)
     prepare_models(HOME, app)
@@ -113,6 +120,7 @@ def main():
         web = runpy.run_path(str(app / "scripts/web_app.py"), run_name="prism_selfcheck")
         server = web["PrismServer"](("127.0.0.1", 0))
         server.server_close()
+        check_worker_entrypoint(app)
         result = inspect_assets(current_best_configs())
         status("检查五部位索引与候选行数……")
         if not result["ok"]:

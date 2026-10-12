@@ -8,7 +8,9 @@ import traceback
 from collections import OrderedDict
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+SCRIPT_DIR = Path(__file__).resolve().parent
+# Embedded CPython's ._pth isolation does not add the entry-point directory.
+sys.path[:0] = [str(SCRIPT_DIR), str(SCRIPT_DIR.parent / "src")]
 # Keep the Windows BLAS initialization identical to the one-shot entry point.
 from recognize_glamour import main
 

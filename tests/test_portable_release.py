@@ -43,7 +43,7 @@ class DownloadTests(unittest.TestCase):
                 portable.download(self.row, path)
             self.assertEqual(path.read_bytes(), self.content)
             self.assertFalse(path.with_suffix('.whl.part').exists())
-        for expected in ('official.example', 'mirror.example', '下载失败'):
+        for expected in ('official.example', 'mirror.example', 'Download failed'):
             self.assertIn(expected, output.getvalue())
         self.assertNotIn('https://', output.getvalue())
         self.assertNotIn('MiB/s', output.getvalue())

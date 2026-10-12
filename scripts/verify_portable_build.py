@@ -44,8 +44,8 @@ def main():
             if not target.exists():
                 shutil.copyfile(source / row["path"], target)
     python = home / "runtime/python/python.exe"
-    result = subprocess.run([str(python), "-X", "utf8", str(home / "bootstrap/launch.py"), "import", "--runtime", "cpu",
-                             str((args.gallery_zip or ROOT / RESOURCE_FILENAME).resolve())], cwd=home)
+    result = subprocess.run([str(python), "-X", "utf8", str(home / "bootstrap/launch.py"), "install",
+                             str((args.gallery_zip or ROOT / RESOURCE_FILENAME).resolve()), "--runtime", "cpu"], cwd=home)
     return result.returncode
 
 if __name__ == "__main__":

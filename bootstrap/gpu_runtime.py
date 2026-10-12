@@ -86,14 +86,14 @@ def prepare_optional(home, app, requested=None):
         variant = detect_variant() if requested == 'gpu' else config['gpu']
         if variant not in ('cu126', 'cu130'):
             raise ValueError('未知 GPU 环境，请重新选择安装环境。')
-        status(f'额外安装 GPU 环境：{variant}；CPU 环境保留。')
+        status(f'Installing optional GPU runtime: {variant}; keeping the CPU runtime.')
         prepare_runtime(home, app, f'runtime-{variant}.json')
         python = worker_python(home, app, variant)
         probe(python)
         atomic_json(Path(home) / 'user/runtime.json', {'gpu': variant})
-        status('GPU 环境自检通过。')
+        status('GPU runtime check passed.')
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
-        status(f'GPU 环境未就绪：{exc}\nCPU 环境仍可使用；重跑安装环境.bat 可继续追加 GPU。')
+        status(f'GPU runtime is not ready: {exc}\nThe CPU runtime is still available. Run the environment installer again to retry GPU setup.')
         return False
     return True
 

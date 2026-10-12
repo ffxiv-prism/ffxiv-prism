@@ -311,20 +311,20 @@ def download(row, destination, timeout=20):
                 if offset >= row["size"]:
                     if offset == row["size"] and digest(temporary, progress=True) == row["sha256"]:
                         temporary.replace(destination)
-                        status(f"已恢复完整下载：{destination.name}")
+                        status(f"Recovered completed download: {destination.name}")
                         return
                     temporary.unlink()
                     offset = 0
-                status(f"下载：{urllib.parse.urlsplit(url).netloc} · {row['size'] / 1024**2:.1f} MiB"
-                       + (f" · 从 {offset / 1024**2:.1f} MiB 续传" if offset else ""))
+                status(f"Downloading: {urllib.parse.urlsplit(url).netloc} · {row['size'] / 1024**2:.1f} MiB"
+                       + (f" · resuming from {offset / 1024**2:.1f} MiB" if offset else ""))
                 request = urllib.request.Request(url, headers={"User-Agent": "FFXIVPrism/portable", **({"Range": f"bytes={offset}-"} if offset else {})})
                 with urllib.request.urlopen(request, timeout=timeout) as response:
                     resumed = offset and response.status == 206
                     if resumed and not response.headers.get("Content-Range", "").startswith(f"bytes {offset}-"):
                         raise ValueError("Invalid resume response")
                     if offset and not resumed:
-                        status("来源不支持此断点，从头下载。")
-                    meter = Progress("下载", row["size"], offset if resumed else 0)
+                        status("Source does not support resume; restarting download.")
+                    meter = Progress("Download", row["size"], offset if resumed else 0)
                     with temporary.open("ab" if resumed else "wb") as stream:
                         while chunk := response.read(64 * 1024):
                             stream.write(chunk)
@@ -334,38 +334,38 @@ def download(row, destination, timeout=20):
                         meter.update(stream.tell(), force=True)
                     meter.close()
                 if temporary.stat().st_size != row["size"]:
-                    raise OSError("下载未完成，保留断点后重试")
+                    raise OSError("Download incomplete; partial file retained for retry")
                 if digest(temporary, progress=True) != row["sha256"]:
                     temporary.unlink(missing_ok=True)
-                    raise ValueError("下载校验失败")
+                    raise ValueError("Download checksum mismatch")
                 temporary.replace(destination)
                 return
             except (OSError, ValueError, urllib.error.URLError, http.client.HTTPException) as exc:
                 if meter:
                     meter.close()
                 errors.append(f"{url}: {exc}")
-                status(f"下载失败：{exc}；将重试或切换下一个来源（如有）。")
+                status(f"Download failed: {exc}; retrying or trying the next source if available.")
                 if isinstance(exc, urllib.error.HTTPError) and exc.code in (401, 403, 404):
                     break
                 time.sleep(.2)
-    raise RuntimeError(f"无法准备 {destination}；可手动下载到此路径。\n" + "\n".join(errors))
+    raise RuntimeError(f"Could not prepare {destination}; you can download the file manually to this path.\n" + "\n".join(errors))
 
 def prepare_runtime(home, app, manifest_name="runtime.json"):
     home, app = Path(home), Path(app)
     manifest_path = app / "manifests" / manifest_name
     lock = read_json(manifest_path)
-    status(f"检查 Python 运行依赖：{len(lock['wheels'])} 个固定版本包")
+    status(f"Checking Python runtime: {len(lock['wheels'])} pinned packages")
     target = home / "runtime" / lock["id"] / "site-packages"
     marker = target.parent / "ready.json"
     if marker.is_file() and read_json(marker).get("lock_sha256") == digest(manifest_path):
-        status("Python 运行依赖已就绪。")
+        status("Python runtime is ready.")
         return target
     target.mkdir(parents=True, exist_ok=True)
     if shutil.disk_usage(home).free < sum(row["size"] for row in lock["wheels"]) * 4 + 256 * 1024**2:
-        raise ValueError("磁盘空间不足以准备运行环境。")
+        raise ValueError("Not enough free disk space to install the runtime.")
     for number, row in enumerate(lock["wheels"], 1):
         path = home / "work/downloads" / row["filename"]
-        status(f"准备依赖 [{number}/{len(lock['wheels'])}]：{row['filename']}")
+        status(f"Installing dependency [{number}/{len(lock['wheels'])}]: {row['filename']}")
         download(row, path)
         with zipfile.ZipFile(path) as archive:
             check_windows_paths(target, archive.namelist())
@@ -383,14 +383,14 @@ def prepare_runtime(home, app, manifest_name="runtime.json"):
                 with archive.open(info) as source, output.open("wb") as stream:
                     shutil.copyfileobj(source, stream)
     atomic_json(marker, {"lock_sha256": digest(manifest_path)})
-    status("Python 运行依赖准备完成。")
+    status("Python runtime installation complete.")
     return target
 
 def prepare_models(home, app, full=False):
     models = read_json(Path(app) / "manifests/models.json")["models"]
-    status(f"检查基础模型：共 {len(models)} 个模型")
+    status(f"Checking base models: {len(models)} models")
     for number, model in enumerate(models, 1):
-        status(f"模型 [{number}/{len(models)}]：{model['id']}")
+        status(f"Model [{number}/{len(models)}]: {model['id']}")
         directory = safe_path(home, model["directory"])
         for row in model["files"]:
             path = safe_path(directory, row["path"])
@@ -399,10 +399,10 @@ def prepare_models(home, app, full=False):
             if path.is_file() and path.stat().st_size == row["size"] and (not full and verified or digest(path, progress=True) == row["sha256"]):
                 atomic_json(receipt, {"sha256": row["sha256"]})
                 continue
-            print(f"准备模型：{model['id']} / {row['path']}", flush=True)
+            print(f"Preparing model: {model['id']} / {row['path']}", flush=True)
             download(row, path)
             atomic_json(receipt, {"sha256": row["sha256"]})
-    status("基础模型已就绪。")
+    status("Base models are ready.")
 
 def configure_environment(home, resource_root=None):
     home = Path(home).resolve()
