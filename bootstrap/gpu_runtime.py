@@ -109,7 +109,7 @@ def expose_optional(home, app):
 
 
 def installation_choice():
-    print('1. 安装cpu环境（推荐）\n2. 额外安装gpu环境（cpu环境+gpu环境）', flush=True)
+    print('1. 安装 CPU 环境（推荐）\n2. 额外安装 GPU 环境（CPU + GPU）', flush=True)
     while True:
         try:
             value = input('请选择 [1/2，默认 1]：').strip()

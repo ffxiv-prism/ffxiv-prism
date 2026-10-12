@@ -17,7 +17,7 @@ from portable import atomic_json, digest, verify_signature
 from ffxiv_prism.jsonl import read_jsonl
 from release_layout import compact_resources, inference_sources
 
-VERSION = "v0.2.0"
+VERSION = "v0.2.1"
 RESOURCE_FILENAME = "FFXIV-Prism-gallery-20261009.zip"
 RESOURCE_ID = "gallery-20261009"
 SOURCE_GALLERY_ID = "gallery-20261009-visor-feet-v3"
@@ -166,11 +166,11 @@ def app():
             for name in python.namelist():
                 archive.writestr(prefix + "runtime/python/" + name, python.read(name))
         archive.writestr(prefix + "manifests/active.json", json.dumps({"app": VERSION, "resources": None}))
-        for name, action in (("安装环境", "install"), ("启动", "start"), ("导入图库", "import"), ("检查修复", "repair")):
+        for name, action in (("安装环境", "install"), ("启动", "start"), ("修复", "repair")):
             bat = launcher_bat(name, action)
             archive.writestr(prefix + name + ".bat", bat.encode("utf-8"))
         archive.write(ROOT / "docs/portable_release_zh.md", prefix + "使用说明.md")
-        archive.writestr(prefix + "imports/放置图库ZIP.txt", "将维护者提供的图库包原样放在此目录，不用自行解压。")
+        archive.writestr(prefix + "imports/放置图库ZIP.txt", b"")
     temporary.replace(output)
     output.with_suffix(".zip.sha256").write_text(digest(output) + "  " + output.name + "\n", "utf-8")
     # The first public version has no separate app/update download. Remove
@@ -187,7 +187,7 @@ def launcher_bat(name, action):
             'cd /d "%~dp0"\r\nset PYTHONUNBUFFERED=1\r\n'
             'if not exist "%~dp0runtime\\python\\python.exe" (\r\n'
             'echo 缺少内置 Python。请完整解压 windows.zip 后重试。\r\npause\r\nexit /b 1\r\n)\r\n'
-            '"%~dp0runtime\\python\\python.exe" -u -X utf8 "%~dp0bootstrap\\launch.py" '
+            '"%~dp0runtime\\python\\python.exe" -B -u -X utf8 "%~dp0bootstrap\\launch.py" '
             + action + ' %*\r\nset "PRISM_EXIT=%errorlevel%"\r\n'
             'if not "%PRISM_EXIT%"=="0" echo 操作未完成，请查看上方提示。\r\n'
             'pause\r\nexit /b %PRISM_EXIT%\r\n')

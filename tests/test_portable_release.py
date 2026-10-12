@@ -33,7 +33,7 @@ class DownloadTests(unittest.TestCase):
         self.row = {"size": len(self.content), "sha256": hashlib.sha256(self.content).hexdigest(),
                     "urls": ["https://official.example/file", "https://mirror.example/file"]}
 
-    def test_failed_source_falls_back_and_reports_source_progress_and_verification(self):
+    def test_failed_source_falls_back_with_concise_output_for_small_files(self):
         output = io.StringIO()
         with tempfile.TemporaryDirectory() as directory, redirect_stdout(output):
             path = Path(directory) / "file.whl"
@@ -43,8 +43,11 @@ class DownloadTests(unittest.TestCase):
                 portable.download(self.row, path)
             self.assertEqual(path.read_bytes(), self.content)
             self.assertFalse(path.with_suffix('.whl.part').exists())
-        for expected in ('official.example', 'mirror.example', 'cdn.example', '100.0%', 'MiB/s', 'SHA-256', '校验通过'):
+        for expected in ('official.example', 'mirror.example', '下载失败'):
             self.assertIn(expected, output.getvalue())
+        self.assertNotIn('https://', output.getvalue())
+        self.assertNotIn('MiB/s', output.getvalue())
+        self.assertLessEqual(len(output.getvalue().splitlines()), 3)
 
     def test_resume_uses_range_and_preserves_downloaded_bytes(self):
         with tempfile.TemporaryDirectory() as directory, redirect_stdout(io.StringIO()):

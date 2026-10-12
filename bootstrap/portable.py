@@ -40,15 +40,44 @@ def remove_managed_files(home, paths, folder):
     """Only delete completed managed downloads; never follow links outside home."""
     home = Path(home).resolve()
     managed = safe_path(home, folder)
+    removed = 0
     for path in paths:
         path = Path(path)
         if not path.is_file() or path.is_symlink() or not path.resolve().is_relative_to(managed):
             continue
         try:
             path.unlink(missing_ok=True)
-            status(f'已清理已安装的下载文件：{path.name}')
+            removed += 1
         except OSError as exc:
             status(f'安装成功，下载文件暂未清理：{path.name}：{exc}')
+    if removed:
+        status(f'已清理 {removed} 个安装文件。')
+
+
+def cleanup_installation(home, app, packages=()):
+    """Clean only known installer outputs after the application selfcheck succeeds."""
+    home, app = Path(home), Path(app)
+    downloads = []
+    for name in ('runtime.json', 'runtime-cu126.json', 'runtime-cu130.json'):
+        manifest = app / 'manifests' / name
+        if not manifest.is_file():
+            continue
+        lock = read_json(manifest)
+        marker = safe_path(home, 'runtime/' + lock['id'] + '/ready.json')
+        if not marker.is_file() or read_json(marker).get('lock_sha256') != digest(manifest):
+            continue
+        for row in lock['wheels']:
+            path = safe_path(home, 'work/downloads/' + row['filename'])
+            downloads.extend((path, path.with_suffix(path.suffix + '.part')))
+    remove_managed_files(home, downloads, 'work/downloads')
+    remove_managed_files(home, packages, 'imports')
+    remove_managed_files(home, [home / 'work/proposed.json'], 'work')
+    # These directories should already be empty. Never remove arbitrary temp/cache content.
+    for name in ('work/downloads', 'work/staging', 'work/temp'):
+        try:
+            safe_path(home, name).rmdir()
+        except OSError:
+            pass
 
 def status(message):
     print(f"[{time.strftime('%H:%M:%S')}] {message}", flush=True)
@@ -61,11 +90,14 @@ class Progress:
         self.last = 0.0
         self.terminal = sys.stdout.isatty()
         self.active = False
+        self.enabled = total >= 16 * 1024**2
         self.update(initial, force=True)
 
     def update(self, current, force=False):
+        if not self.enabled:
+            return
         now = time.monotonic()
-        if not force and now - self.last < (0.25 if self.terminal else 2):
+        if not force and now - self.last < (1 if self.terminal else 15):
             return
         self.last = now
         fraction = min(current / self.total, 1) if self.total else 1
@@ -174,13 +206,13 @@ def verify_files(root, manifest, full=True):
             raise ValueError(f"文件缺失或大小不符：{row['path']}")
         if full and digest(path, progress=row["size"] >= 64 * 1024**2) != row["sha256"]:
             raise ValueError(f"文件校验失败：{row['path']}")
-        if time.monotonic() - last >= 2 or number == len(manifest["files"]):
-            status(f"已检查 {number}/{len(manifest['files'])}：{row['path']}")
+        if time.monotonic() - last >= 10:
+            status(f"已检查 {number}/{len(manifest['files'])} 个文件")
             last = time.monotonic()
 
 def install_package(home, filename):
     home = Path(home)
-    status(f"读取并验证更新包签名：{filename}")
+    status(f"验证图库签名：{Path(filename).name}")
     with zipfile.ZipFile(filename) as archive:
         manifest = package_manifest(archive, home)
         category = "app" if manifest["kind"] == "app" else "resources"
@@ -217,7 +249,7 @@ def install_package(home, filename):
                     shutil.copyfileobj(source, target, 1024 * 1024)
                 if digest(path) != row["sha256"]:
                     raise ValueError(f"解压校验失败：{row['path']}")
-                if time.monotonic() - last >= 2 or number == len(manifest["files"]):
+                if time.monotonic() - last >= 10 or number == len(manifest["files"]):
                     status(f"安装 {manifest['id']}：{number}/{len(manifest['files'])}")
                     last = time.monotonic()
             (staging / "package.json").write_bytes(archive.read("package.json"))
@@ -252,7 +284,7 @@ def validate_combination(home, active, full=False):
     verify_files(Path(home) / "app" / active["app"], app, full)
     resource_id = active.get("resources")
     if not resource_id:
-        raise ValueError("尚未导入图库资源包。请从维护者的网盘下载 ZIP，放入 imports，双击“导入图库.bat”。")
+        raise ValueError("尚未导入图库资源包。请从维护者的网盘下载 ZIP，放入 imports，双击“安装环境.bat”。")
     resources = installed_manifest(home, "resources", resource_id)
     if resources["compatibility"] not in app["resource_compatibility"]:
         raise ValueError("程序与图库不兼容，请导入配套程序包和图库包。")
@@ -264,9 +296,7 @@ def download(row, destination, timeout=20):
     destination = Path(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
     if destination.is_file() and destination.stat().st_size == row["size"]:
-        status(f"检查本地缓存：{destination.name}")
         if digest(destination, progress=True) == row["sha256"]:
-            status("本地缓存校验通过，无需下载。")
             return
     temporary = destination.with_suffix(destination.suffix + ".part")
     errors = []
@@ -285,16 +315,10 @@ def download(row, destination, timeout=20):
                         return
                     temporary.unlink()
                     offset = 0
-                status(f"下载 {destination.name} | 来源 {source_number}/{len(urls)} | 尝试 {attempt + 1}/2")
-                status(f"网站：{urllib.parse.urlsplit(url).netloc}\n下载地址：{url}")
-                status(f"连接中（超时 {timeout}s）" + (f"，从 {offset / 1024**2:.2f} MiB 断点续传" if offset else ""))
+                status(f"下载：{urllib.parse.urlsplit(url).netloc} · {row['size'] / 1024**2:.1f} MiB"
+                       + (f" · 从 {offset / 1024**2:.1f} MiB 续传" if offset else ""))
                 request = urllib.request.Request(url, headers={"User-Agent": "FFXIVPrism/portable", **({"Range": f"bytes={offset}-"} if offset else {})})
                 with urllib.request.urlopen(request, timeout=timeout) as response:
-                    redirected = response.geturl()
-                    if redirected != url:
-                        # CDN query strings may contain temporary credentials.
-                        parts = urllib.parse.urlsplit(redirected)
-                        status(f"实际下载网站：{parts.netloc}（重定向）")
                     resumed = offset and response.status == 206
                     if resumed and not response.headers.get("Content-Range", "").startswith(f"bytes {offset}-"):
                         raise ValueError("Invalid resume response")
@@ -311,12 +335,10 @@ def download(row, destination, timeout=20):
                     meter.close()
                 if temporary.stat().st_size != row["size"]:
                     raise OSError("下载未完成，保留断点后重试")
-                status(f"下载完成，正在校验 SHA-256：{destination.name}")
                 if digest(temporary, progress=True) != row["sha256"]:
                     temporary.unlink(missing_ok=True)
                     raise ValueError("下载校验失败")
                 temporary.replace(destination)
-                status(f"校验通过：{destination.name}")
                 return
             except (OSError, ValueError, urllib.error.URLError, http.client.HTTPException) as exc:
                 if meter:
@@ -337,7 +359,6 @@ def prepare_runtime(home, app, manifest_name="runtime.json"):
     marker = target.parent / "ready.json"
     if marker.is_file() and read_json(marker).get("lock_sha256") == digest(manifest_path):
         status("Python 运行依赖已就绪。")
-        remove_managed_files(home, [home / 'work/downloads' / row['filename'] for row in lock['wheels']], 'work/downloads')
         return target
     target.mkdir(parents=True, exist_ok=True)
     if shutil.disk_usage(home).free < sum(row["size"] for row in lock["wheels"]) * 4 + 256 * 1024**2:
@@ -346,7 +367,6 @@ def prepare_runtime(home, app, manifest_name="runtime.json"):
         path = home / "work/downloads" / row["filename"]
         status(f"准备依赖 [{number}/{len(lock['wheels'])}]：{row['filename']}")
         download(row, path)
-        status(f"解压安装依赖：{row['filename']}")
         with zipfile.ZipFile(path) as archive:
             check_windows_paths(target, archive.namelist())
             for info in archive.infolist():
@@ -363,7 +383,6 @@ def prepare_runtime(home, app, manifest_name="runtime.json"):
                 with archive.open(info) as source, output.open("wb") as stream:
                     shutil.copyfileobj(source, stream)
     atomic_json(marker, {"lock_sha256": digest(manifest_path)})
-    remove_managed_files(home, [home / 'work/downloads' / row['filename'] for row in lock['wheels']], 'work/downloads')
     status("Python 运行依赖准备完成。")
     return target
 
@@ -377,7 +396,6 @@ def prepare_models(home, app, full=False):
             path = safe_path(directory, row["path"])
             receipt = path.with_suffix(path.suffix + ".verified.json")
             verified = receipt.is_file() and read_json(receipt).get("sha256") == row["sha256"]
-            status(f"检查模型文件：{row['path']}")
             if path.is_file() and path.stat().st_size == row["size"] and (not full and verified or digest(path, progress=True) == row["sha256"]):
                 atomic_json(receipt, {"sha256": row["sha256"]})
                 continue

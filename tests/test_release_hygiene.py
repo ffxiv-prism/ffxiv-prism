@@ -60,6 +60,7 @@ class ReleaseHygieneTests(unittest.TestCase):
             active = {'app': 'a', 'resources': 'r'}
             globals_ = fn.__globals__
             with patch.dict(globals_, HOME=home, install_package=lambda *args: {'kind': 'resources', 'id': 'r'},
+                            check_gallery_inputs=lambda *args: None,
                             activate_paths=lambda *args: (home, home), prepare_models=lambda *args, **kwargs: None,
                             prepare_optional=lambda *args: None, validate_combination=lambda *args, **kwargs: None):
                 with patch.object(subprocess, 'run', side_effect=RuntimeError('probe failed')):

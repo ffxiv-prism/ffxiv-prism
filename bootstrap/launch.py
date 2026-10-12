@@ -6,11 +6,13 @@ from pathlib import Path
 import runpy
 import subprocess
 import sys
+import zipfile
 
 HOME = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(HOME / "bootstrap"))
 from portable import (atomic_json, configure_environment, install_package, check_install_root,
-                      prepare_models, prepare_runtime, read_json, status, validate_combination, remove_managed_files)
+                      prepare_models, prepare_runtime, read_json, status, validate_combination,
+                      cleanup_installation, installed_manifest, package_manifest)
 from gpu_runtime import expose_optional, installation_choice, prepare_optional
 
 def activate_paths(active, prepare=True):
@@ -37,42 +39,62 @@ def selfcheck(active):
     command = [sys.executable, str(HOME / "bootstrap/launch.py"), "probe"]
     subprocess.run(command, check=True, timeout=180, cwd=app)
 
+def check_gallery_inputs(active, filenames):
+    """Reject ambiguous or incompatible input before extracting or downloading anything."""
+    if len(filenames) > 1:
+        raise ValueError("imports 中只能放一个图库 ZIP，请移走多余的 ZIP 后重试。")
+    if not filenames:
+        if not active.get("resources"):
+            raise ValueError("未找到图库 ZIP。请将图库 ZIP 原样放入 imports，再运行安装环境.bat。")
+        status("复用已导入的图库。")
+        return
+    app = installed_manifest(HOME, "app", active["app"])
+    with zipfile.ZipFile(filenames[0]) as archive:
+        manifest = package_manifest(archive, HOME)
+    if manifest["kind"] != "resources":
+        raise ValueError("请选择配套的图库 ZIP，不要放入程序安装包。")
+    if manifest["compatibility"] not in app["resource_compatibility"]:
+        raise ValueError("图库与当前程序不兼容，请下载配套图库。")
+
+
 def install_inputs(active, filenames, requested_runtime=None):
-    status(f"开始导入图库：{len(filenames)} 个 ZIP")
+    status("[1/4] 检查并导入图库")
+    check_gallery_inputs(active, filenames)
     proposed = dict(active)
-    kinds = set()
     for filename in filenames:
         manifest = install_package(HOME, filename)
-        if manifest["kind"] in kinds:
-            raise ValueError("一次只能导入一个程序包和一个图库包，请移走 imports 中的旧版本 ZIP。")
-        kinds.add(manifest["kind"])
-        proposed["app" if manifest["kind"] == "app" else "resources"] = manifest["id"]
+        proposed["resources"] = manifest["id"]
     validate_combination(HOME, proposed, full=False)
+    status("[2/4] 安装运行环境与模型（已安装的内容会复用）")
     app, _ = activate_paths(proposed)
     gpu_result = prepare_optional(HOME, app, requested_runtime)
-    prepare_models(HOME, app, full=True)
+    prepare_models(HOME, app)
     # Probe must receive the target, without publishing active.json prematurely.
     atomic_json(HOME / "work/proposed.json", proposed)
-    status("正在自检新版本，通过后切换活动版本……")
-    subprocess.run([sys.executable, str(HOME / "bootstrap/launch.py"), "probe", "--proposed"], check=True, timeout=180)
-    if active.get("resources") and active != proposed:
-        atomic_json(HOME / "manifests/previous.json", active)
+    status("[3/4] 自检运行环境与图库，请稍候……")
+    log_path = HOME / "work/logs/install-check.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with log_path.open("w", encoding="utf-8") as log:
+        subprocess.run([sys.executable, "-B", str(HOME / "bootstrap/launch.py"), "probe", "--proposed"],
+                       check=True, timeout=180, stdout=log, stderr=subprocess.STDOUT)
     atomic_json(HOME / "manifests/active.json", proposed)
-    remove_managed_files(HOME, filenames, 'imports')
-    print("安装成功，可运行“启动.bat”开始识别。", flush=True)
     if gpu_result is False:
-        print('GPU 未就绪，CPU 和程序已安装成功。可重跑安装环境.bat 继续。', flush=True)
-    return proposed
+        print('CPU 和图库已就绪，可运行启动.bat。GPU 未就绪，下载文件保留；重跑安装环境.bat 选择 2 可继续。', flush=True)
+        return 1
+    status("[4/4] 清理安装下载与临时文件")
+    cleanup_installation(HOME, app, filenames)
+    print("安装成功，可运行“启动.bat”开始识别。", flush=True)
+    return 0
 
 def main():
     check_install_root(HOME)
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=("start", "install", "import", "repair", "rollback", "probe"), default="start", nargs="?")
+    parser.add_argument("action", choices=("start", "install", "repair", "probe"), default="start", nargs="?")
     parser.add_argument("packages", nargs="*")
     parser.add_argument("--proposed", action="store_true")
     parser.add_argument("--runtime", choices=("cpu", "gpu"))
     args = parser.parse_args()
-    actions = {"start": "启动", "install": "安装环境", "import": "导入图库", "repair": "检查修复", "rollback": "回退", "probe": "环境自检"}
+    actions = {"start": "启动", "install": "安装环境", "repair": "修复", "probe": "环境自检"}
     status(f"FFXIV Prism · {actions[args.action]} · 初始化中")
     configure_environment(HOME)
     active_path = HOME / "manifests/active.json"
@@ -114,58 +136,39 @@ def main():
         try:
             msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
         except OSError:
-            raise RuntimeError("程序已在运行。请先在原命令行按 Ctrl+C 停止，再导入、修复或回退。")
-        if args.action == "rollback":
-            status("读取并检查上一版本……")
-            previous = read_json(HOME / "manifests/previous.json")
-            validate_combination(HOME, previous)
-            atomic_json(HOME / "work/proposed.json", previous)
-            activate_paths(previous)
-            subprocess.run([sys.executable, str(HOME / "bootstrap/launch.py"), "probe", "--proposed"], check=True, timeout=180)
-            atomic_json(HOME / "manifests/previous.json", active)
-            atomic_json(active_path, previous)
-            print("已恢复上一版本。请重新双击启动。")
-            return 0
-        if args.action in {"install", "import"}:
+            raise RuntimeError("程序已在运行。请先在原命令行按 Ctrl+C 停止，再安装或修复。")
+        if args.action == "install":
             requested = args.runtime or installation_choice()
-            if args.action == "install":
-                app, _ = activate_paths(active)
-                gpu_result = prepare_optional(HOME, app, requested)
-                prepare_models(HOME, app)
-                print("CPU 环境已就绪。图库请放入 imports 后执行导入图库；已有图库可直接启动。")
-                return 1 if gpu_result is False else 0
-        if args.action == "import":
-            status("扫描待导入 ZIP……")
             packages = [Path(p).resolve() for p in args.packages] or sorted((HOME / "imports").glob("*.zip"))
-            if not packages:
-                app, _ = activate_paths(active)
-                gpu_result = prepare_optional(HOME, app, requested)
-                print("环境已准备。请将图库 ZIP 放入 imports 后重新运行；已有图库可直接启动。")
-                return 1 if gpu_result is False else 0
             try:
-                active = install_inputs(active, packages, requested_runtime=requested)
+                return install_inputs(active, packages, requested_runtime=requested)
             except Exception:
-                activate_paths(active, prepare=False)
+                if (HOME / "work/proposed.json").exists():
+                    activate_paths(active, prepare=False)
                 raise
-            return 0
         # The launcher can repair Python dependencies before inspecting resources.
         if args.action == "repair":
             status("开始完整修复：重新安装依赖并校验模型、程序及图库。")
             runtime_id = read_json(HOME / "app" / active["app"] / "manifests/runtime.json")["id"]
             (HOME / "runtime" / runtime_id / "ready.json").unlink(missing_ok=True)
         app, resource = activate_paths(active)
+        gpu_result = None
         if args.action == "repair":
             from gpu_runtime import settings
             variant = settings(HOME).get('gpu')
             if variant in {'cu126', 'cu130'}:
                 gpu_id = read_json(app / f'manifests/runtime-{variant}.json')['id']
                 (HOME / 'runtime' / gpu_id / 'ready.json').unlink(missing_ok=True)
-                prepare_optional(HOME, app)
+                gpu_result = prepare_optional(HOME, app)
         prepare_models(HOME, app, full=args.action == "repair")
         validate_combination(HOME, active, full=args.action == "repair")
         selfcheck(active)
         if args.action == "repair":
+            if gpu_result is False:
+                print("CPU 与图库自检通过，GPU 修复未完成；下载文件保留供重试。")
+                return 1
             print("完整校验通过。")
+            cleanup_installation(HOME, app)
             return 0
         status("正在启动本地网页服务，请等待访问地址……")
         process = subprocess.Popen([sys.executable, "-u", str(app / "scripts/web_app.py"), "--no-open"], cwd=app,
@@ -192,5 +195,5 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except Exception as exc:
-        print(f"\n准备失败：{exc}\n请保留此窗口查看原因。", file=sys.stderr, flush=True)
+        print(f"\n准备失败：{exc}\n请保留此窗口查看原因；安装自检详情见 work/logs/install-check.log。", file=sys.stderr, flush=True)
         raise SystemExit(1)
