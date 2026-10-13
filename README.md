@@ -17,6 +17,7 @@
 | `FFXIV-Prism-gallery-20261009.zip` | [下载装备图库（Google Drive）](https://drive.google.com/drive/folders/1G5N7_xYPplvjrjVKcpQRvAbjZO-2SzcQ?usp=sharing) | 识别报告所需的装备图片与检索数据 |
 | | [下载装备图库（Baidu 网盘）](https://pan.baidu.com/s/1qCPLl6pJhXBDCZj4bi6rOA?pwd=jnu4) | 同上，提取码jnu4 |
 
+图库zip的sha为：433eb67ff0a00b60b3690598d038f449e704eb92257f8af74ba15ba844f6e33c
 
 ## 开始使用
 
