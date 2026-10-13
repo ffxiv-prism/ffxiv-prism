@@ -12,16 +12,16 @@
   "multiappearance_piece_count": 453,
   "compatibility": "prism-current-best-visor-feet-v3",
   "candidate_indexes": {
-    "facebook-dinov2-base-feet-multiscale-v7-clean": "data/indexes/facebook-dinov2-base-feet-multiscale-v7-clean-20261009-230000",
-    "facebook-dinov2-base-hands-multiscale-v5": "data/indexes/facebook-dinov2-base-hands-multiscale-v5-20260926-134639",
-    "facebook-dinov2-base-head-multiscale-v4": "data/indexes/facebook-dinov2-base-head-multiscale-v4-20261009-230000",
-    "facebook-dinov2-base-legs-multiscale-v6": "data/indexes/facebook-dinov2-base-legs-multiscale-v6-20260926-134639",
-    "facebook-dinov2-base-slot-aligned-v3-body-multiscale": "data/indexes/facebook-dinov2-base-slot-aligned-v3-body-multiscale-20261009-230000",
-    "facebook-dinov3-vitb16-body-multiscale-v3": "data/indexes/facebook-dinov3-vitb16-body-multiscale-v3-20260926-134639",
-    "facebook-dinov3-vitb16-head-multiscale-v4": "data/indexes/facebook-dinov3-vitb16-head-multiscale-v4-20261009-230000",
-    "facebook-dinov3-vitb16-legs-multiscale-v6": "data/indexes/facebook-dinov3-vitb16-legs-multiscale-v6-20260926-134639",
-    "google-siglip2-base-patch16-224-feet-multiscale-v7-clean": "data/indexes/google-siglip2-base-patch16-224-feet-multiscale-v7-clean-20261009-230000",
-    "google-siglip2-base-patch16-224-head-multiscale-v4": "data/indexes/google-siglip2-base-patch16-224-head-multiscale-v4-20261009-230000",
-    "facebook-dinov3-vitb16-feet-multiscale-v1": "data/indexes/facebook-dinov3-vitb16-feet-multiscale-v1-20261009-230000"
+    "facebook-dinov2-base-feet-multiscale-v7-clean": "data/indexes/feet-dinov2",
+    "facebook-dinov2-base-hands-multiscale-v5": "data/indexes/hands-dinov2",
+    "facebook-dinov2-base-head-multiscale-v4": "data/indexes/head-dinov2",
+    "facebook-dinov2-base-legs-multiscale-v6": "data/indexes/legs-dinov2",
+    "facebook-dinov2-base-slot-aligned-v3-body-multiscale": "data/indexes/body-dinov2",
+    "facebook-dinov3-vitb16-body-multiscale-v3": "data/indexes/body-dinov3",
+    "facebook-dinov3-vitb16-head-multiscale-v4": "data/indexes/head-dinov3",
+    "facebook-dinov3-vitb16-legs-multiscale-v6": "data/indexes/legs-dinov3",
+    "google-siglip2-base-patch16-224-feet-multiscale-v7-clean": "data/indexes/feet-siglip2",
+    "google-siglip2-base-patch16-224-head-multiscale-v4": "data/indexes/head-siglip2",
+    "facebook-dinov3-vitb16-feet-multiscale-v1": "data/indexes/feet-dinov3"
   }
 }

@@ -14,6 +14,17 @@ sys.path.insert(0, str(ROOT))
 from scripts.weight_refresh_metrics import compare_variants  # noqa: E402
 from scripts.register_current_recognition_metrics import METHODS, SLOTS  # noqa: E402
 from scripts.run_weight_refresh_training import sha256, write_json  # noqa: E402
+from scripts.release_layout import index_names  # noqa: E402
+
+
+def candidate_version_matches(selection: dict, suffix: str) -> bool:
+    paths = selection["candidate_indexes"]
+    compact = index_names(selection)
+    if paths and all(old == new for old, new in compact.items()):
+        # Compact directory names no longer encode the version. Frozen input
+        # hashes above still prove the identity of each training index.
+        return selection.get("candidate_suffix") == suffix
+    return bool(paths) and all(path.endswith(suffix) for path in paths.values())
 
 
 def selected_checkpoint_keys(slot: str, variant: str) -> set[str]:
@@ -57,7 +68,7 @@ def main() -> int:
     if audit.get("status") != "ready_for_training" or not all(audit.get("slot_gates", {}).get(s) for s in SLOTS):
         raise ValueError("All five slot audits must pass")
     selection = copy.deepcopy(plan["selection"])
-    if not all(p.endswith(args.candidate_suffix) for p in selection["candidate_indexes"].values()):
+    if not candidate_version_matches(selection, args.candidate_suffix):
         raise ValueError("Candidate suffix does not match the frozen indexes")
     rows, comparisons = [], {}
     promoted = set()

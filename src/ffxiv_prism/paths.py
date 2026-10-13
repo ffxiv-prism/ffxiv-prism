@@ -25,7 +25,7 @@ LOGS_DIR = VAR_DIR / "logs"
 
 EORZEA_RAW_DIR = RAW_DIR / "eorzea_collection"
 EORZEA_HTML_DIR = EORZEA_RAW_DIR / "html"
-EORZEA_IMAGE_DIR = DATA_DIR / "images" if os.environ.get("PRISM_PORTABLE") else EORZEA_RAW_DIR / "images"
+EORZEA_IMAGE_DIR = DATA_DIR / "images"
 EORZEA_METADATA_DIR = EORZEA_RAW_DIR / "metadata"
 EORZEA_GLAMOUR_DIR = EORZEA_RAW_DIR / "glamours"
 EORZEA_GLAMOUR_HTML_DIR = EORZEA_GLAMOUR_DIR / "html"
@@ -94,7 +94,13 @@ def resolve_project_path(path: str | Path | None) -> Path | None:
 
     project_relative = path_text_after_project_dir(path_text)
     if project_relative is not None:
-        return PROJECT_ROOT / project_relative
+        path_text = project_relative
+
+    # Historical experiment metadata remains readable after the gallery move.
+    normalized = path_text.replace("\\", "/")
+    legacy_images = "data/raw/eorzea_collection/images/"
+    if normalized.startswith(legacy_images):
+        return EORZEA_IMAGE_DIR / normalized.rsplit("/", 1)[-1]
 
     candidate = Path(path_text)
     if candidate.is_absolute():

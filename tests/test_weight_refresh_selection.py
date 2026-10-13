@@ -1,10 +1,16 @@
 from __future__ import annotations
 import unittest
 from scripts.weight_refresh_metrics import compare_variants
-from scripts.register_weight_refresh import selected_checkpoint_keys
+from scripts.register_weight_refresh import selected_checkpoint_keys, candidate_version_matches
 
 
 class WeightRefreshSelectionTests(unittest.TestCase):
+    def test_compact_index_version_comes_from_frozen_selection(self):
+        selection = {"candidate_suffix": "v2", "candidate_indexes": {
+            "facebook-dinov2-base-head": "data/indexes/head-dinov2"}}
+        self.assertTrue(candidate_version_matches(selection, "v2"))
+        self.assertFalse(candidate_version_matches(selection, "v1"))
+
     def case(self, eid, before, after, fold=1, race="A", gender="female"):
         return dict(example_id=eid, baseline=before, continued=after, fold=fold, race=race, gender=gender)
 

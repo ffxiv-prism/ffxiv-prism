@@ -389,10 +389,9 @@ class EorzeaCollectionCollector:
             return False
 
     def image_target(self, candidate: ImageCandidate) -> Path:
-        group = candidate.gearset_slug or "misc"
         suffix = extension_from_url(candidate.source_image_url, ".img")
         semantic_name = self._semantic_image_filename(candidate, suffix)
-        return self.image_dir / candidate.image_kind / group / semantic_name
+        return self.image_dir / semantic_name
 
     def downloaded_image_record(
         self,

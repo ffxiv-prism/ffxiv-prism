@@ -1,4 +1,4 @@
-"""Build-only inference layout; never rename the development dataset in place."""
+"""Shared gallery layout for source development and portable releases."""
 import ast
 from contextlib import closing
 import json

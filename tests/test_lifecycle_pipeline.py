@@ -66,7 +66,8 @@ class LifecyclePipelineTests(unittest.TestCase):
         self.assertIn("--skip-empty", candidate.command)
         self.assertIn("--resume", candidate.command)
         self.assertIn("--activate", candidate.command)
-        for stage in stages[names.index("candidate-indexes") + 1:]:
+        self.assertLess(names.index("candidate-indexes"), names.index("gallery-layout"))
+        for stage in stages[names.index("gallery-layout") + 1:]:
             self.assertTrue(stage.advisory, stage.name)
 
     def test_cached_plan_reuses_cafemaker_raw_tables(self) -> None:

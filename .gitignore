@@ -1,4 +1,6 @@
 # Local IDE, Python, build, and runtime cache files.
+data/images/*
+!data/images/.gitkeep
 .idea/
 __pycache__/
 *.py[cod]
@@ -35,6 +37,28 @@ data/processed/eorzea_missing_images_manifest.jsonl
 # Generated visual retrieval indexes and local model weights.
 data/indexes/**
 !data/indexes/.gitkeep
+!data/indexes/head-dinov2/
+!data/indexes/head-dinov2/**
+!data/indexes/head-dinov3/
+!data/indexes/head-dinov3/**
+!data/indexes/head-siglip2/
+!data/indexes/head-siglip2/**
+!data/indexes/body-dinov2/
+!data/indexes/body-dinov2/**
+!data/indexes/body-dinov3/
+!data/indexes/body-dinov3/**
+!data/indexes/hands-dinov2/
+!data/indexes/hands-dinov2/**
+!data/indexes/legs-dinov2/
+!data/indexes/legs-dinov2/**
+!data/indexes/legs-dinov3/
+!data/indexes/legs-dinov3/**
+!data/indexes/feet-dinov2/
+!data/indexes/feet-dinov2/**
+!data/indexes/feet-dinov3/
+!data/indexes/feet-dinov3/**
+!data/indexes/feet-siglip2/
+!data/indexes/feet-siglip2/**
 data/models/**
 data/samples/retrieval_eval.generated.jsonl
 data/processed/retrieval_eval_results.json

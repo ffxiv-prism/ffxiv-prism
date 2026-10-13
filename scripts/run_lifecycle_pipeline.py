@@ -203,6 +203,8 @@ def sample_stages(args: argparse.Namespace, run_id: str) -> list[Stage]:
             candidate.extend(["--source-suffix", args.candidate_source_suffix])
         candidate.extend(["--dry-run"] if args.candidate_mode == "check" else ["--resume", "--activate"])
         add("candidate-indexes", "扩展并激活合格图片的检索索引", "scripts/update_active_candidate_indexes.py", *candidate)
+        if args.candidate_mode == "extend":
+            add("gallery-layout", "统一当前图库索引目录", "scripts/migrate_gallery_layout.py", "--apply", "--indexes-only")
 
     # Report enrichment must never block the image -> retrieval path.
     if args.source_mode == "refresh":

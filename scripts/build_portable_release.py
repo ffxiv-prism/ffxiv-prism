@@ -78,7 +78,7 @@ def gallery():
             files[path.relative_to(ROOT).as_posix()] = path
         for row in read_jsonl(folder / "metadata.jsonl"):
             name = row["local_path"].replace("\\", "/")
-            if not name.startswith("data/raw/eorzea_collection/images/"):
+            if not name.startswith("data/images/"):
                 raise ValueError(f"Non-equipment image in catalogue: {name}")
             image_names.add(name)
             piece_ids.update(int(p["piece_id"]) for p in row["pieces"])
@@ -140,6 +140,9 @@ def app():
     atomic_json(release_metadata, {"version": VERSION, "code_commit": commit,
                                                "working_tree_modified": dirty, "prerelease": False})
     files = inference_sources(ROOT)
+    for name in ("LICENSE", "THIRD_PARTY_NOTICES.md"):
+        files[name] = ROOT / name
+    files["licenses/DINOv3-LICENSE.md"] = ROOT / "var/models/dinov3-vitb16-pretrain-lvd1689m/LICENSE.md"
     for path in (ROOT / "web").rglob("*"):
         if path.is_file() and path.suffix in {".html", ".css", ".js", ".svg", ".png", ".ico"}:
             files[path.relative_to(ROOT).as_posix()] = path

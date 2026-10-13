@@ -32,7 +32,8 @@ class ImageUpdateWorkflowTests(unittest.TestCase):
         names = [s.name for s in stages]
         self.assertEqual(names[:4], ["discover", "build-image-manifest", "download-images", "collect-details"])
         self.assertIn("--refresh-source", stages[1].command)
-        self.assertTrue(all(s.advisory for s in stages[names.index("candidate-indexes") + 1:]))
+        self.assertLess(names.index("candidate-indexes"), names.index("gallery-layout"))
+        self.assertTrue(all(s.advisory for s in stages[names.index("gallery-layout") + 1:]))
 
     def test_metadata_only_is_not_reported_as_new_samples(self):
         result = update_result({}, {}, candidate={}, download={}, warnings=1, failed=False, planned=False)

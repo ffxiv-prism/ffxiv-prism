@@ -87,7 +87,7 @@ class CurrentBestAssetsTests(unittest.TestCase):
         self.assertEqual(len(required), 1)
         self.assertTrue(
             next(iter(required.values())).as_posix().endswith(
-                "data/raw/eorzea_collection/images/a.png"
+                "data/images/a.png"
             )
         )
 

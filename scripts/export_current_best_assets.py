@@ -173,7 +173,7 @@ def write_asset_manifest() -> None:
             "google/siglip2-base-patch16-224",
             "usyd-community/vitpose-base-simple",
         ],
-        "user_downloaded_data": "data/raw/eorzea_collection/images",
+        "user_downloaded_data": "data/images",
     }
     ASSET_MANIFEST.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
