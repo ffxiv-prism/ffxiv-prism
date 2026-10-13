@@ -1,28 +1,31 @@
 # FFXIV Prism
 
-看到喜欢的 FFXIV 装备外观，却不知道它叫什么？上传一张角色截图，FFXIV Prism 会在本地检索头、身体、手、腿、脚的装备候选，帮助你寻找相近外观。
+本项目是一个基于图像识别的本地FF14装备外观检索工具，自带web界面，主要用途：识别幻化调料包，角色COSPLAY，相似风格外观检索，完整项目需要**6-10G**，请确保磁盘空间充足
 
-适合清晰的单人、正面或近正面截图。遮挡、特效和拍摄角度会影响结果，请结合候选图片人工确认。
+需求输入：任意风格清晰单人、正面或近正面全身图片。遮挡、特效和拍摄角度会影响结果
+期望输出：按装备部位返回评分排序后的指定数量检索结果，同模装备去重。单次推理在本地生成网页形式报告x1，png长图报告x1
+
+原理简介：本项目主要构成为开源cv模型本体+训练后的权重以及索引文件+游戏装备样品图片（Eorzea collection），检索范围包含当前大部分游戏装备，后续新装备若想纳入可检索范围，需要更新权重以及索引，届时会发布增量更新release（也可能攒一波更新
 
 ## 下载
 
-适用于 **Windows x64**，无需预先安装 Python、Conda 或 Git。请下载以下两个文件：
+请下载release版本压缩包**FFXIV-Prism-v0.2.1-windows.zip**与图片资源压缩包**FFXIV-Prism-gallery.zip**，适用于 **Windows x64**，无需预先安装环境：
 
 | 文件 | 下载地址 | 用途 |
 | --- | --- | --- |
-| `FFXIV-Prism-v0.2.1-windows.zip` | [下载安装包](https://github.com/ffxiv-prism/ffxiv-prism/releases/latest) | 程序与安装入口 |
-| `FFXIV-Prism-gallery-20261009.zip` | [下载装备图库（Google Drive）](https://drive.google.com/drive/folders/1G5N7_xYPplvjrjVKcpQRvAbjZO-2SzcQ?usp=sharing) | 识别所需的装备图片与检索数据 |
+| `FFXIV-Prism-v0.2.1-windows.zip` | [下载安装包](https://github.com/ffxiv-prism/ffxiv-prism/releases/latest) | Release 版本程序与安装入口 |
+| `FFXIV-Prism-gallery-20261009.zip` | [下载装备图库（Google Drive）](https://drive.google.com/drive/folders/1G5N7_xYPplvjrjVKcpQRvAbjZO-2SzcQ?usp=sharing) | 识别报告所需的装备图片与检索数据 |
 
-GitHub 自动提供的 **Source code** 是源码，请选择上表中的 Windows 安装包。
 
 ## 开始使用
 
-1. 将 Windows 安装包**完整解压**到短英文路径，例如 `D:\FFXIV-Prism`。不要在压缩包内运行；安装路径最多 64 个字符。
-2. 把图库 ZIP **原样放入解压目录中的 `imports` 文件夹**，不要解压图库，该文件夹只放一个图库 ZIP。
-3. 双击 **安装环境.bat**。选择 **1：CPU** 即可使用全部识别功能；有兼容 NVIDIA 显卡的用户可以选择 **2：CPU + GPU**。首次安装需要联网，请等待安装和自检完成。依赖和模型的下载、安装提示为英文。
-4. 双击 **启动.bat**，在浏览器打开窗口显示的本地地址，上传截图并开始识别。运行期间保留命令行窗口；结束时在该窗口按 **Ctrl+C**。
+1. 将 Windows 压缩包**解压**到英文路径，安装路径最多 64 个字符。
+2. 把图库 ZIP **放入项目目录中的 `imports` 文件夹**，**无需**解压文件。
+3. 双击 **安装环境.bat**，安装依赖并下载cv模型。默认仅安装 CPU 环境即可使用全部识别功能；有兼容 NVIDIA 显卡的用户可以选择额外安装 GPU 环境（没快多少，多占空间）。首次安装需要联网下载，请等待安装和自检完成。
+4. 双击 **启动.bat**，自检后显示本地127地址，ctrl+左键或复制到浏览器即可打开web页面。
+5. 上传截图并开始识别。运行期间保留命令行窗口。
 
-安装完成后可离线识别。报告保存在 `user/reports`，可查看 HTML/JSON 报告；生成 PNG 报告需要电脑上已有 Edge 或 Chrome。
+安装完成后可离线识别。报告保存在项目根目录 `user/reports`，可查看 HTML/JSON/PNG 报告。
 
 ## 安装遇到问题
 
