@@ -1,11 +1,11 @@
 # FFXIV Prism
 
-本项目是一个基于图像识别的本地 FF14 装备外观检索工具，自带web界面，主要用途：识别幻化调料包，角色 COSPLAY，相似风格外观检索。完整项目需要 **6-10G**，请确保磁盘空间充足。
+本项目是一个基于图像识别的本地 FF14 装备外观检索工具，自带 web 界面，主要用途：识别幻化调料包，角色 COSPLAY，相似风格外观检索。完整项目需要 **6-10G**，请确保磁盘空间充足。
 
 需求输入：任意风格清晰单人、正面或近正面全身图片。遮挡、特效和拍摄角度会影响结果。
 期望输出：按装备部位返回评分排序后的指定数量检索结果，同模装备去重。单次推理在本地生成网页形式报告x1，png长图报告x1。
 
-原理简介：本项目主要构成为开源cv模型本体+训练后的权重以及索引文件+游戏装备样品图片，检索范围包含当前大部分游戏装备，后续新装备若想纳入可检索范围，需要更新权重以及索引，届时会发布增量更新 release（也可能攒一波更新
+原理简介：本项目主要构成为开源 cv 模型本体+训练后的权重以及索引文件+游戏装备样品图片，检索范围包含当前大部分游戏装备，后续新装备若想纳入可检索范围，需要更新权重以及索引，届时会发布增量更新 release（也可能攒一波更新
 
 ## 下载
 
@@ -13,9 +13,9 @@
 
 | 文件 | 下载地址 | 用途 |
 | --- | --- | --- |
-| `FFXIV-Prism-v0.2.1-windows.zip` | [下载安装包](https://github.com/ffxiv-prism/ffxiv-prism/releases/download/v0.2.1/FFXIV-Prism-v0.2.1-windows.zip) | Release 版本程序与安装入口 |
+| `FFXIV-Prism-v0.2.1-windows.zip` | [下载安装包]（Github release）(https://github.com/ffxiv-prism/ffxiv-prism/releases/download/v0.2.1/FFXIV-Prism-v0.2.1-windows.zip) | Release 版本程序与安装入口 |
 | `FFXIV-Prism-gallery-20261009.zip` | [下载装备图库（Google Drive）](https://drive.google.com/drive/folders/1G5N7_xYPplvjrjVKcpQRvAbjZO-2SzcQ?usp=sharing) | 识别报告所需的装备图片与检索数据 |
-| | [下载装备图库（Baidu 网盘）](https://pan.baidu.com/s/1qCPLl6pJhXBDCZj4bi6rOA?pwd=jnu4) | 同上，提取码jnu4 |
+| | [下载装备图库（Baidu 网盘）](https://pan.baidu.com/s/1qCPLl6pJhXBDCZj4bi6rOA?pwd=jnu4) | 同上，择一即可，提取码jnu4 |
 
 图库zip的sha为：433eb67ff0a00b60b3690598d038f449e704eb92257f8af74ba15ba844f6e33c
 
