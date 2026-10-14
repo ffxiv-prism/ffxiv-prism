@@ -13,7 +13,7 @@
 
 | 文件 | 下载地址 | 用途 |
 | --- | --- | --- |
-| `FFXIV-Prism-v0.2.1-windows.zip` | [下载安装包](https://github.com/ffxiv-prism/ffxiv-prism/releases/latest) | Release 版本程序与安装入口 |
+| `FFXIV-Prism-v0.2.1-windows.zip` | [下载安装包](https://github.com/ffxiv-prism/ffxiv-prism/releases/download/v0.2.1/FFXIV-Prism-v0.2.1-windows.zip) | Release 版本程序与安装入口 |
 | `FFXIV-Prism-gallery-20261009.zip` | [下载装备图库（Google Drive）](https://drive.google.com/drive/folders/1G5N7_xYPplvjrjVKcpQRvAbjZO-2SzcQ?usp=sharing) | 识别报告所需的装备图片与检索数据 |
 | | [下载装备图库（Baidu 网盘）](https://pan.baidu.com/s/1qCPLl6pJhXBDCZj4bi6rOA?pwd=jnu4) | 同上，提取码jnu4 |
 
